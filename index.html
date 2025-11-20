@@ -1,0 +1,1012 @@
+<!DOCTYPE html>
+<html lang="uz">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <link rel="icon" href="https://cdn-icons-png.flaticon.com/512/433/433424.png" type="faw-icon">
+    <title>Mey Cach</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+
+    <style>
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar {
+            width: 4px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: #1e293b;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: #475569;
+            border-radius: 12px;
+        }
+
+        body {
+            background-color: #0f172a;
+            font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        /* Animatsiyalar */
+        .fade-in {
+            animation: fadeIn 0.3s ease-out;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .slide-up {
+            animation: slideUp 0.3s ease-out;
+        }
+
+        @keyframes slideUp {
+            from {
+                transform: translateY(100%);
+            }
+
+            to {
+                transform: translateY(0);
+            }
+        }
+
+        /* Filter Active/Inactive States */
+        .filter-inactive {
+            opacity: 0.3;
+            transform: scale(0.95);
+            filter: grayscale(0.5);
+        }
+
+        .filter-active {
+            opacity: 1;
+            transform: scale(1.02);
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.3);
+            border-color: rgba(255, 255, 255, 0.2);
+        }
+
+        .date-filter-active {
+            background-color: #2374f8 !important;
+            color: #ffffff !important;
+            border-color: #2374f8 !important;
+        }
+    </style>
+</head>
+
+<body
+    class="text-slate-100 h-screen flex flex-col overflow-hidden max-w-md mx-auto border-x border-slate-800 shadow-2xl">
+
+    <header
+        class="bg-slate-800/90 backdrop-blur-md border-b border-slate-700 p-4 flex items-center justify-between z-20 sticky top-0">
+        <div class="flex items-center gap-3">
+            <div class="relative">
+                <img id="user-avatar" src="https://ui-avatars.com/api/?name=J&background=3b82f6&color=fff" alt="Profile"
+                    class="w-10 h-10 rounded-full border-2 border-blue-500 object-cover">
+                <div class="absolute bottom-0 right-0 w-3 h-3 bg-green-500 border-2 border-slate-800 rounded-full">
+                </div>
+            </div>
+            <div>
+                <div class="text-xs text-slate-400">Assalomu alaykum!</div>
+                <div class="font-bold text-white leading-tight">Xush kelibsiz, Jigar 👋</div>
+            </div>
+        </div>
+        <button onclick="openHelp('general')"
+            class="p-2 text-slate-400 hover:text-white bg-slate-700 rounded-full transition-colors">
+            <i data-lucide="help-circle" class="w-5 h-5"></i>
+        </button>
+    </header>
+
+    <main id="main-container" class="flex-1 overflow-y-auto relative bg-slate-900 scroll-smooth pb-24">
+
+        <div id="view-dashboard" class="p-4 space-y-6 fade-in">
+            <div
+                class="bg-gradient-to-br from-slate-800 to-slate-900 p-6 rounded-2xl shadow-lg border border-slate-700 relative overflow-hidden">
+                <div class="absolute -top-4 -right-4 opacity-10 transform rotate-12">
+                    <i data-lucide="wallet" class="w-32 h-32 text-white"></i>
+                </div>
+
+                <div class="flex justify-between items-start mb-2">
+                    <h2 class="text-slate-400 text-sm font-medium">Umumiy Balans</h2>
+                    <button onclick="openHelp('dashboard')"
+                        class="text-slate-400 z-10 hover:text-blue-400 cursor-pointer"><i data-lucide="help-circle"
+                            class="w-4 h-4"></i></button>
+                </div>
+                <div id="total-balance" class="text-3xl font-bold text-white mb-5 font-mono tracking-tight">0 so'm</div>
+
+                <div class="grid grid-cols-2 gap-4">
+                    <div id="card-income" onclick="toggleTypeFilter('income')"
+                        class="bg-emerald-500/10 p-3 rounded-xl border border-emerald-500/20 flex items-center gap-3 cursor-pointer transition-all duration-300 hover:bg-emerald-500/20">
+                        <div class="p-2 bg-emerald-500 rounded-full text-white shrink-0">
+                            <i data-lucide="arrow-down-left" class="w-4 h-4"></i>
+                        </div>
+                        <div class="overflow-hidden">
+                            <div class="text-xs text-slate-400 truncate">Kirim</div>
+                            <div id="total-income" class="font-semibold text-emerald-400 text-sm truncate">0</div>
+                        </div>
+                    </div>
+
+                    <div id="card-expense" onclick="toggleTypeFilter('expense')"
+                        class="bg-rose-500/10 p-3 rounded-xl border border-rose-500/20 flex items-center gap-3 cursor-pointer transition-all duration-300 hover:bg-rose-500/20">
+                        <div class="p-2 bg-rose-500 rounded-full text-white shrink-0">
+                            <i data-lucide="arrow-up-right" class="w-4 h-4"></i>
+                        </div>
+                        <div class="overflow-hidden">
+                            <div class="text-xs text-slate-400 truncate">Chiqim</div>
+                            <div id="total-expense" class="font-semibold text-rose-400 text-sm truncate">0</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="flex space-x-2 overflow-x-auto pb-1">
+                <button data-filter="all" onclick="setDateFilter('all')"
+                    class="date-filter-btn bg-slate-700 text-slate-300 text-xs px-3 py-1.5 rounded-full border border-slate-600 transition-colors shrink-0 date-filter-active">Barchasi</button>
+                <button data-filter="week" onclick="setDateFilter('week')"
+                    class="date-filter-btn bg-slate-700 text-slate-300 text-xs px-3 py-1.5 rounded-full border border-slate-600 transition-colors shrink-0">Hafta</button>
+                <button data-filter="month" onclick="setDateFilter('month')"
+                    class="date-filter-btn bg-slate-700 text-slate-300 text-xs px-3 py-1.5 rounded-full border border-slate-600 transition-colors shrink-0">Oy</button>
+                <button data-filter="year" onclick="setDateFilter('year')"
+                    class="date-filter-btn bg-slate-700 text-slate-300 text-xs px-3 py-1.5 rounded-full border border-slate-600 transition-colors shrink-0">Yil</button>
+                <button onclick="openDateRangeModal()"
+                    class="bg-slate-700 text-slate-300 text-xs px-3 py-1.5 rounded-full border border-slate-600 transition-colors flex items-center gap-1 shrink-0">
+                    <i data-lucide="calendar" class="w-4 h-4"></i> Maxsus
+                </button>
+            </div>
+            
+            <div class="bg-slate-800 p-4 rounded-2xl border border-slate-700 shadow-lg transition-all duration-300">
+                <h3 class="text-slate-200 font-semibold mb-4 flex items-center gap-2">
+                    <i data-lucide="list-ordered" class="w-5 h-5 text-yellow-400"></i>
+                    <span id="table-title">Top 5 Xarajatlar</span>
+                </h3>
+                <div id="top-list-container" class="space-y-2">
+                    <p id="no-top-data-msg" class="text-slate-500 text-sm text-center py-4 hidden">Top xarajatlar ro'yxati shu yerda ko'rinadi
+                    </p>
+                    <table class="w-full text-left text-sm">
+                        <thead class="text-xs text-slate-400 uppercase border-b border-slate-700">
+                            <tr>
+                                <th scope="col" class="py-2">Chiqim</th>
+                                <th scope="col" class="py-2 text-right">Summa</th>
+                            </tr>
+                        </thead>
+                        <tbody id="top-transaction-list" class="divide-y divide-slate-700">
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="bg-slate-800 p-4 rounded-2xl border border-slate-700 shadow-lg transition-all duration-300">
+                <h3 class="text-slate-200 font-semibold mb-4 flex items-center gap-2">
+                    <i data-lucide="trending-up" class="w-5 h-5 text-emerald-400"></i>
+                    Balans Dinamikasi
+                </h3>
+                <div class="h-48 flex items-center justify-center relative">
+                    <canvas id="balanceChart"></canvas>
+                    <div id="no-balance-data-msg" class="absolute text-slate-500 text-sm hidden">Filtrlangan davrda
+                        ma'lumot yo'q</div>
+                </div>
+            </div>
+
+            <div class="bg-slate-800 p-4 rounded-2xl border border-slate-700 shadow-lg transition-all duration-300"
+                id="chart-container">
+                <h3 class="text-slate-200 font-semibold mb-4 flex items-center gap-2 transition-colors">
+                    <i data-lucide="pie-chart" class="w-5 h-5 text-blue-400"></i>
+                    <span id="chart-title">Xarajatlar Analitikasi</span>
+                </h3>
+                <div class="h-48 flex items-center justify-center relative">
+                    <canvas id="categoryChart"></canvas>
+                    <div id="no-data-msg" class="absolute text-slate-500 text-sm hidden">Hozircha ma'lumot yo'q</div>
+                </div>
+            </div>
+
+        </div>
+
+        <div id="view-bot" class="flex flex-col h-full hidden fade-in">
+            <div
+                class="bg-slate-800/50 p-2 text-center text-xs text-slate-400 border-b border-slate-700 flex justify-between px-4 items-center">
+                <span>Bot Simulyatori</span>
+                <button onclick="openHelp('bot')" class="hover:text-blue-400"><i data-lucide="help-circle"
+                        class="w-4 h-4"></i></button>
+            </div>
+            <div id="chat-messages" class="flex-1 overflow-y-auto p-3 space-y-3">
+            </div>
+            <div class="p-3 bg-slate-800 border-t border-slate-700 pb-3">
+                <div class="flex gap-2">
+                    <input type="text" id="bot-input" placeholder="kirim/chiqim..."
+                        class="flex-1 bg-slate-700 text-white rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-500 placeholder-slate-500 text-sm">
+                    <button onclick="sendMessage()"
+                        class="bg-blue-600 text-white p-4 rounded-xl hover:bg-blue-500 active:scale-95 transition-transform">
+                        <i data-lucide="send" class="w-5 h-5"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <div id="view-history" class="p-4 space-y-4 hidden fade-in">
+            <div class="flex justify-between items-center mb-2">
+                <h2 class="text-xl font-bold text-white flex items-center gap-2">
+                    <i data-lucide="history" class="text-blue-500 w-6 h-6"></i>
+                    Tarix
+                </h2>
+                <button onclick="openHelp('history')" class="text-slate-500 hover:text-white"><i
+                        data-lucide="help-circle" class="w-5 h-5"></i></button>
+            </div>
+
+            <div id="history-list" class="space-y-3 pb-20">
+            </div>
+
+            <div id="empty-history" class="hidden flex flex-col items-center justify-center py-10 text-slate-500">
+                <i data-lucide="clipboard-list" class="w-12 h-12 mb-2 opacity-50"></i>
+                <p>Hozircha ma'lumot yo'q</p>
+            </div>
+        </div>
+
+    </main>
+
+    <nav
+        class="fixed bottom-0 left-0 right-0 bg-slate-800 border-t border-slate-700 flex justify-around py-3 px-2 z-30 max-w-md mx-auto shadow-2xl">
+        <button onclick="switchTab('dashboard')" id="nav-dashboard"
+            class="flex flex-col items-center gap-1 w-16 text-blue-500 transition-all">
+            <i data-lucide="layout-dashboard" class="w-6 h-6"></i>
+            <span class="text-[10px] font-medium">Asosiy</span>
+        </button>
+
+        <button onclick="switchTab('bot')" id="nav-bot"
+            class="relative -top-6 flex flex-col items-center justify-center w-14 h-14 rounded-full bg-slate-700 text-slate-400 shadow-lg shadow-black/30 transition-all border-4 border-slate-900">
+            <i data-lucide="message-square" class="w-6 h-6"></i>
+        </button>
+
+        <button onclick="switchTab('history')" id="nav-history"
+            class="flex flex-col items-center gap-1 w-16 text-slate-500 hover:text-slate-300 transition-all">
+            <i data-lucide="history" class="w-6 h-6"></i>
+            <span class="text-[10px] font-medium">Tarix</span>
+        </button>
+    </nav>
+
+    <div id="date-range-modal"
+        class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+        <div class="bg-slate-800 rounded-2xl p-6 w-full max-w-sm border border-slate-700 shadow-2xl slide-up">
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="text-lg font-bold text-white">Maxsus Sana Tanlash</h3>
+                <button onclick="closeModal('date-range-modal')" class="text-slate-400 hover:text-white"><i
+                        data-lucide="x" class="w-6 h-6"></i></button>
+            </div>
+            <div class="space-y-4">
+                <div>
+                    <label for="start-date" class="text-xs text-slate-400 ml-1 block mb-1">Boshlanish Sanasi</label>
+                    <input type="date" id="start-date"
+                        class="w-full bg-slate-700 rounded-xl p-3 text-white outline-none border border-slate-600 focus:border-blue-500">
+                </div>
+                <div>
+                    <label for="end-date" class="text-xs text-slate-400 ml-1 block mb-1">Tugash Sanasi</label>
+                    <input type="date" id="end-date"
+                        class="w-full bg-slate-700 rounded-xl p-3 text-white outline-none border border-slate-600 focus:border-blue-500">
+                </div>
+            </div>
+            <button onclick="applyDateRange()"
+                class="mt-6 w-full bg-blue-600 py-2.5 rounded-xl text-white font-medium hover:bg-blue-700">Qo'llash</button>
+        </div>
+    </div>
+
+    <div id="help-modal"
+        class="fixed inset-0 bg-black/20 backdrop-blur-[5px] z-50 hidden flex items-center justify-center p-4">
+        <div class="bg-slate-800 rounded-2xl p-6 w-full max-w-sm border border-slate-700 shadow-2xl slide-up">
+            <div class="flex justify-between items-center mb-4">
+                <h3 id="help-title" class="text-lg font-bold text-white">Qo'llanma</h3>
+                <button onclick="closeModal('help-modal')" class="text-slate-400 hover:text-white"><i data-lucide="x"
+                        class="w-6 h-6"></i></button>
+            </div>
+            <div id="help-content" class="text-slate-300 text-sm leading-relaxed space-y-2"></div>
+            <button onclick="closeModal('help-modal')"
+                class="mt-6 w-full bg-blue-600 py-2.5 rounded-xl text-white font-medium hover:bg-blue-700">Tushundim</button>
+        </div>
+    </div>
+
+    <div id="action-sheet"
+        class="fixed inset-0 bg-black/20 backdrop-blur-[5px] z-40 hidden flex items-end justify-center sm:items-center"
+        onclick="closeActionSheet(event)">
+        <div class="bg-slate-800 w-[300px] max-w-md rounded-t-2xl sm:rounded-2xl p-4 border-t border-slate-700 slide-up"
+            onclick="event.stopPropagation()">
+            <div class="w-12 h-1.5 bg-slate-600 rounded-full mx-auto mb-4"></div>
+            <h3 class="text-center text-slate-400 mb-4 text-sm">Amallar</h3>
+            <div class="space-y-2">
+                <button onclick="handleEdit()"
+                    class="w-full flex items-center gap-3 p-3 bg-slate-700/50 rounded-xl hover:bg-slate-700 text-blue-400">
+                    <i data-lucide="edit-3" class="w-5 h-5"></i> Tahrirlash
+                </button>
+                <button onclick="handleDeleteConfirm()"
+                    class="w-full flex items-center gap-3 p-3 bg-slate-700/50 rounded-xl hover:bg-slate-700 text-rose-400">
+                    <i data-lucide="trash-2" class="w-5 h-5"></i> O'chirish
+                </button>
+            </div>
+            <button onclick="closeActionSheet(null)" class="mt-4 w-full py-3 text-slate-400 font-medium">Bekor
+                qilish</button>
+        </div>
+    </div>
+
+    <div id="edit-modal"
+        class="fixed inset-0 bg-black/20 backdrop-blur-[5px] z-50 hidden flex items-center justify-center p-4">
+        <div class="bg-slate-800 rounded-2xl p-5 w-full max-w-sm border border-slate-700 shadow-2xl">
+            <h3 class="text-lg font-bold text-white mb-4">Tahrirlash</h3>
+            <div class="space-y-3">
+                <div>
+                    <label class="text-xs text-slate-400 ml-1">Kategoriya nomi</label>
+                    <input type="text" id="edit-category"
+                        class="w-full bg-slate-700 rounded-xl p-3 text-white outline-none border border-slate-600 focus:border-blue-500">
+                </div>
+                <div>
+                    <label class="text-xs text-slate-400 ml-1">Summa</label>
+                    <input type="number" id="edit-amount"
+                        class="w-full bg-slate-700 rounded-xl p-3 text-white outline-none border border-slate-600 focus:border-blue-500">
+                </div>
+                <div>
+                    <label class="text-xs text-slate-400 ml-1">Turi</label>
+                    <select id="edit-type"
+                        class="w-full bg-slate-700 rounded-xl p-3 text-white outline-none border border-slate-600 focus:border-blue-500">
+                        <option value="income">Kirim (+)</option>
+                        <option value="expense">Chiqim (-)</option>
+                    </select>
+                </div>
+            </div>
+            <div class="flex gap-3 mt-6">
+                <button onclick="closeModal('edit-modal')"
+                    class="flex-1 py-2.5 bg-slate-700 rounded-xl text-slate-300">Bekor qilish</button>
+                <button onclick="saveEdit()" class="flex-1 py-2.5 bg-blue-600 rounded-xl text-white">Saqlash</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="delete-modal"
+        class="fixed inset-0 bg-black/20 backdrop-blur-[5px] z-50 hidden flex items-center justify-center p-4">
+        <div
+            class="bg-slate-800 rounded-2xl p-6 w-full max-w-xs border border-slate-700 text-center scale-95 transition-transform">
+            <div class="w-12 h-12 bg-rose-500/20 rounded-full flex items-center justify-center mx-auto mb-4">
+                <i data-lucide="alert-triangle" class="w-6 h-6 text-rose-500"></i>
+            </div>
+            <h3 class="text-lg font-bold text-white mb-2">O'chirmoqchimisiz?</h3>
+            <p class="text-slate-400 text-sm mb-6">Bu amalni ortga qaytarib bo'lmaydi. Rostdan ham o'chirilsinmi?</p>
+            <div class="flex gap-3">
+                <button onclick="closeModal('delete-modal')"
+                    class="flex-1 py-2 rounded-xl bg-slate-700 text-slate-300">Yo'q</button>
+                <button onclick="confirmDelete()"
+                    class="flex-1 py-2 rounded-xl bg-rose-600 text-white hover:bg-rose-700">Ha, o'chirish</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- STATE MANAGEMENT ---
+        let transactions = JSON.parse(localStorage.getItem('transactions')) || [];
+        let selectedTransactionId = null;
+
+        let categoryChartInstance = null; // Eski 'expenseChart'
+        let balanceChartInstance = null; // Yangi 'balanceChart'
+
+        let activeTypeFilter = 'all'; // 'all', 'income', 'expense' - Kirim/Chiqim kartalari
+        let activeDateFilter = 'all'; // 'all', 'week', 'month', 'year', 'custom' - Yangi sana filtri
+
+        // --- UTILS ---
+        const formatNumber = (num) => {
+            // Raqamni bo'sh joy bilan formatlash
+            return num.toString().replace(/\B(?=(\d{3})+(?!\d))/g, " ");
+        };
+        const getStartOfDay = (timestamp) => new Date(new Date(timestamp).setHours(0, 0, 0, 0)).getTime();
+        const saveToStorage = () => {
+            localStorage.setItem('transactions', JSON.stringify(transactions));
+            updateUI();
+        };
+
+        // --- FILTER HELPERS ---
+        function getDateRange() {
+            const now = new Date();
+            let startDate = 0; // Default: Barcha davr
+            let endDate = now.getTime();
+
+            if (activeDateFilter === 'week') {
+                startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 7).getTime();
+            } else if (activeDateFilter === 'month') {
+                startDate = new Date(now.getFullYear(), now.getMonth() - 1, now.getDate()).getTime();
+            } else if (activeDateFilter === 'year') {
+                startDate = new Date(now.getFullYear() - 1, now.getMonth(), now.getDate()).getTime();
+            } else if (activeDateFilter === 'custom') {
+                const start = document.getElementById('start-date').value;
+                const end = document.getElementById('end-date').value;
+                if (start) startDate = getStartOfDay(new Date(start).getTime());
+                // Tugash sanasi uchun kunning oxirini olamiz
+                if (end) endDate = getStartOfDay(new Date(end).getTime()) + (24 * 60 * 60 * 1000) - 1;
+            }
+            return { startDate, endDate };
+        }
+
+        // --- APP LOGIC ---
+        document.addEventListener('DOMContentLoaded', () => {
+            lucide.createIcons();
+            switchTab('dashboard'); // Analitika bo'limini default qilib qoyamiz
+            updateUI(); // Analitika diagrammalari doim ishlashi uchun
+
+            const chatContainer = document.getElementById('chat-messages');
+            if (chatContainer && chatContainer.children.length === 0) {
+                addMessage("bot", "Assalomu alaykum! \nBuyruqlar:\n'kirim Alisher qarz berdi 4 000 000'\n'rasxod ovqatga 50 000'\n Qolgan ishni botni o'zi hisoblaydi.");
+            }
+        });
+
+        // --- ANALITIKA FILTRLARI ---
+
+        // Kirim/Chiqim filtrini o'zgartirish
+        function toggleTypeFilter(type) {
+            if (activeTypeFilter === type) {
+                activeTypeFilter = 'all'; // Tozalash
+            } else {
+                activeTypeFilter = type;
+            }
+            updateUI();
+        }
+
+        // Sana filtrini o'zgartirish
+        function setDateFilter(filter) {
+            activeDateFilter = filter;
+
+            // UI stilini yangilash
+            document.querySelectorAll('.date-filter-btn').forEach(btn => {
+                btn.classList.remove('date-filter-active');
+            });
+            const activeBtn = document.querySelector(`.date-filter-btn[data-filter="${filter}"]`);
+            if (activeBtn) {
+                activeBtn.classList.add('date-filter-active');
+            }
+
+            updateUI();
+        }
+
+        function openDateRangeModal() {
+            // "Barchasi" filtrini o'chiramiz
+            document.querySelector('.date-filter-btn[data-filter="all"]').classList.remove('date-filter-active');
+            activeDateFilter = 'custom';
+            document.getElementById('date-range-modal').classList.remove('hidden');
+        }
+
+        function applyDateRange() {
+            const start = document.getElementById('start-date').value;
+            const end = document.getElementById('end-date').value;
+
+            if (start && end) {
+                // Filtr 'custom' bo'lib qoladi va updateUI uni ishlatadi
+                updateUI();
+                closeModal('date-range-modal');
+            } else {
+                alert("Iltimos, boshlanish va tugash sanalarini kiriting!");
+            }
+        }
+
+        // Filter Stillari
+        function updateFilterStyles() {
+            const incCard = document.getElementById('card-income');
+            const expCard = document.getElementById('card-expense');
+
+            incCard.classList.remove('filter-active', 'filter-inactive');
+            expCard.classList.remove('filter-active', 'filter-inactive');
+
+            if (activeTypeFilter === 'all') return;
+
+            if (activeTypeFilter === 'income') {
+                incCard.classList.add('filter-active');
+                expCard.classList.add('filter-inactive');
+            } else if (activeTypeFilter === 'expense') {
+                expCard.classList.add('filter-active');
+                incCard.classList.add('filter-inactive');
+            }
+        }
+
+        // Tab Switching (O'zgarishsiz qoladi)
+        function switchTab(tab) {
+            document.getElementById('view-dashboard').classList.add('hidden');
+            document.getElementById('view-bot').classList.add('hidden');
+            document.getElementById('view-history').classList.add('hidden');
+
+            document.getElementById('nav-dashboard').className = "flex flex-col items-center gap-1 w-16 text-slate-500 transition-all";
+            document.getElementById('nav-history').className = "flex flex-col items-center gap-1 w-16 text-slate-500 transition-all";
+            document.getElementById('nav-bot').className = "relative -top-6 flex flex-col items-center justify-center w-14 h-14 rounded-full bg-slate-700 text-slate-400 shadow-lg shadow-black/30 transition-all border-4 border-slate-900";
+
+            document.getElementById(`view-${tab}`).classList.remove('hidden');
+
+            if (tab === 'dashboard') {
+                document.getElementById('nav-dashboard').className = "flex flex-col items-center gap-1 w-16 text-blue-500 scale-110 transition-all";
+                updateUI();
+            } else if (tab === 'history') {
+                document.getElementById('nav-history').className = "flex flex-col items-center gap-1 w-16 text-blue-500 scale-110 transition-all";
+            } else if (tab === 'bot') {
+                document.getElementById('nav-bot').className = "relative -top-6 flex flex-col items-center justify-center w-14 h-14 rounded-full bg-blue-600 text-white shadow-lg shadow-blue-600/40 scale-110 transition-all border-4 border-slate-900";
+            }
+
+            setTimeout(() => { lucide.createIcons(); }, 10);
+        }
+
+        // --- UI Update Central Function ---
+        function updateUI() {
+            const { startDate, endDate } = getDateRange();
+
+            // Filtrlangan ma'lumotlar
+            const filteredTransactions = transactions.filter(t => {
+                // Sana bo'yicha filtrlash
+                return t.date >= startDate && t.date <= endDate;
+            });
+
+            // Tip bo'yicha filtrlashni hisob-kitoblar uchun ham qo'llash
+            const incomeTransactions = filteredTransactions.filter(t => t.type === 'income');
+            const expenseTransactions = filteredTransactions.filter(t => t.type === 'expense');
+
+            const totalIncome = incomeTransactions.reduce((a, c) => a + c.amount, 0);
+            const totalExpense = expenseTransactions.reduce((a, c) => a + c.amount, 0);
+            const balance = totalIncome - totalExpense;
+
+            // Balans kartasini yangilash (Filtr natijasi asosida)
+            document.getElementById('total-balance').innerText = `${formatNumber(balance)} so'm`;
+            document.getElementById('total-income').innerText = `+${formatNumber(totalIncome)}`;
+            document.getElementById('total-expense').innerText = `-${formatNumber(totalExpense)}`;
+
+            updateFilterStyles();
+            renderCategoryChart(filteredTransactions);
+            renderBalanceChart(filteredTransactions);
+            renderTopList(filteredTransactions);
+            renderHistory();
+        }
+
+        // --- ANALITIKA RENDER FUNKSIYALARI ---
+
+        // 1. Kategoriyalar Diagrammasi (Doughnut Chart)
+        function renderCategoryChart(data) {
+            const ctx = document.getElementById('categoryChart').getContext('2d');
+            const titleEl = document.getElementById('chart-title');
+
+            let chartData = [];
+            let chartLabel = "";
+            let colors = [];
+
+            // Filter bo'yicha ma'lumotlarni tayyorlash
+            if (activeTypeFilter === 'income') {
+                chartData = data.filter(t => t.type === 'income');
+                chartLabel = "Kirimlar Analitikasi";
+                colors = ['#10b981', '#34d399', '#6ee7b7', '#059669', '#047857', '#99f6e4', '#a7f3d0'];
+            } else if (activeTypeFilter === 'expense') {
+                chartData = data.filter(t => t.type === 'expense');
+                chartLabel = "Xarajatlar Analitikasi";
+                colors = ['#ef4444', '#f59e0b', '#3b82f6', '#8b5cf6', '#ec4899', '#eab308', '#f43f5e'];
+            } else {
+                // 'all' yoki default holat (Xarajatlarni ko'rsatamiz)
+                chartData = data.filter(t => t.type === 'expense');
+                chartLabel = "Xarajatlar Analitikasi";
+                colors = ['#ef4444', '#f59e0b', '#3b82f6', '#8b5cf6', '#ec4899', '#eab308', '#f43f5e'];
+            }
+
+            titleEl.innerText = chartLabel;
+
+            if (chartData.length === 0) {
+                document.getElementById('no-data-msg').classList.remove('hidden');
+                if (categoryChartInstance) categoryChartInstance.destroy();
+                return;
+            }
+            document.getElementById('no-data-msg').classList.add('hidden');
+
+            const categories = {};
+            chartData.forEach(t => {
+                categories[t.category] = (categories[t.category] || 0) + t.amount;
+            });
+
+            const labels = Object.keys(categories);
+            const values = Object.values(categories);
+
+            if (categoryChartInstance) {
+                categoryChartInstance.destroy();
+            }
+
+            categoryChartInstance = new Chart(ctx, {
+                type: 'doughnut',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        data: values,
+                        backgroundColor: colors,
+                        borderWidth: 0,
+                        hoverOffset: 8
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            callbacks: {
+                                label: (context) => {
+                                    const value = formatNumber(context.parsed);
+                                    return `${context.label}: ${value} so'm`;
+                                }
+                            }
+                        }
+                    },
+                    cutout: '70%'
+                }
+            });
+        }
+
+        // 2. Balans Dinamikasi Diagrammasi (Line Chart)
+        function renderBalanceChart(data) {
+            const ctx = document.getElementById('balanceChart').getContext('2d');
+
+            // Ma'lumotlarni kun bo'yicha guruhlash va saralash
+            const dailyData = {};
+            data.forEach(t => {
+                const dateKey = new Date(t.date).toLocaleDateString('en-CA'); // 'YYYY-MM-DD'
+                dailyData[dateKey] = dailyData[dateKey] || { income: 0, expense: 0 };
+
+                if (t.type === 'income') {
+                    dailyData[dateKey].income += t.amount;
+                } else {
+                    dailyData[dateKey].expense += t.amount;
+                }
+            });
+
+            const sortedDates = Object.keys(dailyData).sort();
+
+            if (sortedDates.length === 0) {
+                document.getElementById('no-balance-data-msg').classList.remove('hidden');
+                if (balanceChartInstance) balanceChartInstance.destroy();
+                return;
+            }
+            document.getElementById('no-balance-data-msg').classList.add('hidden');
+
+            // Balansni hisoblash: Filtr boshlangunga qadar bo'lgan balansni topish
+            let runningBalance = transactions
+                .filter(t => t.date < getStartOfDay(new Date(sortedDates[0])))
+                .reduce((acc, t) => t.type === 'income' ? acc + t.amount : acc - t.amount, 0);
+
+            const balanceHistory = sortedDates.map(date => {
+                const day = dailyData[date];
+                runningBalance += day.income - day.expense;
+                return runningBalance;
+            });
+
+            if (balanceChartInstance) {
+                balanceChartInstance.destroy();
+            }
+
+            balanceChartInstance = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: sortedDates.map(d => new Date(d).toLocaleDateString('uz-UZ', { day: 'numeric', month: 'short' })),
+                    datasets: [{
+                        label: 'Balans',
+                        data: balanceHistory,
+                        borderColor: '#3b82f6', // Blue-500
+                        backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                        fill: true,
+                        tension: 0.4,
+                        pointRadius: 3,
+                        pointHoverRadius: 5
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        x: {
+                            grid: { color: 'rgba(255,255,255,0.05)' },
+                            ticks: { color: '#94a3b8' }
+                        },
+                        y: {
+                            grid: { color: 'rgba(255,255,255,0.05)' },
+                            ticks: {
+                                color: '#94a3b8',
+                                callback: (value) => formatNumber(value) // Raqam formatlash
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        // 3. Top 5 Jadvali (Kategoriyalar bo'yicha eng katta 5 ta xarajatni ko'rsatadi)
+        function renderTopList(data) {
+            const tableBody = document.getElementById('top-transaction-list');
+            const titleEl = document.getElementById('table-title');
+            const noDataMsg = document.getElementById('no-top-data-msg');
+
+            tableBody.innerHTML = '';
+
+            let targetData = [];
+            let isIncomeList = false;
+
+            if (activeTypeFilter === 'income') {
+                targetData = data.filter(t => t.type === 'income');
+                titleEl.innerText = "Top 5 Kirimlar";
+                isIncomeList = true;
+            } else if (activeTypeFilter === 'expense') {
+                targetData = data.filter(t => t.type === 'expense');
+                titleEl.innerText = "Top 5 Xarajatlar";
+            } else {
+                // Default: Eng katta xarajatlar
+                targetData = data.filter(t => t.type === 'expense');
+                titleEl.innerText = "Top 5 Xarajatlar";
+            }
+
+            if (targetData.length === 0) {
+                noDataMsg.classList.remove('hidden');
+                return;
+            }
+            noDataMsg.classList.add('hidden');
+
+            // Kategoriyalarni guruhlash
+            const aggregated = targetData.reduce((acc, t) => {
+                acc[t.category] = (acc[t.category] || 0) + t.amount;
+                return acc;
+            }, {});
+
+            // Top 5 ni olish (Eng katta summa bo'yicha saralash)
+            const topCategories = Object.entries(aggregated)
+                .sort(([, a], [, b]) => b - a)
+                .slice(0, 5);
+
+            topCategories.forEach(([category, amount]) => {
+                const row = `
+                    <tr class="text-slate-300">
+                        <td class="py-2 capitalize">${category}</td>
+                        <td class="py-2 text-right font-semibold ${isIncomeList ? 'text-emerald-400' : 'text-rose-400'}">
+                            ${formatNumber(amount)} so'm
+                        </td>
+                    </tr>
+                `;
+                tableBody.innerHTML += row;
+            });
+        }
+
+
+        // --- BOT LOGIC (Izohlarni tahlil qilish optimallashtirildi) ---
+        const botInput = document.getElementById('bot-input');
+
+        botInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') sendMessage();
+        });
+
+        function sendMessage() {
+            const text = botInput.value.trim();
+            if (!text) return;
+
+            addMessage('user', text);
+            botInput.value = '';
+
+            setTimeout(() => processBotCommand(text), 600);
+        }
+
+        function addMessage(sender, text) {
+            const container = document.getElementById('chat-messages');
+            const div = document.createElement('div');
+            div.className = `flex ${sender === 'user' ? 'justify-end' : 'justify-start'} fade-in`;
+
+            div.innerHTML = `
+                <div class="max-w-[80%] p-3 rounded-2xl text-sm whitespace-pre-line ${sender === 'user'
+                    ? 'bg-blue-600 text-white rounded-tr-none'
+                    : 'bg-slate-700 text-slate-200 border border-slate-600 rounded-tl-none'
+                }">
+                    ${text}
+                </div>
+            `;
+            container.appendChild(div);
+            container.scrollTop = container.scrollHeight;
+        }
+
+        function processBotCommand(text) {
+            const lower = text.toLowerCase().trim();
+
+            // 1. Summani ajratish
+            const amountMatch = lower.match(/(\d[\d\s]*\d|\d+)/);
+            const amountStr = amountMatch ? amountMatch[0].replace(/\s/g, '') : '0';
+            const amount = parseInt(amountStr);
+
+            if (!amount) {
+                addMessage('bot', "🧐 Summani tushunmadim. Iltimos raqam ishlating.\nMasalan: 'kirim avans 1 000 000'");
+                return;
+            }
+
+            let type = '';
+            let category = '';
+
+            // Matndan raqamni va 'so'm', 'sum', 'som' kabi keraksiz so'zlarni olib tashlash
+            let description = lower
+                .replace(amountMatch[0], '')
+                .replace(/\sso['’]?m|\ssum|\ssom|\stg|\s$/, '')
+                .trim();
+
+            // KIRIM BUYRUG'I
+            const incomeKeywords = ['oylik', 'kirim', 'daromad', 'topdim', 'tushum', 'кирим', 'даромад', 'тушум', 'ойлик', 'топдим'];
+            if (incomeKeywords.some(keyword => lower.includes(keyword))) {
+                type = 'income';
+                let tempDesc = description;
+                // Kalit so'zlarni olib tashlash
+                incomeKeywords.forEach(word => {
+                    tempDesc = tempDesc.replace(new RegExp(`\\b${word}\\b`, 'g'), '').trim();
+                });
+
+                // Qolgan izohni kategoriya qilish (4-MASALA YECHIMI)
+                category = tempDesc.length > 0 ? tempDesc : 'Kirim';
+            }
+
+            // CHIQIM BUYRUG'I
+            const expenseKeywords = ['rasxod', 'xarajat', 'chiqim', 'oldim', 'ketdi', "расход", "харжат", "чиқим"];
+            if (expenseKeywords.some(keyword => lower.includes(keyword))) {
+                type = 'expense';
+                let tempDesc = description;
+                // Kalit so'zlarni olib tashlash
+                expenseKeywords.forEach(word => {
+                    tempDesc = tempDesc.replace(new RegExp(`\\b${word}\\b`, 'g'), '').trim();
+                });
+
+                // Qolgan izohni kategoriya qilish (3-MASALA YECHIMI)
+                category = tempDesc.length > 0 ? tempDesc : 'Chiqim';
+            }
+
+            // Agar tur aniqlanmasa
+            if (!type) {
+                addMessage('bot', "🤷‍♂️ Buyruqni tushunmadim. 'kirim' yoki 'rasxod' so'zlarini ishlating.");
+                return;
+            }
+
+            // Balansni tekshirish (Chiqim uchun)
+            if (type === 'expense') {
+                const currentBalance = transactions.reduce((acc, t) => t.type === 'income' ? acc + t.amount : acc - t.amount, 0);
+                if (currentBalance < amount) {
+                    addMessage('bot', `❌ Balans yetarli emas! Sizda: ${formatNumber(currentBalance)} so'm bor.`);
+                    return;
+                }
+            }
+
+            const newTransaction = {
+                id: Date.now(),
+                amount: amount,
+                type: type,
+                // Kategoriya faqat birinchi harfi katta bo'lishi
+                category: category.charAt(0).toUpperCase() + category.slice(1),
+                date: Date.now()
+            };
+
+            transactions.push(newTransaction);
+            saveToStorage();
+
+            const icon = type === 'income' ? '🤑' : '💸';
+            addMessage('bot', `${icon} Qabul qilindi: ${newTransaction.category} \nSumma: ${formatNumber(amount)} so'm`);
+        }
+
+        // ACTIONS & MODALS (O'zgarishsiz qoladi)
+        const helpData = {
+            general: "Bu ilova orqali moliyaviy holatingizni boshqaring. Bot bo'limida buyruqlar yozing, Tarix bo'limida tahrirlang.",
+            dashboard: "Asosiy sahifa. Balansingiz va analiz. 'Kirim' yoki 'Chiqim' kartalarini bosib diagrammani filtrlashingiz mumkin. Yuqorida esa sana filtrlarini ishlating.",
+            bot: "Botga yozing: \n1. 'kirim 5 000 000'\n2. 'rasxod bozorga 200 000'\n\nBot avtomatik hisoblaydi.",
+            history: "Barcha operatsiyalar ro'yxati. O'ng tomondagi 3 nuqtani bosib tahrirlang yoki o'chiring."
+        };
+
+        function openHelp(section) {
+            document.getElementById('help-title').innerText = section === 'general' ? "Umumiy Yordam" :
+                section === 'dashboard' ? "Dashboard Haqida" :
+                    section === 'bot' ? "Bot Buyruqlari" : "Tarix Bo'limi";
+
+            document.getElementById('help-content').innerText = helpData[section];
+            document.getElementById('help-modal').classList.remove('hidden');
+        }
+
+        function closeModal(id) {
+            document.getElementById(id).classList.add('hidden');
+        }
+
+        function openActionSheet(e, id) {
+            e.stopPropagation();
+            selectedTransactionId = id;
+            document.getElementById('action-sheet').classList.remove('hidden');
+        }
+
+        function closeActionSheet(e) {
+            if (e && !e.target.closest('#action-sheet > div') && e.target.id !== 'action-sheet') return;
+            document.getElementById('action-sheet').classList.add('hidden');
+        }
+
+        function handleDeleteConfirm() {
+            document.getElementById('action-sheet').classList.add('hidden');
+            document.getElementById('delete-modal').classList.remove('hidden');
+        }
+
+        function confirmDelete() {
+            transactions = transactions.filter(t => t.id !== selectedTransactionId);
+            saveToStorage();
+            closeModal('delete-modal');
+        }
+
+        function handleEdit() {
+            document.getElementById('action-sheet').classList.add('hidden');
+            const t = transactions.find(tr => tr.id === selectedTransactionId);
+            if (!t) return;
+
+            document.getElementById('edit-category').value = t.category;
+            document.getElementById('edit-amount').value = t.amount;
+            document.getElementById('edit-type').value = t.type;
+
+            document.getElementById('edit-modal').classList.remove('hidden');
+        }
+
+        function saveEdit() {
+            const cat = document.getElementById('edit-category').value;
+            const amount = parseInt(document.getElementById('edit-amount').value);
+            const type = document.getElementById('edit-type').value;
+
+            if (!cat || !amount) {
+                alert("Ma'lumotlarni to'liq kiriting");
+                return;
+            }
+
+            const index = transactions.findIndex(t => t.id === selectedTransactionId);
+            if (index !== -1) {
+                transactions[index].category = cat;
+                transactions[index].amount = amount;
+                transactions[index].type = type;
+                saveToStorage();
+            }
+            closeModal('edit-modal');
+        }
+
+        // Render History (Tarix bo'limini render qilish)
+        function renderHistory() {
+            const list = document.getElementById('history-list');
+            const emptyState = document.getElementById('empty-history');
+            list.innerHTML = '';
+
+            if (transactions.length === 0) {
+                emptyState.classList.remove('hidden');
+                return;
+            }
+            emptyState.classList.add('hidden');
+
+            const sorted = [...transactions].sort((a, b) => b.date - a.date);
+
+            sorted.forEach(t => {
+                const isIncome = t.type === 'income';
+                const date = new Date(t.date);
+                const timeStr = `${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
+                const dateStr = `${date.getDate()}.${date.getMonth() + 1}.${date.getFullYear()}`;
+
+                const item = document.createElement('div');
+                item.className = "bg-slate-800 p-3 rounded-xl border border-slate-700 flex items-center justify-between hover:bg-slate-750 transition-colors group";
+                item.innerHTML = `
+                    <div class="flex items-center gap-3">
+                        <div class="p-2 rounded-full ${isIncome ? 'bg-emerald-500/20 text-emerald-400' : 'bg-rose-500/20 text-rose-400'}">
+                            <i data-lucide="${isIncome ? 'arrow-down-left' : 'arrow-up-right'}" class="w-5 h-5"></i>
+                        </div>
+                        <div>
+                            <div class="text-white font-medium capitalize text-sm">${t.category}</div>
+                            <div class="text-xs text-slate-400">${timeStr} • ${dateStr}</div>
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-3">
+                        <div class="font-bold ${isIncome ? 'text-emerald-400' : 'text-rose-400'} text-sm">
+                            ${isIncome ? '+' : '-'}${formatNumber(t.amount)}
+                        </div>
+                        <button onclick="openActionSheet(event, ${t.id})" class="p-1 text-slate-500 hover:text-white hover:bg-slate-700 rounded">
+                            <i data-lucide="more-vertical" class="w-5 h-5"></i>
+                        </button>
+                    </div>
+                `;
+                list.appendChild(item);
+            });
+            lucide.createIcons();
+        }
+    </script>
+</body>
+
+</html>
