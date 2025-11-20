@@ -5,21 +5,19 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <link rel="icon" href="https://cdn-icons-png.flaticon.com/512/433/433424.png" type="faw-icon">
-    <title>Mey Cach</title>
+    <title>Mening Kassam</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
 
     <style>
-        /* Custom Scrollbar */
+        /* Asosiy Dark Mode stillari */
         ::-webkit-scrollbar {
             width: 4px;
         }
-
         ::-webkit-scrollbar-track {
             background: #1e293b;
         }
-
         ::-webkit-scrollbar-thumb {
             background: #475569;
             border-radius: 12px;
@@ -32,55 +30,84 @@
         }
 
         /* Animatsiyalar */
-        .fade-in {
-            animation: fadeIn 0.3s ease-out;
-        }
-
+        .fade-in { animation: fadeIn 0.3s ease-out; }
         @keyframes fadeIn {
-            from {
-                opacity: 0;
-                transform: translateY(10px);
-            }
-
-            to {
-                opacity: 1;
-                transform: translateY(0);
-            }
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
         }
-
-        .slide-up {
-            animation: slideUp 0.3s ease-out;
-        }
-
+        .slide-up { animation: slideUp 0.3s ease-out; }
         @keyframes slideUp {
-            from {
-                transform: translateY(100%);
-            }
-
-            to {
-                transform: translateY(0);
-            }
+            from { transform: translateY(100%); }
+            to { transform: translateY(0); }
         }
 
-        /* Filter Active/Inactive States */
-        .filter-inactive {
-            opacity: 0.3;
-            transform: scale(0.95);
-            filter: grayscale(0.5);
+        /* Filter Stillari */
+        .filter-inactive { opacity: 0.5; transform: scale(0.98); filter: grayscale(0.2); }
+        .filter-active { opacity: 1; transform: scale(1.02); box-shadow: 0 5px 10px -2px rgba(0, 0, 0, 0.4); border-color: rgba(255, 255, 255, 0.2); }
+        .date-filter-active { background-color: #2374f8 !important; color: #ffffff !important; border-color: #2374f8 !important; }
+        
+        /* Light Mode Overrides (DIZAYN YAXSHILANDI) */
+        body.light-mode {
+            background-color: #f0f3f6 !important;
+            color: #0f172a;
         }
 
-        .filter-active {
-            opacity: 1;
-            transform: scale(1.02);
-            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.3);
-            border-color: rgba(255, 255, 255, 0.2);
+        /* Umumiy fon va ranglar */
+        body.light-mode nav,
+        body.light-mode .bg-slate-800,
+        body.light-mode .bg-slate-900,
+        body.light-mode .bg-slate-700,
+        body.light-mode .bg-slate-800\/20,
+        body.light-mode .bg-slate-700\/50,
+        body.light-mode #edit-modal .bg-slate-700,
+        body.light-mode #delete-modal .bg-slate-700,
+        body.light-mode #date-range-modal .bg-slate-700 {
+            background-color: #ffffff !important;
+            color: #0f172a !important;
         }
 
-        .date-filter-active {
-            background-color: #2374f8 !important;
-            color: #ffffff !important;
-            border-color: #2374f8 !important;
+        /* Header va Chegaralar */
+        body.light-mode header {
+            background-color: rgba(255, 255, 255, 0.8) !important;
+            border-bottom-color: #e6edf3 !important;
         }
+        body.light-mode .border-slate-700,
+        body.light-mode .border-slate-800,
+        body.light-mode .border-slate-600 {
+            border-color: #e6edf3 !important;
+        }
+
+        /* Matn Ranglari */
+        body.light-mode .text-slate-100,
+        body.light-mode .text-slate-200,
+        body.light-mode .text-slate-300,
+        body.light-mode .text-slate-400 {
+            color: #475569 !important; /* Slate-600 */
+        }
+        body.light-mode .font-bold { color: #0f172a !important; }
+        body.light-mode .text-white { color: #0f172a !important; }
+
+        /* Maxsus Ranglar */
+        body.light-mode .text-emerald-400 { color: #059669 !important; } /* Emerald-600 */
+        body.light-mode .text-rose-400 { color: #be123c !important; } /* Rose-700 */
+        body.light-mode .text-blue-500 { color: #2374f8 !important; } /* Primary Blue */
+        body.light-mode .text-[#2374f8] { color: #2374f8 !important; } /* Primary Blue */
+        body.light-mode i[data-lucide] { color: inherit !important; }
+
+        /* Balans Card stili */
+        body.light-mode .bg-emerald-500\/10 { background-color: rgba(5, 150, 105, 0.1) !important; }
+        body.light-mode .border-emerald-500\/20 { border-color: rgba(5, 150, 105, 0.2) !important; }
+        body.light-mode .bg-rose-500\/10 { background-color: rgba(190, 18, 60, 0.1) !important; }
+        body.light-mode .border-rose-500\/20 { border-color: rgba(190, 18, 60, 0.2) !important; }
+
+        /* Bot input */
+        body.light-mode #bot-input {
+            background-color: #f0f3f6 !important;
+            border-color: #cbd5e1 !important;
+            color: #0f172a !important;
+        }
+        body.light-mode .bg-blue-600 { background-color: #2374f8 !important; }
+        body.light-mode .bg-blue-600:hover { background-color: #1e5fd6 !important; }
     </style>
 </head>
 
@@ -88,7 +115,7 @@
     class="text-slate-100 h-screen flex flex-col overflow-hidden max-w-md mx-auto border-x border-slate-800 shadow-2xl">
 
     <header
-        class="bg-slate-800/90 backdrop-blur-md border-b border-slate-700 p-4 flex items-center justify-between z-20 sticky top-0">
+        class="bg-slate-800/20 backdrop-blur-[5px] rounded-2xl overflow-hidden border-b border-slate-700 p-4 flex items-center justify-between z-20 sticky top-0">
         <div class="flex items-center gap-3">
             <div class="relative">
                 <img id="user-avatar" src="https://ui-avatars.com/api/?name=J&background=3b82f6&color=fff" alt="Profile"
@@ -98,20 +125,26 @@
             </div>
             <div>
                 <div class="text-xs text-slate-400">Assalomu alaykum!</div>
-                <div class="font-bold text-white leading-tight">Xush kelibsiz, Jigar 👋</div>
+                <div class="font-bold leading-tight">Xush kelibsiz, <b class="text-[#2374f8]">Jigar 👋</b></div>
             </div>
         </div>
-        <button onclick="openHelp('general')"
-            class="p-2 text-slate-400 hover:text-white bg-slate-700 rounded-full transition-colors">
-            <i data-lucide="help-circle" class="w-5 h-5"></i>
-        </button>
+        <div class="flex items-center gap-2">
+            <button id="theme-toggle" onclick="toggleTheme()" aria-label="Toggle theme" title="Light / Dark"
+                class="theme-toggle transition-colors hover:bg-slate-700/10 p-2 rounded-full">
+                <i data-lucide="moon" class="w-5 h-5"></i>
+            </button>
+            <button onclick="openHelp('general')"
+                class="p-2 text-slate-400 hover:text-white bg-slate-700 rounded-full transition-colors">
+                <i data-lucide="help-circle" class="w-5 h-5"></i>
+            </button>
+        </div>
     </header>
 
-    <main id="main-container" class="flex-1 overflow-y-auto relative bg-slate-900 scroll-smooth pb-24">
+    <main id="main-container" class="flex-1 overflow-y-auto relative bg-slate-900 rounded-2xl mt-1 scroll-smooth pb-24">
 
         <div id="view-dashboard" class="p-4 space-y-6 fade-in">
             <div
-                class="bg-gradient-to-br from-slate-800 to-slate-900 p-6 rounded-2xl shadow-lg border border-slate-700 relative overflow-hidden">
+                class="bg-transparent p-6 rounded-2xl shadow-lg border border-slate-700 relative overflow-hidden">
                 <div class="absolute -top-4 -right-4 opacity-10 transform rotate-12">
                     <i data-lucide="wallet" class="w-32 h-32 text-white"></i>
                 </div>
@@ -122,7 +155,7 @@
                         class="text-slate-400 z-10 hover:text-blue-400 cursor-pointer"><i data-lucide="help-circle"
                             class="w-4 h-4"></i></button>
                 </div>
-                <div id="total-balance" class="text-3xl font-bold text-white mb-5 font-mono tracking-tight">0 so'm</div>
+                <div id="total-balance" class="text-3xl font-bold text-[#2374f8] mb-5 font-mono tracking-tight">0 so'm</div>
 
                 <div class="grid grid-cols-2 gap-4">
                     <div id="card-income" onclick="toggleTypeFilter('income')"
@@ -170,9 +203,7 @@
                     <span id="table-title">Top 5 Xarajatlar</span>
                 </h3>
                 <div id="top-list-container" class="space-y-2">
-                    <p id="no-top-data-msg" class="text-slate-500 text-sm text-center py-4 hidden">Top xarajatlar
-                        ro'yxati shu yerda ko'rinadi
-                    </p>
+                    <p id="no-top-data-msg" class="text-slate-500 text-sm text-center py-4 hidden">Top ro'yxat uchun ma'lumot yo'q</p>
                     <table class="w-full text-left text-sm">
                         <thead class="text-xs text-slate-400 uppercase border-b border-slate-700">
                             <tr>
@@ -214,17 +245,19 @@
 
         <div id="view-bot" class="flex flex-col h-full hidden fade-in">
             <div
-                class="bg-slate-800/50 p-2 text-center text-xs text-slate-400 border-b border-slate-700 flex justify-between px-4 items-center">
+                class="p-2 text-center text-xs text-slate-400 rounded-3xl border-b w-full px-4 border-slate-700 flex justify-between items-center bg-slate-800/10 backdrop-blur-sm">
                 <span>Bot Simulyatori</span>
                 <button onclick="openHelp('bot')" class="hover:text-blue-400"><i data-lucide="help-circle"
                         class="w-4 h-4"></i></button>
             </div>
+
             <div id="chat-messages" class="flex-1 overflow-y-auto p-3 space-y-3">
             </div>
-            <div class="p-3 relative bottom-[-15px] bg-slate-800 border-t border-slate-700 pb-4">
+
+            <div class="p-3 w-full relative bottom-[-10px] rounded-3xl border-t border-b border-slate-700">
                 <div class="flex gap-2">
                     <input type="text" id="bot-input" placeholder="Kirim/Chiqim..."
-                        class="flex-1 bg-slate-700 text-white rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-500 placeholder-slate-500 text-sm">
+                        class="flex-1 bg-slate-700 text-white rounded-3xl px-4 py-3 focus:outline-none focus:ring-1 focus:ring-blue-500 placeholder-slate-500 text-sm">
                     <button onclick="sendMessage()"
                         class="bg-blue-600 text-white p-4 rounded-xl hover:bg-blue-500 active:scale-95 transition-transform">
                         <i data-lucide="send" class="w-5 h-5"></i>
@@ -255,7 +288,7 @@
     </main>
 
     <nav
-        class="fixed bottom-0 left-0 right-0 bg-slate-800 border-t border-slate-700 flex justify-around py-3 px-2 z-30 max-w-md mx-auto shadow-2xl">
+        class="fixed bottom-0 left-0 right-0 bg-slate-800 border-t border-slate-700 rounded-t-2xl flex justify-around py-3 px-2 z-30 max-w-md mx-auto shadow-2xl">
         <button onclick="switchTab('dashboard')" id="nav-dashboard"
             class="flex flex-col items-center gap-1 w-16 text-blue-500 transition-all">
             <i data-lucide="layout-dashboard" class="w-6 h-6"></i>
@@ -264,8 +297,8 @@
 
         <button onclick="switchTab('bot')" id="nav-bot"
             class="relative -top-6 flex flex-col items-center justify-center w-14 h-14 rounded-full bg-slate-700 text-slate-400 shadow-lg shadow-black/30 transition-all border-4 border-slate-900">
-            <i data-lucide="message-square" class="relative bottom-[-7px] h-6"></i>
-            <span class="relative bottom-[-25px] text-[10px] font-medium">Kirim/Chiqim</span>
+            <i data-lucide="message-square" class="w-6 h-6 text-xl relative bottom-[-6px]"></i>
+            <span class="text-[10px] relative bottom-[-30px] font-medium">Kirim/Chiqim</span>
         </button>
 
         <button onclick="switchTab('history')" id="nav-history"
@@ -391,15 +424,14 @@
         let transactions = JSON.parse(localStorage.getItem('transactions')) || [];
         let selectedTransactionId = null;
 
-        let categoryChartInstance = null; // Eski 'expenseChart'
-        let balanceChartInstance = null; // Yangi 'balanceChart'
+        let categoryChartInstance = null;
+        let balanceChartInstance = null;
 
-        let activeTypeFilter = 'all'; // 'all', 'income', 'expense' - Kirim/Chiqim kartalari
-        let activeDateFilter = 'all'; // 'all', 'week', 'month', 'year', 'custom' - Yangi sana filtri
+        let activeTypeFilter = 'all'; 
+        let activeDateFilter = 'all';
 
         // --- UTILS ---
         const formatNumber = (num) => {
-            // Raqamni bo'sh joy bilan formatlash
             return num.toString().replace(/\B(?=(\d{3})+(?!\d))/g, " ");
         };
         const getStartOfDay = (timestamp) => new Date(new Date(timestamp).setHours(0, 0, 0, 0)).getTime();
@@ -411,7 +443,7 @@
         // --- FILTER HELPERS ---
         function getDateRange() {
             const now = new Date();
-            let startDate = 0; // Default: Barcha davr
+            let startDate = 0; 
             let endDate = now.getTime();
 
             if (activeDateFilter === 'week') {
@@ -424,7 +456,6 @@
                 const start = document.getElementById('start-date').value;
                 const end = document.getElementById('end-date').value;
                 if (start) startDate = getStartOfDay(new Date(start).getTime());
-                // Tugash sanasi uchun kunning oxirini olamiz
                 if (end) endDate = getStartOfDay(new Date(end).getTime()) + (24 * 60 * 60 * 1000) - 1;
             }
             return { startDate, endDate };
@@ -433,32 +464,28 @@
         // --- APP LOGIC ---
         document.addEventListener('DOMContentLoaded', () => {
             lucide.createIcons();
-            switchTab('dashboard'); // Analitika bo'limini default qilib qoyamiz
-            updateUI(); // Analitika diagrammalari doim ishlashi uchun
+            switchTab('dashboard'); 
+            updateUI(); 
 
             const chatContainer = document.getElementById('chat-messages');
             if (chatContainer && chatContainer.children.length === 0) {
-                addMessage("bot", "Assalomu alaykum! \nQo'llanma 'Bot Simulyatori' qatorini oxirida ↗️ (?).\n Shunchaki malumotlarni kiriting, qolgan ishni botni o'zi qiladi.😉");
+                addMessage("bot", "Assalomu alaykum! \nQo'llanma 'Bot Simulyatori' qatorini oxirida ❓ (?) belgisida. \nShunchaki malumotlarni kiriting, qolgan ishni botni o'zi qiladi. 😉");
             }
         });
 
         // --- ANALITIKA FILTRLARI ---
-
-        // Kirim/Chiqim filtrini o'zgartirish
         function toggleTypeFilter(type) {
             if (activeTypeFilter === type) {
-                activeTypeFilter = 'all'; // Tozalash
+                activeTypeFilter = 'all'; 
             } else {
                 activeTypeFilter = type;
             }
             updateUI();
         }
 
-        // Sana filtrini o'zgartirish
         function setDateFilter(filter) {
             activeDateFilter = filter;
 
-            // UI stilini yangilash
             document.querySelectorAll('.date-filter-btn').forEach(btn => {
                 btn.classList.remove('date-filter-active');
             });
@@ -471,7 +498,6 @@
         }
 
         function openDateRangeModal() {
-            // "Barchasi" filtrini o'chiramiz
             document.querySelector('.date-filter-btn[data-filter="all"]').classList.remove('date-filter-active');
             activeDateFilter = 'custom';
             document.getElementById('date-range-modal').classList.remove('hidden');
@@ -482,7 +508,6 @@
             const end = document.getElementById('end-date').value;
 
             if (start && end) {
-                // Filtr 'custom' bo'lib qoladi va updateUI uni ishlatadi
                 updateUI();
                 closeModal('date-range-modal');
             } else {
@@ -490,7 +515,6 @@
             }
         }
 
-        // Filter Stillari
         function updateFilterStyles() {
             const incCard = document.getElementById('card-income');
             const expCard = document.getElementById('card-expense');
@@ -509,7 +533,6 @@
             }
         }
 
-        // Tab Switching (O'zgarishsiz qoladi)
         function switchTab(tab) {
             document.getElementById('view-dashboard').classList.add('hidden');
             document.getElementById('view-bot').classList.add('hidden');
@@ -527,6 +550,7 @@
             } else if (tab === 'history') {
                 document.getElementById('nav-history').className = "flex flex-col items-center gap-1 w-16 text-blue-500 scale-110 transition-all";
             } else if (tab === 'bot') {
+                // Yangilangan Navigatsiya stili
                 document.getElementById('nav-bot').className = "relative -top-6 flex flex-col items-center justify-center w-14 h-14 rounded-full bg-blue-600 text-white shadow-lg shadow-blue-600/40 scale-110 transition-all border-4 border-slate-900";
             }
 
@@ -537,13 +561,8 @@
         function updateUI() {
             const { startDate, endDate } = getDateRange();
 
-            // Filtrlangan ma'lumotlar
-            const filteredTransactions = transactions.filter(t => {
-                // Sana bo'yicha filtrlash
-                return t.date >= startDate && t.date <= endDate;
-            });
+            const filteredTransactions = transactions.filter(t => t.date >= startDate && t.date <= endDate);
 
-            // Tip bo'yicha filtrlashni hisob-kitoblar uchun ham qo'llash
             const incomeTransactions = filteredTransactions.filter(t => t.type === 'income');
             const expenseTransactions = filteredTransactions.filter(t => t.type === 'expense');
 
@@ -551,7 +570,6 @@
             const totalExpense = expenseTransactions.reduce((a, c) => a + c.amount, 0);
             const balance = totalIncome - totalExpense;
 
-            // Balans kartasini yangilash (Filtr natijasi asosida)
             document.getElementById('total-balance').innerText = `${formatNumber(balance)} so'm`;
             document.getElementById('total-income').innerText = `+${formatNumber(totalIncome)}`;
             document.getElementById('total-expense').innerText = `-${formatNumber(totalExpense)}`;
@@ -563,9 +581,7 @@
             renderHistory();
         }
 
-        // --- ANALITIKA RENDER FUNKSIYALARI ---
-
-        // 1. Kategoriyalar Diagrammasi (Doughnut Chart)
+        // --- ANALITIKA RENDER FUNKSIYALARI (O'zgarishsiz) ---
         function renderCategoryChart(data) {
             const ctx = document.getElementById('categoryChart').getContext('2d');
             const titleEl = document.getElementById('chart-title');
@@ -574,7 +590,6 @@
             let chartLabel = "";
             let colors = [];
 
-            // Filter bo'yicha ma'lumotlarni tayyorlash
             if (activeTypeFilter === 'income') {
                 chartData = data.filter(t => t.type === 'income');
                 chartLabel = "Kirimlar Analitikasi";
@@ -584,7 +599,6 @@
                 chartLabel = "Xarajatlar Analitikasi";
                 colors = ['#ef4444', '#f59e0b', '#3b82f6', '#8b5cf6', '#ec4899', '#eab308', '#f43f5e'];
             } else {
-                // 'all' yoki default holat (Xarajatlarni ko'rsatamiz)
                 chartData = data.filter(t => t.type === 'expense');
                 chartLabel = "Xarajatlar Analitikasi";
                 colors = ['#ef4444', '#f59e0b', '#3b82f6', '#8b5cf6', '#ec4899', '#eab308', '#f43f5e'];
@@ -641,14 +655,12 @@
             });
         }
 
-        // 2. Balans Dinamikasi Diagrammasi (Line Chart)
         function renderBalanceChart(data) {
             const ctx = document.getElementById('balanceChart').getContext('2d');
 
-            // Ma'lumotlarni kun bo'yicha guruhlash va saralash
             const dailyData = {};
             data.forEach(t => {
-                const dateKey = new Date(t.date).toLocaleDateString('en-CA'); // 'YYYY-MM-DD'
+                const dateKey = new Date(t.date).toLocaleDateString('en-CA'); 
                 dailyData[dateKey] = dailyData[dateKey] || { income: 0, expense: 0 };
 
                 if (t.type === 'income') {
@@ -667,7 +679,6 @@
             }
             document.getElementById('no-balance-data-msg').classList.add('hidden');
 
-            // Balansni hisoblash: Filtr boshlangunga qadar bo'lgan balansni topish
             let runningBalance = transactions
                 .filter(t => t.date < getStartOfDay(new Date(sortedDates[0])))
                 .reduce((acc, t) => t.type === 'income' ? acc + t.amount : acc - t.amount, 0);
@@ -689,7 +700,7 @@
                     datasets: [{
                         label: 'Balans',
                         data: balanceHistory,
-                        borderColor: '#3b82f6', // Blue-500
+                        borderColor: '#3b82f6', 
                         backgroundColor: 'rgba(59, 130, 246, 0.1)',
                         fill: true,
                         tension: 0.4,
@@ -710,7 +721,7 @@
                             grid: { color: 'rgba(255,255,255,0.05)' },
                             ticks: {
                                 color: '#94a3b8',
-                                callback: (value) => formatNumber(value) // Raqam formatlash
+                                callback: (value) => formatNumber(value) 
                             }
                         }
                     }
@@ -718,7 +729,6 @@
             });
         }
 
-        // 3. Top 5 Jadvali (Kategoriyalar bo'yicha eng katta 5 ta xarajatni ko'rsatadi)
         function renderTopList(data) {
             const tableBody = document.getElementById('top-transaction-list');
             const titleEl = document.getElementById('table-title');
@@ -731,15 +741,14 @@
 
             if (activeTypeFilter === 'income') {
                 targetData = data.filter(t => t.type === 'income');
-                titleEl.innerText = "Top 5 Kirimlar";
+                titleEl.innerText = "Top 10 Kirimlar";
                 isIncomeList = true;
             } else if (activeTypeFilter === 'expense') {
                 targetData = data.filter(t => t.type === 'expense');
-                titleEl.innerText = "Top 5 Xarajatlar";
+                titleEl.innerText = "Top 10 Xarajatlar";
             } else {
-                // Default: Eng katta xarajatlar
                 targetData = data.filter(t => t.type === 'expense');
-                titleEl.innerText = "Top 5 Xarajatlar";
+                titleEl.innerText = "Top 10 Xarajatlar";
             }
 
             if (targetData.length === 0) {
@@ -748,16 +757,14 @@
             }
             noDataMsg.classList.add('hidden');
 
-            // Kategoriyalarni guruhlash
             const aggregated = targetData.reduce((acc, t) => {
                 acc[t.category] = (acc[t.category] || 0) + t.amount;
                 return acc;
             }, {});
 
-            // Top 5 ni olish (Eng katta summa bo'yicha saralash)
             const topCategories = Object.entries(aggregated)
                 .sort(([, a], [, b]) => b - a)
-                .slice(0, 5);
+                .slice(0, 10);
 
             topCategories.forEach(([category, amount]) => {
                 const row = `
@@ -773,7 +780,8 @@
         }
 
 
-        // --- BOT LOGIC (Izohlarni tahlil qilish optimallashtirildi) ---
+        // --- BOT LOGIC (OPTIMALLASHTIRILGAN) ---
+
         const botInput = document.getElementById('bot-input');
 
         botInput.addEventListener('keypress', (e) => {
@@ -796,7 +804,7 @@
             div.className = `flex ${sender === 'user' ? 'justify-end' : 'justify-start'} fade-in`;
 
             div.innerHTML = `
-                <div class="max-w-[80%] p-3 rounded-2xl text-sm ${sender === 'user'
+                <div class="max-w-[80%] p-3 rounded-3xl text-sm ${sender === 'user'
                     ? 'bg-blue-600 text-white rounded-tr-none'
                     : 'bg-slate-700 text-slate-200 border border-slate-600 rounded-tl-none'
                 }">
@@ -809,62 +817,62 @@
 
         function processBotCommand(text) {
             const lower = text.toLowerCase().trim();
-            // 1. Summani ajratish
+
+            // 1. Salomlashishni tekshirish
+            const welcomeKeywords = ['salom', 'assalom', 'salomlar', 'assalomu alaykum', 'salom alaykum', 'assalomu aleykum'];
+            if (welcomeKeywords.some(keyword => lower.includes(keyword))) {
+                addMessage('bot', "Va alaykum assalom! 👋\n\nQanday yordam bera olaman?\nIltimos, 'kirim' yoki 'rasxod' buyruqlarini ishlating.");
+                return;
+            }
+            
+            // 2. Summani ajratish
             const amountMatch = lower.match(/(\d[\d\s]*\d|\d+)/);
             const amountStr = amountMatch ? amountMatch[0].replace(/\s/g, '') : '0';
             const amount = parseInt(amountStr);
-            const welcomeKeywords = ['salom', 'assalom', 'hello', 'hi', 'hey', 'salomlar', 'assalomu alaykum', 'salom alaykum', 'assalomu aleykum'];
-            if (welcomeKeywords.some(keyword => lower.includes(keyword))) {
-                addMessage('bot', "Va alaykum assalom, Assalomu alaykum!👋\nIltimos, 'kirim' yoki 'rasxod' buyruqlarini ishlating.");
-                return; // Funksiyani shu yerda to'xtatamiz
-            }
-            if (!amount) {
-                addMessage('bot', "🤷‍♂️ Qayeridadur tushunmay qoldimda, tepada ? ni bossayiz buyruqlar bor o'sha yerdan qanday ishlashni aniqlashtirib olsangiz bo'ladi.");
-                return;
-            }
-
-            let type = '';
-            let category = '';
-
 
             // Matndan raqamni va 'so'm', 'sum', 'som' kabi keraksiz so'zlarni olib tashlash
             let description = lower
-                .replace(amountMatch[0], '')
+                .replace(amountMatch ? amountMatch[0] : '', '')
                 .replace(/\sso['’]?m|\ssum|\ssom|\stg|\s$/, '')
                 .trim();
+            
+            let type = '';
+            let category = '';
 
-            // KIRIM BUYRUG'I
-            const incomeKeywords = ['', 'oylik', 'kirim', 'daromad', 'topdim', 'tushum', 'tushdi', 'oldim', 'daxod'];
-            if (incomeKeywords.some(keyword => lower.includes(keyword))) {
+            // 3. Buyruq turini aniqlash
+            const incomeKeywords = ['oylik', 'kirim', 'daromad', 'topdim', 'tushum', 'tushdi', 'daxod'];
+            const expenseKeywords = ['rasxod','chiqim', 'xarajat', 'oldim', 'ketdi'];
+            
+            const isIncome = incomeKeywords.some(keyword => lower.includes(keyword));
+            const isExpense = expenseKeywords.some(keyword => lower.includes(keyword));
+
+            if (isIncome && !isExpense) {
                 type = 'income';
-                let tempDesc = description;
-                // Kalit so'zlarni olib tashlash
                 incomeKeywords.forEach(word => {
-                    tempDesc = tempDesc.replace(new RegExp(`\\b${word}\\b`, 'g'), '').trim();
+                    description = description.replace(new RegExp(`\\b${word}\\b`, 'g'), '').trim();
                 });
-                category = tempDesc.length > 0 ? tempDesc : 'Kirim';
-            }
+                category = description.length > 0 ? description : 'Kirim';
 
-            // CHIQIM BUYRUG'I
-            const expenseKeywords = ['', 'rasxod', 'xarajat', 'chiqim', 'oldim', 'ketdi'];
-            if (expenseKeywords.some(keyword => lower.includes(keyword))) {
+            } else if (isExpense && !isIncome) {
                 type = 'expense';
-                let tempDesc = description;
-                // Kalit so'zlarni olib tashlash
                 expenseKeywords.forEach(word => {
-                    tempDesc = tempDesc.replace(new RegExp(`\\b${word}\\b`, 'g'), '').trim();
+                    description = description.replace(new RegExp(`\\b${word}\\b`, 'g'), '').trim();
                 });
-                category = tempDesc.length > 0 ? tempDesc : 'Chiqim';
+                category = description.length > 0 ? description : 'Chiqim';
             }
-
-            // Agar tur aniqlanmasa (Lekin summa bor)
-            if (!type) {
-                addMessage('bot', "brooooooooooo just leave me alone😭");
+            
+            // Agar summa topilmasa yoki tur aniqlanmasa
+            if (!amount) {
+                addMessage('bot', "⚠️ Summani tushunmadim. Iltimos, raqam ishlating.\nMasalan: 'kirim 1 000 000'");
                 return;
             }
 
+            if (!type) {
+                addMessage('bot', "🤷‍♂️ Bu 'kirim'mi yoki 'rasxod'mi tushunmadim. Iltimos aniqlik kiriting.");
+                return;
+            }
 
-            // Balansni tekshirish (Chiqim uchun)
+            // 4. Balansni tekshirish (faqat chiqim uchun)
             if (type === 'expense') {
                 const currentBalance = transactions.reduce((acc, t) => t.type === 'income' ? acc + t.amount : acc - t.amount, 0);
                 if (currentBalance < amount) {
@@ -872,13 +880,12 @@
                     return;
                 }
             }
-
-
+            
+            // 5. Tranzaksiyani saqlash
             const newTransaction = {
                 id: Date.now(),
                 amount: amount,
                 type: type,
-                // Kategoriya faqat birinchi harfi katta bo'lishi
                 category: category.charAt(0).toUpperCase() + category.slice(1),
                 date: Date.now()
             };
@@ -888,14 +895,13 @@
 
             const icon = type === 'income' ? '🤑' : '💸';
             addMessage('bot', `${icon} Qabul qilindi: ${newTransaction.category} \nSumma: ${formatNumber(amount)} so'm`);
-
         }
 
-        // ACTIONS & MODALS (O'zgarishsiz qoladi)
+        // ACTIONS & MODALS (O'zgarishsiz)
         const helpData = {
             general: "Bu ilova orqali moliyaviy holatingizni boshqaring. Bot bo'limida buyruqlar yozing, Tarix bo'limida tahrirlang.",
             dashboard: "Asosiy sahifa. Balansingiz va analiz. 'Kirim' yoki 'Chiqim' kartalarini bosib diagrammani filtrlashingiz mumkin. Yuqorida esa sana filtrlarini ishlating.",
-            bot: "Botga yozing: \n1. 'kirim qarz tushdi 5 000 000'\n2. 'rasxod bozorga 200 000'\n\nBot avtomatik hisoblaydi.",
+            bot: "Botga yozish uchun buyruqlar:\n1. 'kirim oylik 5 000 000'\n2. 'rasxod bozorga 200 000'\n\nBot avtomatik hisoblaydi. Buyruq turini ('kirim' yoki 'rasxod') aniq ko'rsating.",
             history: "Barcha operatsiyalar ro'yxati. O'ng tomondagi 3 nuqtani bosib tahrirlang yoki o'chiring."
         };
 
@@ -966,7 +972,6 @@
             closeModal('edit-modal');
         }
 
-        // Render History (Tarix bo'limini render qilish)
         function renderHistory() {
             const list = document.getElementById('history-list');
             const emptyState = document.getElementById('empty-history');
@@ -995,7 +1000,7 @@
                         </div>
                         <div>
                             <div class="text-white font-medium capitalize text-sm">${t.category}</div>
-                            <div class="text-xs text-slate-400">${timeStr} • ${dateStr}</div>
+                            <div class="text-xs text-slate-400">${dateStr} ${timeStr}</div>
                         </div>
                     </div>
                     <div class="flex items-center gap-3">
@@ -1011,6 +1016,66 @@
             });
             lucide.createIcons();
         }
+
+        // --- THEME (Dark / Light) ---
+        function applyTheme(theme) {
+            const body = document.body;
+            const toggle = document.getElementById('theme-toggle');
+
+            if (theme === 'light') {
+                body.classList.add('light-mode');
+                toggle.setAttribute('data-theme', 'light');
+                toggle.innerHTML = '<i data-lucide="sun" class="w-5 h-5"></i>';
+            } else {
+                body.classList.remove('light-mode');
+                toggle.setAttribute('data-theme', 'dark');
+                toggle.innerHTML = '<i data-lucide="moon" class="w-5 h-5"></i>';
+            }
+            lucide.createIcons();
+            localStorage.setItem('kassir_theme', theme);
+
+            // Chart ranglarini yangilash (Light mode uchun)
+            if (categoryChartInstance) {
+                categoryChartInstance.options.scales = theme === 'light' ? { 
+                    x: { grid: { color: '#e6edf3' }, ticks: { color: '#475569' } },
+                    y: { grid: { color: '#e6edf3' }, ticks: { color: '#475569' } }
+                } : {
+                    x: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#94a3b8' } },
+                    y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#94a3b8' } }
+                };
+                categoryChartInstance.update();
+            }
+            if (balanceChartInstance) {
+                balanceChartInstance.options.scales = theme === 'light' ? {
+                    x: { grid: { color: '#e6edf3' }, ticks: { color: '#475569' } },
+                    y: { grid: { color: '#e6edf3' }, ticks: { color: '#475569' } }
+                } : {
+                    x: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#94a3b8' } },
+                    y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#94a3b8' } }
+                };
+                balanceChartInstance.update();
+            }
+        }
+
+        function toggleTheme() {
+            const current = document.body.classList.contains('light-mode') ? 'light' : 'dark';
+            const next = current === 'light' ? 'dark' : 'light';
+            applyTheme(next);
+        }
+
+        (function initTheme() {
+            try {
+                const saved = localStorage.getItem('kassir_theme');
+                if (saved) {
+                    applyTheme(saved);
+                    return;
+                }
+                const prefersLight = window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches;
+                applyTheme(prefersLight ? 'light' : 'dark');
+            } catch (e) {
+                console.error("Theme initialization error:", e);
+            }
+        })();
     </script>
 </body>
 
