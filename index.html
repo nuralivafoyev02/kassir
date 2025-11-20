@@ -809,19 +809,17 @@
 
         function processBotCommand(text) {
             const lower = text.toLowerCase().trim();
+            // 1. Summani ajratish
+            const amountMatch = lower.match(/(\d[\d\s]*\d|\d+)/);
+            const amountStr = amountMatch ? amountMatch[0].replace(/\s/g, '') : '0';
+            const amount = parseInt(amountStr);
             const welcomeKeywords = ['salom', 'assalom', 'hello', 'hi', 'hey', 'salomlar', 'assalomu alaykum', 'salom alaykum', 'assalomu aleykum'];
             if (welcomeKeywords.some(keyword => lower.includes(keyword))) {
                 addMessage('bot', "Va alaykum assalom, Assalomu alaykum!👋\nIltimos, 'kirim' yoki 'rasxod' buyruqlarini ishlating.");
                 return; // Funksiyani shu yerda to'xtatamiz
             }
-
-
-            // 1. Summani ajratish
-            const amountMatch = lower.match(/(\d[\d\s]*\d|\d+)/);
-            const amountStr = amountMatch ? amountMatch[0].replace(/\s/g, '') : '0';
-            const amount = parseInt(amountStr);
             if (!amount) {
-                addMessage('bot', "🤷‍♂️ Buyruqni tushunmadim. Iltimos, avval summa kiriting yoki 'kirim' / 'rasxod' so'zlarini ishlating.");
+                addMessage('bot', "🤷‍♂️ Qayeridadur tushunmay qoldimda, tepada ? ni bossayiz buyruqlar bor o'sha yerdan qanday ishlashni aniqlashtirib olsangiz bo'ladi.");
                 return;
             }
 
@@ -836,7 +834,7 @@
                 .trim();
 
             // KIRIM BUYRUG'I
-            const incomeKeywords = ['oylik', 'kirim', 'daromad', 'topdim', 'tushum'];
+            const incomeKeywords = ['', 'oylik', 'kirim', 'daromad', 'topdim', 'tushum', 'tushdi', 'oldim', 'daxod'];
             if (incomeKeywords.some(keyword => lower.includes(keyword))) {
                 type = 'income';
                 let tempDesc = description;
@@ -848,7 +846,7 @@
             }
 
             // CHIQIM BUYRUG'I
-            const expenseKeywords = ['rasxod', 'xarajat', 'chiqim', 'oldim', 'ketdi'];
+            const expenseKeywords = ['', 'rasxod', 'xarajat', 'chiqim', 'oldim', 'ketdi'];
             if (expenseKeywords.some(keyword => lower.includes(keyword))) {
                 type = 'expense';
                 let tempDesc = description;
@@ -861,7 +859,7 @@
 
             // Agar tur aniqlanmasa (Lekin summa bor)
             if (!type) {
-                addMessage('bot', "🤷‍♂️ Summa bor, lekin bu 'kirim'mi yoki 'rasxod'mi tushunmadim. Iltimos aniqlik kiriting.");
+                addMessage('bot', "brooooooooooo just leave me alone😭");
                 return;
             }
 
