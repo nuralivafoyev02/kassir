@@ -163,14 +163,15 @@
                     <i data-lucide="calendar" class="w-4 h-4"></i> Maxsus
                 </button>
             </div>
-            
+
             <div class="bg-slate-800 p-4 rounded-2xl border border-slate-700 shadow-lg transition-all duration-300">
                 <h3 class="text-slate-200 font-semibold mb-4 flex items-center gap-2">
                     <i data-lucide="list-ordered" class="w-5 h-5 text-yellow-400"></i>
                     <span id="table-title">Top 5 Xarajatlar</span>
                 </h3>
                 <div id="top-list-container" class="space-y-2">
-                    <p id="no-top-data-msg" class="text-slate-500 text-sm text-center py-4 hidden">Top xarajatlar ro'yxati shu yerda ko'rinadi
+                    <p id="no-top-data-msg" class="text-slate-500 text-sm text-center py-4 hidden">Top xarajatlar
+                        ro'yxati shu yerda ko'rinadi
                     </p>
                     <table class="w-full text-left text-sm">
                         <thead class="text-xs text-slate-400 uppercase border-b border-slate-700">
@@ -220,9 +221,9 @@
             </div>
             <div id="chat-messages" class="flex-1 overflow-y-auto p-3 space-y-3">
             </div>
-            <div class="p-3 bg-slate-800 border-t border-slate-700 pb-3">
+            <div class="p-3 relative bottom-[-15px] bg-slate-800 border-t border-slate-700 pb-4">
                 <div class="flex gap-2">
-                    <input type="text" id="bot-input" placeholder="kirim/chiqim..."
+                    <input type="text" id="bot-input" placeholder="Kirim/Chiqim..."
                         class="flex-1 bg-slate-700 text-white rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-500 placeholder-slate-500 text-sm">
                     <button onclick="sendMessage()"
                         class="bg-blue-600 text-white p-4 rounded-xl hover:bg-blue-500 active:scale-95 transition-transform">
@@ -263,7 +264,8 @@
 
         <button onclick="switchTab('bot')" id="nav-bot"
             class="relative -top-6 flex flex-col items-center justify-center w-14 h-14 rounded-full bg-slate-700 text-slate-400 shadow-lg shadow-black/30 transition-all border-4 border-slate-900">
-            <i data-lucide="message-square" class="w-6 h-6"></i>
+            <i data-lucide="message-square" class="relative bottom-[-7px] h-6"></i>
+            <span class="relative bottom-[-25px] text-[10px] font-medium">Kirim/Chiqim</span>
         </button>
 
         <button onclick="switchTab('history')" id="nav-history"
@@ -436,7 +438,7 @@
 
             const chatContainer = document.getElementById('chat-messages');
             if (chatContainer && chatContainer.children.length === 0) {
-                addMessage("bot", "Assalomu alaykum! \nBuyruqlar:\n'kirim Alisher qarz berdi 4 000 000'\n'rasxod ovqatga 50 000'\n Qolgan ishni botni o'zi hisoblaydi.");
+                addMessage("bot", "Assalomu alaykum! \nQo'llanma 'Bot Simulyatori' qatorini oxirida ↗️ (?).\n Shunchaki malumotlarni kiriting, qolgan ishni botni o'zi qiladi.😉");
             }
         });
 
@@ -794,7 +796,7 @@
             div.className = `flex ${sender === 'user' ? 'justify-end' : 'justify-start'} fade-in`;
 
             div.innerHTML = `
-                <div class="max-w-[80%] p-3 rounded-2xl text-sm whitespace-pre-line ${sender === 'user'
+                <div class="max-w-[80%] p-3 rounded-2xl text-sm ${sender === 'user'
                     ? 'bg-blue-600 text-white rounded-tr-none'
                     : 'bg-slate-700 text-slate-200 border border-slate-600 rounded-tl-none'
                 }">
@@ -807,19 +809,25 @@
 
         function processBotCommand(text) {
             const lower = text.toLowerCase().trim();
+            const welcomeKeywords = ['salom', 'assalom', 'hello', 'hi', 'hey', 'salomlar', 'assalomu alaykum', 'salom alaykum', 'assalomu aleykum'];
+            if (welcomeKeywords.some(keyword => lower.includes(keyword))) {
+                addMessage('bot', "Va alaykum assalom, Assalomu alaykum!👋\nIltimos, 'kirim' yoki 'rasxod' buyruqlarini ishlating.");
+                return; // Funksiyani shu yerda to'xtatamiz
+            }
+
 
             // 1. Summani ajratish
             const amountMatch = lower.match(/(\d[\d\s]*\d|\d+)/);
             const amountStr = amountMatch ? amountMatch[0].replace(/\s/g, '') : '0';
             const amount = parseInt(amountStr);
-
             if (!amount) {
-                addMessage('bot', "🧐 Summani tushunmadim. Iltimos raqam ishlating.\nMasalan: 'kirim avans 1 000 000'");
+                addMessage('bot', "🤷‍♂️ Buyruqni tushunmadim. Iltimos, avval summa kiriting yoki 'kirim' / 'rasxod' so'zlarini ishlating.");
                 return;
             }
 
             let type = '';
             let category = '';
+
 
             // Matndan raqamni va 'so'm', 'sum', 'som' kabi keraksiz so'zlarni olib tashlash
             let description = lower
@@ -828,7 +836,7 @@
                 .trim();
 
             // KIRIM BUYRUG'I
-            const incomeKeywords = ['oylik', 'kirim', 'daromad', 'topdim', 'tushum', 'кирим', 'даромад', 'тушум', 'ойлик', 'топдим'];
+            const incomeKeywords = ['oylik', 'kirim', 'daromad', 'topdim', 'tushum'];
             if (incomeKeywords.some(keyword => lower.includes(keyword))) {
                 type = 'income';
                 let tempDesc = description;
@@ -836,13 +844,11 @@
                 incomeKeywords.forEach(word => {
                     tempDesc = tempDesc.replace(new RegExp(`\\b${word}\\b`, 'g'), '').trim();
                 });
-
-                // Qolgan izohni kategoriya qilish (4-MASALA YECHIMI)
                 category = tempDesc.length > 0 ? tempDesc : 'Kirim';
             }
 
             // CHIQIM BUYRUG'I
-            const expenseKeywords = ['rasxod', 'xarajat', 'chiqim', 'oldim', 'ketdi', "расход", "харжат", "чиқим"];
+            const expenseKeywords = ['rasxod', 'xarajat', 'chiqim', 'oldim', 'ketdi'];
             if (expenseKeywords.some(keyword => lower.includes(keyword))) {
                 type = 'expense';
                 let tempDesc = description;
@@ -850,16 +856,15 @@
                 expenseKeywords.forEach(word => {
                     tempDesc = tempDesc.replace(new RegExp(`\\b${word}\\b`, 'g'), '').trim();
                 });
-
-                // Qolgan izohni kategoriya qilish (3-MASALA YECHIMI)
                 category = tempDesc.length > 0 ? tempDesc : 'Chiqim';
             }
 
-            // Agar tur aniqlanmasa
+            // Agar tur aniqlanmasa (Lekin summa bor)
             if (!type) {
-                addMessage('bot', "🤷‍♂️ Buyruqni tushunmadim. 'kirim' yoki 'rasxod' so'zlarini ishlating.");
+                addMessage('bot', "🤷‍♂️ Summa bor, lekin bu 'kirim'mi yoki 'rasxod'mi tushunmadim. Iltimos aniqlik kiriting.");
                 return;
             }
+
 
             // Balansni tekshirish (Chiqim uchun)
             if (type === 'expense') {
@@ -869,6 +874,7 @@
                     return;
                 }
             }
+
 
             const newTransaction = {
                 id: Date.now(),
@@ -884,13 +890,14 @@
 
             const icon = type === 'income' ? '🤑' : '💸';
             addMessage('bot', `${icon} Qabul qilindi: ${newTransaction.category} \nSumma: ${formatNumber(amount)} so'm`);
+
         }
 
         // ACTIONS & MODALS (O'zgarishsiz qoladi)
         const helpData = {
             general: "Bu ilova orqali moliyaviy holatingizni boshqaring. Bot bo'limida buyruqlar yozing, Tarix bo'limida tahrirlang.",
             dashboard: "Asosiy sahifa. Balansingiz va analiz. 'Kirim' yoki 'Chiqim' kartalarini bosib diagrammani filtrlashingiz mumkin. Yuqorida esa sana filtrlarini ishlating.",
-            bot: "Botga yozing: \n1. 'kirim 5 000 000'\n2. 'rasxod bozorga 200 000'\n\nBot avtomatik hisoblaydi.",
+            bot: "Botga yozing: \n1. 'kirim qarz tushdi 5 000 000'\n2. 'rasxod bozorga 200 000'\n\nBot avtomatik hisoblaydi.",
             history: "Barcha operatsiyalar ro'yxati. O'ng tomondagi 3 nuqtani bosib tahrirlang yoki o'chiring."
         };
 
