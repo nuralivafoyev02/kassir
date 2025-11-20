@@ -5,23 +5,16 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <link rel="icon" href="https://cdn-icons-png.flaticon.com/512/433/433424.png" type="faw-icon">
-    <title>Mening Kassam</title>
+    <title>Mening Kassam - Premium</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
 
     <style>
         /* Asosiy Dark Mode stillari */
-        ::-webkit-scrollbar {
-            width: 4px;
-        }
-        ::-webkit-scrollbar-track {
-            background: #1e293b;
-        }
-        ::-webkit-scrollbar-thumb {
-            background: #475569;
-            border-radius: 12px;
-        }
+        ::-webkit-scrollbar { width: 4px; }
+        ::-webkit-scrollbar-track { background: #1e293b; }
+        ::-webkit-scrollbar-thumb { background: #475569; border-radius: 12px; }
 
         body {
             background-color: #0f172a;
@@ -31,28 +24,17 @@
 
         /* Animatsiyalar */
         .fade-in { animation: fadeIn 0.3s ease-out; }
-        @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(10px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
         .slide-up { animation: slideUp 0.3s ease-out; }
-        @keyframes slideUp {
-            from { transform: translateY(100%); }
-            to { transform: translateY(0); }
-        }
+        @keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
 
         /* Filter Stillari */
         .filter-inactive { opacity: 0.5; transform: scale(0.98); filter: grayscale(0.2); }
         .filter-active { opacity: 1; transform: scale(1.02); box-shadow: 0 5px 10px -2px rgba(0, 0, 0, 0.4); border-color: rgba(255, 255, 255, 0.2); }
         .date-filter-active { background-color: #2374f8 !important; color: #ffffff !important; border-color: #2374f8 !important; }
         
-        /* Light Mode Overrides (DIZAYN YAXSHILANDI) */
-        body.light-mode {
-            background-color: #f0f3f6 !important;
-            color: #0f172a;
-        }
-
-        /* Umumiy fon va ranglar */
+        /* Light Mode Overrides */
+        body.light-mode { background-color: #f0f3f6 !important; color: #0f172a; }
         body.light-mode nav,
         body.light-mode .bg-slate-800,
         body.light-mode .bg-slate-900,
@@ -61,67 +43,40 @@
         body.light-mode .bg-slate-700\/50,
         body.light-mode #edit-modal .bg-slate-700,
         body.light-mode #delete-modal .bg-slate-700,
-        body.light-mode #date-range-modal .bg-slate-700 {
-            background-color: #ffffff !important;
-            color: #0f172a !important;
-        }
+        body.light-mode #date-range-modal .bg-slate-700 { background-color: #ffffff !important; color: #0f172a !important; }
 
-        /* Header va Chegaralar */
-        body.light-mode header {
-            background-color: rgba(255, 255, 255, 0.8) !important;
-            border-bottom-color: #e6edf3 !important;
-        }
-        body.light-mode .border-slate-700,
-        body.light-mode .border-slate-800,
-        body.light-mode .border-slate-600 {
-            border-color: #e6edf3 !important;
-        }
+        body.light-mode header { background-color: rgba(255, 255, 255, 0.8) !important; border-bottom-color: #e6edf3 !important; }
+        body.light-mode .border-slate-700, body.light-mode .border-slate-800, body.light-mode .border-slate-600 { border-color: #e6edf3 !important; }
 
-        /* Matn Ranglari */
-        body.light-mode .text-slate-100,
-        body.light-mode .text-slate-200,
-        body.light-mode .text-slate-300,
-        body.light-mode .text-slate-400 {
-            color: #475569 !important; /* Slate-600 */
-        }
+        body.light-mode .text-slate-100, body.light-mode .text-slate-200, body.light-mode .text-slate-300, body.light-mode .text-slate-400 { color: #475569 !important; }
         body.light-mode .font-bold { color: #0f172a !important; }
         body.light-mode .text-white { color: #0f172a !important; }
 
-        /* Maxsus Ranglar */
-        body.light-mode .text-emerald-400 { color: #059669 !important; } /* Emerald-600 */
-        body.light-mode .text-rose-400 { color: #be123c !important; } /* Rose-700 */
-        body.light-mode .text-blue-500 { color: #2374f8 !important; } /* Primary Blue */
-        body.light-mode .text-[#2374f8] { color: #2374f8 !important; } /* Primary Blue */
+        body.light-mode .text-emerald-400 { color: #059669 !important; }
+        body.light-mode .text-rose-400 { color: #be123c !important; }
+        body.light-mode .text-blue-500, body.light-mode .text-[#2374f8] { color: #2374f8 !important; }
         body.light-mode i[data-lucide] { color: inherit !important; }
 
-        /* Balans Card stili */
         body.light-mode .bg-emerald-500\/10 { background-color: rgba(5, 150, 105, 0.1) !important; }
         body.light-mode .border-emerald-500\/20 { border-color: rgba(5, 150, 105, 0.2) !important; }
         body.light-mode .bg-rose-500\/10 { background-color: rgba(190, 18, 60, 0.1) !important; }
         body.light-mode .border-rose-500\/20 { border-color: rgba(190, 18, 60, 0.2) !important; }
 
-        /* Bot input */
-        body.light-mode #bot-input {
-            background-color: #f0f3f6 !important;
-            border-color: #cbd5e1 !important;
-            color: #0f172a !important;
-        }
-        body.light-mode .bg-blue-600 { background-color: #2374f8 !important; }
-        body.light-mode .bg-blue-600:hover { background-color: #1e5fd6 !important; }
+        body.light-mode #bot-input { background-color: #f0f3f6 !important; border-color: #cbd5e1 !important; color: #0f172a !important; }
+        body.light-mode .bot-msg-bg { background-color: #f1f5f9 !important; color: #0f172a !important; border-color: #e2e8f0 !important; }
+        
+        /* Yangi Bot Card Light Mode */
+        body.light-mode .bot-card-success { background-color: #ffffff !important; border-color: #e2e8f0 !important; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); }
     </style>
 </head>
 
-<body
-    class="text-slate-100 h-screen flex flex-col overflow-hidden max-w-md mx-auto border-x border-slate-800 shadow-2xl">
+<body class="text-slate-100 h-screen flex flex-col overflow-hidden max-w-md mx-auto border-x border-slate-800 shadow-2xl">
 
-    <header
-        class="bg-slate-800/20 backdrop-blur-[5px] rounded-2xl overflow-hidden border-b border-slate-700 p-4 flex items-center justify-between z-20 sticky top-0">
+    <header class="bg-slate-800/20 backdrop-blur-[5px] rounded-2xl overflow-hidden border-b border-slate-700 p-4 flex items-center justify-between z-20 sticky top-0">
         <div class="flex items-center gap-3">
             <div class="relative">
-                <img id="user-avatar" src="https://ui-avatars.com/api/?name=J&background=3b82f6&color=fff" alt="Profile"
-                    class="w-10 h-10 rounded-full border-2 border-blue-500 object-cover">
-                <div class="absolute bottom-0 right-0 w-3 h-3 bg-green-500 border-2 border-slate-800 rounded-full">
-                </div>
+                <img id="user-avatar" src="https://ui-avatars.com/api/?name=J&background=3b82f6&color=fff" alt="Profile" class="w-10 h-10 rounded-full border-2 border-blue-500 object-cover">
+                <div class="absolute bottom-0 right-0 w-3 h-3 bg-green-500 border-2 border-slate-800 rounded-full"></div>
             </div>
             <div>
                 <div class="text-xs text-slate-400">Assalomu alaykum!</div>
@@ -129,12 +84,10 @@
             </div>
         </div>
         <div class="flex items-center gap-2">
-            <button id="theme-toggle" onclick="toggleTheme()" aria-label="Toggle theme" title="Light / Dark"
-                class="theme-toggle transition-colors hover:bg-slate-700/10 p-2 rounded-full">
+            <button id="theme-toggle" onclick="toggleTheme()" class="theme-toggle transition-colors hover:bg-slate-700/10 p-2 rounded-full">
                 <i data-lucide="moon" class="w-5 h-5"></i>
             </button>
-            <button onclick="openHelp('general')"
-                class="p-2 text-slate-400 hover:text-white bg-slate-700 rounded-full transition-colors">
+            <button onclick="openHelp('general')" class="p-2 text-slate-400 hover:text-white bg-slate-700 rounded-full transition-colors">
                 <i data-lucide="help-circle" class="w-5 h-5"></i>
             </button>
         </div>
@@ -143,23 +96,19 @@
     <main id="main-container" class="flex-1 overflow-y-auto relative bg-slate-900 rounded-2xl mt-1 scroll-smooth pb-24">
 
         <div id="view-dashboard" class="p-4 space-y-6 fade-in">
-            <div
-                class="bg-transparent p-6 rounded-2xl shadow-lg border border-slate-700 relative overflow-hidden">
+            <div class="bg-transparent p-6 rounded-2xl shadow-lg border border-slate-700 relative overflow-hidden">
                 <div class="absolute -top-4 -right-4 opacity-10 transform rotate-12">
                     <i data-lucide="wallet" class="w-32 h-32 text-white"></i>
                 </div>
 
                 <div class="flex justify-between items-start mb-2">
                     <h2 class="text-slate-400 text-sm font-medium">Umumiy Balans</h2>
-                    <button onclick="openHelp('dashboard')"
-                        class="text-slate-400 z-10 hover:text-blue-400 cursor-pointer"><i data-lucide="help-circle"
-                            class="w-4 h-4"></i></button>
+                    <button onclick="openHelp('dashboard')" class="text-slate-400 z-10 hover:text-blue-400 cursor-pointer"><i data-lucide="help-circle" class="w-4 h-4"></i></button>
                 </div>
                 <div id="total-balance" class="text-3xl font-bold text-[#2374f8] mb-5 font-mono tracking-tight">0 so'm</div>
 
                 <div class="grid grid-cols-2 gap-4">
-                    <div id="card-income" onclick="toggleTypeFilter('income')"
-                        class="bg-emerald-500/10 p-3 rounded-xl border border-emerald-500/20 flex items-center gap-3 cursor-pointer transition-all duration-300 hover:bg-emerald-500/20">
+                    <div id="card-income" onclick="toggleTypeFilter('income')" class="bg-emerald-500/10 p-3 rounded-xl border border-emerald-500/20 flex items-center gap-3 cursor-pointer transition-all duration-300 hover:bg-emerald-500/20">
                         <div class="p-2 bg-emerald-500 rounded-full text-white shrink-0">
                             <i data-lucide="arrow-down-left" class="w-4 h-4"></i>
                         </div>
@@ -169,8 +118,7 @@
                         </div>
                     </div>
 
-                    <div id="card-expense" onclick="toggleTypeFilter('expense')"
-                        class="bg-rose-500/10 p-3 rounded-xl border border-rose-500/20 flex items-center gap-3 cursor-pointer transition-all duration-300 hover:bg-rose-500/20">
+                    <div id="card-expense" onclick="toggleTypeFilter('expense')" class="bg-rose-500/10 p-3 rounded-xl border border-rose-500/20 flex items-center gap-3 cursor-pointer transition-all duration-300 hover:bg-rose-500/20">
                         <div class="p-2 bg-rose-500 rounded-full text-white shrink-0">
                             <i data-lucide="arrow-up-right" class="w-4 h-4"></i>
                         </div>
@@ -183,16 +131,11 @@
             </div>
 
             <div class="flex space-x-2 overflow-x-auto pb-1">
-                <button data-filter="all" onclick="setDateFilter('all')"
-                    class="date-filter-btn bg-slate-700 text-slate-300 text-xs px-3 py-1.5 rounded-full border border-slate-600 transition-colors shrink-0 date-filter-active">Barchasi</button>
-                <button data-filter="week" onclick="setDateFilter('week')"
-                    class="date-filter-btn bg-slate-700 text-slate-300 text-xs px-3 py-1.5 rounded-full border border-slate-600 transition-colors shrink-0">Hafta</button>
-                <button data-filter="month" onclick="setDateFilter('month')"
-                    class="date-filter-btn bg-slate-700 text-slate-300 text-xs px-3 py-1.5 rounded-full border border-slate-600 transition-colors shrink-0">Oy</button>
-                <button data-filter="year" onclick="setDateFilter('year')"
-                    class="date-filter-btn bg-slate-700 text-slate-300 text-xs px-3 py-1.5 rounded-full border border-slate-600 transition-colors shrink-0">Yil</button>
-                <button onclick="openDateRangeModal()"
-                    class="bg-slate-700 text-slate-300 text-xs px-3 py-1.5 rounded-full border border-slate-600 transition-colors flex items-center gap-1 shrink-0">
+                <button data-filter="all" onclick="setDateFilter('all')" class="date-filter-btn bg-slate-700 text-slate-300 text-xs px-3 py-1.5 rounded-full border border-slate-600 transition-colors shrink-0 date-filter-active">Barchasi</button>
+                <button data-filter="week" onclick="setDateFilter('week')" class="date-filter-btn bg-slate-700 text-slate-300 text-xs px-3 py-1.5 rounded-full border border-slate-600 transition-colors shrink-0">Hafta</button>
+                <button data-filter="month" onclick="setDateFilter('month')" class="date-filter-btn bg-slate-700 text-slate-300 text-xs px-3 py-1.5 rounded-full border border-slate-600 transition-colors shrink-0">Oy</button>
+                <button data-filter="year" onclick="setDateFilter('year')" class="date-filter-btn bg-slate-700 text-slate-300 text-xs px-3 py-1.5 rounded-full border border-slate-600 transition-colors shrink-0">Yil</button>
+                <button onclick="openDateRangeModal()" class="bg-slate-700 text-slate-300 text-xs px-3 py-1.5 rounded-full border border-slate-600 transition-colors flex items-center gap-1 shrink-0">
                     <i data-lucide="calendar" class="w-4 h-4"></i> Maxsus
                 </button>
             </div>
@@ -203,34 +146,35 @@
                     <span id="table-title">Top 5 Xarajatlar</span>
                 </h3>
                 <div id="top-list-container" class="space-y-2">
-                    <p id="no-top-data-msg" class="text-slate-500 text-sm text-center py-4 hidden">Top ro'yxat uchun ma'lumot yo'q</p>
+                    <p id="no-top-data-msg" class="text-slate-500 text-sm text-center py-4 hidden">Ma'lumot yo'q</p>
                     <table class="w-full text-left text-sm">
                         <thead class="text-xs text-slate-400 uppercase border-b border-slate-700">
                             <tr>
-                                <th scope="col" class="py-2">manba</th>
+                                <th scope="col" class="py-2">Manba</th>
                                 <th scope="col" class="py-2 text-right">Summa</th>
                             </tr>
                         </thead>
-                        <tbody id="top-transaction-list" class="divide-y divide-slate-700">
-                        </tbody>
+                        <tbody id="top-transaction-list" class="divide-y divide-slate-700"></tbody>
                     </table>
                 </div>
             </div>
 
             <div class="bg-slate-800 p-4 rounded-2xl border border-slate-700 shadow-lg transition-all duration-300">
                 <h3 class="text-slate-200 font-semibold mb-4 flex items-center gap-2">
-                    <i data-lucide="trending-up" class="w-5 h-5 text-emerald-400"></i>
-                    Balans Dinamikasi
+                    <i data-lucide="bar-chart-2" class="w-5 h-5 text-indigo-400"></i>
+                    Kirim va Chiqim Taqsimoti
                 </h3>
                 <div class="h-48 flex items-center justify-center relative">
-                    <canvas id="balanceChart"></canvas>
-                    <div id="no-balance-data-msg" class="absolute text-slate-500 text-sm hidden">Filtrlangan davrda
-                        ma'lumot yo'q</div>
+                    <canvas id="comparisonChart"></canvas>
+                    <div id="no-comparison-data-msg" class="absolute text-slate-500 text-sm hidden">Ma'lumot yo'q</div>
+                </div>
+                <div class="mt-3 flex justify-center gap-4 text-xs text-slate-400">
+                    <div class="flex items-center gap-1"><div class="w-3 h-3 rounded-full bg-emerald-500"></div> Kirim</div>
+                    <div class="flex items-center gap-1"><div class="w-3 h-3 rounded-full bg-rose-500"></div> Chiqim</div>
                 </div>
             </div>
 
-            <div class="bg-slate-800 p-4 rounded-2xl border border-slate-700 shadow-lg transition-all duration-300"
-                id="chart-container">
+            <div class="bg-slate-800 p-4 rounded-2xl border border-slate-700 shadow-lg transition-all duration-300" id="chart-container">
                 <h3 class="text-slate-200 font-semibold mb-4 flex items-center gap-2 transition-colors">
                     <i data-lucide="pie-chart" class="w-5 h-5 text-blue-400"></i>
                     <span id="chart-title">Xarajatlar Analitikasi</span>
@@ -240,26 +184,34 @@
                     <div id="no-data-msg" class="absolute text-slate-500 text-sm hidden">Hozircha ma'lumot yo'q</div>
                 </div>
             </div>
-
         </div>
 
         <div id="view-bot" class="flex flex-col h-full hidden fade-in">
-            <div
-                class="p-2 text-center text-xs text-slate-400 rounded-3xl border-b w-full px-4 border-slate-700 flex justify-between items-center bg-slate-800/10 backdrop-blur-sm">
-                <span>Bot Simulyatori</span>
-                <button onclick="openHelp('bot')" class="hover:text-blue-400"><i data-lucide="help-circle"
-                        class="w-4 h-4"></i></button>
+            <div class="p-2 text-center text-xs text-slate-400 rounded-3xl border-b w-full px-4 border-slate-700 flex justify-between items-center bg-slate-800/10 backdrop-blur-sm">
+                <span>Bot Yordamchi</span>
+                <button onclick="openHelp('bot')" class="hover:text-blue-400"><i data-lucide="help-circle" class="w-4 h-4"></i></button>
             </div>
 
-            <div id="chat-messages" class="flex-1 overflow-y-auto p-3 space-y-3">
-            </div>
+            <div id="chat-messages" class="flex-1 overflow-y-auto p-3 space-y-3"></div>
 
-            <div class="p-3 w-full relative bottom-[-10px] rounded-3xl border-t border-b border-slate-700">
-                <div class="flex gap-2">
-                    <input type="text" id="bot-input" placeholder="Kirim/Chiqim..."
-                        class="flex-1 bg-slate-700 text-white rounded-3xl px-4 py-3 focus:outline-none focus:ring-1 focus:ring-blue-500 placeholder-slate-500 text-sm">
-                    <button onclick="sendMessage()"
-                        class="bg-blue-600 text-white p-4 rounded-xl hover:bg-blue-500 active:scale-95 transition-transform">
+            <div class="p-3 w-full relative bottom-[-10px] rounded-3xl border-t border-b border-slate-700 bg-slate-900 z-10">
+                <div id="bot-default-actions" class="flex gap-3">
+                    <button onclick="startBotFlow('income')" class="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white p-4 rounded-2xl flex items-center justify-center gap-2 active:scale-95 transition-all">
+                        <i data-lucide="arrow-down-left" class="w-5 h-5"></i>
+                        <span class="font-bold">Kirim (+)</span>
+                    </button>
+                    <button onclick="startBotFlow('expense')" class="flex-1 bg-rose-600 hover:bg-rose-500 text-white p-4 rounded-2xl flex items-center justify-center gap-2 active:scale-95 transition-all">
+                        <i data-lucide="arrow-up-right" class="w-5 h-5"></i>
+                        <span class="font-bold">Chiqim (-)</span>
+                    </button>
+                </div>
+
+                <div id="bot-input-container" class="hidden flex gap-2 items-center">
+                    <button onclick="cancelBotFlow()" class="p-4 bg-slate-700 rounded-xl text-slate-400 hover:text-white active:scale-95 transition-transform">
+                        <i data-lucide="x" class="w-5 h-5"></i>
+                    </button>
+                    <input type="text" id="bot-input" class="flex-1 bg-slate-700 text-white rounded-2xl px-4 py-3 focus:outline-none focus:ring-1 focus:ring-blue-500 placeholder-slate-500 text-sm" autocomplete="off">
+                    <button onclick="submitBotInput()" class="bg-blue-600 text-white p-4 rounded-xl hover:bg-blue-500 active:scale-95 transition-transform">
                         <i data-lucide="send" class="w-5 h-5"></i>
                     </button>
                 </div>
@@ -269,16 +221,11 @@
         <div id="view-history" class="p-4 space-y-4 hidden fade-in">
             <div class="flex justify-between items-center mb-2">
                 <h2 class="text-xl font-bold text-white flex items-center gap-2">
-                    <i data-lucide="history" class="text-blue-500 w-6 h-6"></i>
-                    Tarix
+                    <i data-lucide="history" class="text-blue-500 w-6 h-6"></i> Tarix
                 </h2>
-                <button onclick="openHelp('history')" class="text-slate-500 hover:text-white"><i
-                        data-lucide="help-circle" class="w-5 h-5"></i></button>
+                <button onclick="openHelp('history')" class="text-slate-500 hover:text-white"><i data-lucide="help-circle" class="w-5 h-5"></i></button>
             </div>
-
-            <div id="history-list" class="space-y-3 pb-20">
-            </div>
-
+            <div id="history-list" class="space-y-3 pb-20"></div>
             <div id="empty-history" class="hidden flex flex-col items-center justify-center py-10 text-slate-500">
                 <i data-lucide="clipboard-list" class="w-12 h-12 mb-2 opacity-50"></i>
                 <p>Hozircha ma'lumot yo'q</p>
@@ -287,425 +234,256 @@
 
     </main>
 
-    <nav
-        class="fixed bottom-0 left-0 right-0 bg-slate-800 border-t border-slate-700 rounded-t-2xl flex justify-around py-3 px-2 z-30 max-w-md mx-auto shadow-2xl">
-        <button onclick="switchTab('dashboard')" id="nav-dashboard"
-            class="flex flex-col items-center gap-1 w-16 text-blue-500 transition-all">
+    <nav class="fixed bottom-0 left-0 right-0 bg-slate-800 border-t border-slate-700 rounded-t-2xl flex justify-around py-3 px-2 z-30 max-w-md mx-auto shadow-2xl">
+        <button onclick="switchTab('dashboard')" id="nav-dashboard" class="flex flex-col items-center gap-1 w-16 text-blue-500 transition-all">
             <i data-lucide="layout-dashboard" class="w-6 h-6"></i>
             <span class="text-[10px] font-medium">Asosiy</span>
         </button>
 
-        <button onclick="switchTab('bot')" id="nav-bot"
-            class="relative -top-6 flex flex-col items-center justify-center w-14 h-14 rounded-full bg-slate-700 text-slate-400 shadow-lg shadow-black/30 transition-all border-4 border-slate-900">
+        <button onclick="switchTab('bot')" id="nav-bot" class="relative -top-6 flex flex-col items-center justify-center w-14 h-14 rounded-full bg-slate-700 text-slate-400 shadow-lg shadow-black/30 transition-all border-4 border-slate-900">
             <i data-lucide="message-square" class="w-6 h-6 text-xl relative bottom-[-6px]"></i>
-            <span class="text-[10px] relative bottom-[-30px] font-medium">Kirim/Chiqim</span>
+            <span class="text-[10px] relative bottom-[-30px] font-medium">Bot</span>
         </button>
 
-        <button onclick="switchTab('history')" id="nav-history"
-            class="flex flex-col items-center gap-1 w-16 text-slate-500 hover:text-slate-300 transition-all">
+        <button onclick="switchTab('history')" id="nav-history" class="flex flex-col items-center gap-1 w-16 text-slate-500 hover:text-slate-300 transition-all">
             <i data-lucide="history" class="w-6 h-6"></i>
             <span class="text-[10px] font-medium">Tarix</span>
         </button>
     </nav>
 
-    <div id="date-range-modal"
-        class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+    <div id="date-range-modal" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
         <div class="bg-slate-800 rounded-2xl p-6 w-full max-w-sm border border-slate-700 shadow-2xl slide-up">
             <div class="flex justify-between items-center mb-4">
                 <h3 class="text-lg font-bold text-white">Maxsus Sana Tanlash</h3>
-                <button onclick="closeModal('date-range-modal')" class="text-slate-400 hover:text-white"><i
-                        data-lucide="x" class="w-6 h-6"></i></button>
+                <button onclick="closeModal('date-range-modal')" class="text-slate-400 hover:text-white"><i data-lucide="x" class="w-6 h-6"></i></button>
             </div>
             <div class="space-y-4">
                 <div>
                     <label for="start-date" class="text-xs text-slate-400 ml-1 block mb-1">Boshlanish Sanasi</label>
-                    <input type="date" id="start-date"
-                        class="w-full bg-slate-700 rounded-xl p-3 text-white outline-none border border-slate-600 focus:border-blue-500">
+                    <input type="date" id="start-date" class="w-full bg-slate-700 rounded-xl p-3 text-white outline-none border border-slate-600 focus:border-blue-500">
                 </div>
                 <div>
                     <label for="end-date" class="text-xs text-slate-400 ml-1 block mb-1">Tugash Sanasi</label>
-                    <input type="date" id="end-date"
-                        class="w-full bg-slate-700 rounded-xl p-3 text-white outline-none border border-slate-600 focus:border-blue-500">
+                    <input type="date" id="end-date" class="w-full bg-slate-700 rounded-xl p-3 text-white outline-none border border-slate-600 focus:border-blue-500">
                 </div>
             </div>
-            <button onclick="applyDateRange()"
-                class="mt-6 w-full bg-blue-600 py-2.5 rounded-xl text-white font-medium hover:bg-blue-700">Qo'llash</button>
+            <button onclick="applyDateRange()" class="mt-6 w-full bg-blue-600 py-2.5 rounded-xl text-white font-medium hover:bg-blue-700">Qo'llash</button>
         </div>
     </div>
 
-    <div id="help-modal"
-        class="fixed inset-0 bg-black/20 backdrop-blur-[5px] z-50 hidden flex items-center justify-center p-4">
+    <div id="help-modal" class="fixed inset-0 bg-black/20 backdrop-blur-[5px] z-50 hidden flex items-center justify-center p-4">
         <div class="bg-slate-800 rounded-2xl p-6 w-full max-w-sm border border-slate-700 shadow-2xl slide-up">
             <div class="flex justify-between items-center mb-4">
                 <h3 id="help-title" class="text-lg font-bold text-white">Qo'llanma</h3>
-                <button onclick="closeModal('help-modal')" class="text-slate-400 hover:text-white"><i data-lucide="x"
-                        class="w-6 h-6"></i></button>
+                <button onclick="closeModal('help-modal')" class="text-slate-400 hover:text-white"><i data-lucide="x" class="w-6 h-6"></i></button>
             </div>
             <div id="help-content" class="text-slate-300 text-sm leading-relaxed space-y-2"></div>
-            <button onclick="closeModal('help-modal')"
-                class="mt-6 w-full bg-blue-600 py-2.5 rounded-xl text-white font-medium hover:bg-blue-700">Tushundim</button>
+            <button onclick="closeModal('help-modal')" class="mt-6 w-full bg-blue-600 py-2.5 rounded-xl text-white font-medium hover:bg-blue-700">Tushundim</button>
         </div>
     </div>
 
-    <div id="action-sheet"
-        class="fixed inset-0 bg-black/20 backdrop-blur-[5px] z-40 hidden flex items-end justify-center sm:items-center"
-        onclick="closeActionSheet(event)">
-        <div class="bg-slate-800 w-[300px] max-w-md rounded-t-2xl sm:rounded-2xl p-4 border-t border-slate-700 slide-up"
-            onclick="event.stopPropagation()">
+    <div id="action-sheet" class="fixed inset-0 bg-black/20 backdrop-blur-[5px] z-40 hidden flex items-end justify-center sm:items-center" onclick="closeActionSheet(event)">
+        <div class="bg-slate-800 w-[300px] max-w-md rounded-t-2xl sm:rounded-2xl p-4 border-t border-slate-700 slide-up" onclick="event.stopPropagation()">
             <div class="w-12 h-1.5 bg-slate-600 rounded-full mx-auto mb-4"></div>
             <h3 class="text-center text-slate-400 mb-4 text-sm">Amallar</h3>
             <div class="space-y-2">
-                <button onclick="handleEdit()"
-                    class="w-full flex items-center gap-3 p-3 bg-slate-700/50 rounded-xl hover:bg-slate-700 text-blue-400">
+                <button onclick="handleEdit()" class="w-full flex items-center gap-3 p-3 bg-slate-700/50 rounded-xl hover:bg-slate-700 text-blue-400">
                     <i data-lucide="edit-3" class="w-5 h-5"></i> Tahrirlash
                 </button>
-                <button onclick="handleDeleteConfirm()"
-                    class="w-full flex items-center gap-3 p-3 bg-slate-700/50 rounded-xl hover:bg-slate-700 text-rose-400">
+                <button onclick="handleDeleteConfirm()" class="w-full flex items-center gap-3 p-3 bg-slate-700/50 rounded-xl hover:bg-slate-700 text-rose-400">
                     <i data-lucide="trash-2" class="w-5 h-5"></i> O'chirish
                 </button>
             </div>
-            <button onclick="closeActionSheet(null)" class="mt-4 w-full py-3 text-slate-400 font-medium">Bekor
-                qilish</button>
+            <button onclick="closeActionSheet(null)" class="mt-4 w-full py-3 text-slate-400 font-medium">Bekor qilish</button>
         </div>
     </div>
 
-    <div id="edit-modal"
-        class="fixed inset-0 bg-black/20 backdrop-blur-[5px] z-50 hidden flex items-center justify-center p-4">
+    <div id="edit-modal" class="fixed inset-0 bg-black/20 backdrop-blur-[5px] z-50 hidden flex items-center justify-center p-4">
         <div class="bg-slate-800 rounded-2xl p-5 w-full max-w-sm border border-slate-700 shadow-2xl">
             <h3 class="text-lg font-bold text-white mb-4">Tahrirlash</h3>
             <div class="space-y-3">
                 <div>
                     <label class="text-xs text-slate-400 ml-1">Kategoriya nomi</label>
-                    <input type="text" id="edit-category"
-                        class="w-full bg-slate-700 rounded-xl p-3 text-white outline-none border border-slate-600 focus:border-blue-500">
+                    <input type="text" id="edit-category" class="w-full bg-slate-700 rounded-xl p-3 text-white outline-none border border-slate-600 focus:border-blue-500">
                 </div>
                 <div>
                     <label class="text-xs text-slate-400 ml-1">Summa</label>
-                    <input type="number" id="edit-amount"
-                        class="w-full bg-slate-700 rounded-xl p-3 text-white outline-none border border-slate-600 focus:border-blue-500">
+                    <input type="number" id="edit-amount" class="w-full bg-slate-700 rounded-xl p-3 text-white outline-none border border-slate-600 focus:border-blue-500">
                 </div>
                 <div>
                     <label class="text-xs text-slate-400 ml-1">Turi</label>
-                    <select id="edit-type"
-                        class="w-full bg-slate-700 rounded-xl p-3 text-white outline-none border border-slate-600 focus:border-blue-500">
+                    <select id="edit-type" class="w-full bg-slate-700 rounded-xl p-3 text-white outline-none border border-slate-600 focus:border-blue-500">
                         <option value="income">Kirim (+)</option>
                         <option value="expense">Chiqim (-)</option>
                     </select>
                 </div>
             </div>
             <div class="flex gap-3 mt-6">
-                <button onclick="closeModal('edit-modal')"
-                    class="flex-1 py-2.5 bg-slate-700 rounded-xl text-slate-300">Bekor qilish</button>
+                <button onclick="closeModal('edit-modal')" class="flex-1 py-2.5 bg-slate-700 rounded-xl text-slate-300">Bekor qilish</button>
                 <button onclick="saveEdit()" class="flex-1 py-2.5 bg-blue-600 rounded-xl text-white">Saqlash</button>
             </div>
         </div>
     </div>
 
-    <div id="delete-modal"
-        class="fixed inset-0 bg-black/20 backdrop-blur-[5px] z-50 hidden flex items-center justify-center p-4">
-        <div
-            class="bg-slate-800 rounded-2xl p-6 w-full max-w-xs border border-slate-700 text-center scale-95 transition-transform">
+    <div id="delete-modal" class="fixed inset-0 bg-black/20 backdrop-blur-[5px] z-50 hidden flex items-center justify-center p-4">
+        <div class="bg-slate-800 rounded-2xl p-6 w-full max-w-xs border border-slate-700 text-center scale-95 transition-transform">
             <div class="w-12 h-12 bg-rose-500/20 rounded-full flex items-center justify-center mx-auto mb-4">
                 <i data-lucide="alert-triangle" class="w-6 h-6 text-rose-500"></i>
             </div>
             <h3 class="text-lg font-bold text-white mb-2">O'chirmoqchimisiz?</h3>
-            <p class="text-slate-400 text-sm mb-6">Bu amalni ortga qaytarib bo'lmaydi. Rostdan ham o'chirilsinmi?</p>
+            <p class="text-slate-400 text-sm mb-6">Bu amalni ortga qaytarib bo'lmaydi.</p>
             <div class="flex gap-3">
-                <button onclick="closeModal('delete-modal')"
-                    class="flex-1 py-2 rounded-xl bg-slate-700 text-slate-300">Yo'q</button>
-                <button onclick="confirmDelete()"
-                    class="flex-1 py-2 rounded-xl bg-rose-600 text-white hover:bg-rose-700">Ha, o'chirish</button>
+                <button onclick="closeModal('delete-modal')" class="flex-1 py-2 rounded-xl bg-slate-700 text-slate-300">Yo'q</button>
+                <button onclick="confirmDelete()" class="flex-1 py-2 rounded-xl bg-rose-600 text-white hover:bg-rose-700">Ha, o'chirish</button>
             </div>
         </div>
     </div>
 
     <script>
-        // --- STATE MANAGEMENT ---
+        // --- STATE ---
         let transactions = JSON.parse(localStorage.getItem('transactions')) || [];
         let selectedTransactionId = null;
-
         let categoryChartInstance = null;
-        let balanceChartInstance = null;
-
+        let comparisonChartInstance = null; // YANGI CHART UCHUN
         let activeTypeFilter = 'all'; 
         let activeDateFilter = 'all';
+        
+        let botState = 'idle';
+        let draftTransaction = { type: '', category: '', amount: 0 };
 
         // --- UTILS ---
-        const formatNumber = (num) => {
-            return num.toString().replace(/\B(?=(\d{3})+(?!\d))/g, " ");
-        };
-        const getStartOfDay = (timestamp) => new Date(new Date(timestamp).setHours(0, 0, 0, 0)).getTime();
+        const formatNumber = (num) => num.toString().replace(/\B(?=(\d{3})+(?!\d))/g, " ");
+        const getStartOfDay = (ts) => new Date(new Date(ts).setHours(0, 0, 0, 0)).getTime();
         const saveToStorage = () => {
             localStorage.setItem('transactions', JSON.stringify(transactions));
             updateUI();
         };
 
-        // --- FILTER HELPERS ---
+        // --- APP START ---
+        document.addEventListener('DOMContentLoaded', () => {
+            lucide.createIcons();
+            switchTab('dashboard'); 
+            updateUI();
+
+            const chat = document.getElementById('chat-messages');
+            if (chat && chat.children.length === 0) {
+                addMessage("bot", "Assalomu alaykum! 👋\nPastdagi tugmalar orqali Kirim yoki Chiqimlarni kiriting.");
+            }
+
+            const botInput = document.getElementById('bot-input');
+            if (botInput) {
+                botInput.addEventListener('keypress', function (e) {
+                    if (e.key === 'Enter') {
+                        e.preventDefault(); 
+                        submitBotInput();
+                    }
+                });
+            }
+        });
+
+        // --- DASHBOARD LOGIC ---
+        function toggleTypeFilter(type) {
+            activeTypeFilter = activeTypeFilter === type ? 'all' : type;
+            updateUI();
+        }
+        function setDateFilter(filter) {
+            activeDateFilter = filter;
+            document.querySelectorAll('.date-filter-btn').forEach(btn => btn.classList.remove('date-filter-active'));
+            const activeBtn = document.querySelector(`.date-filter-btn[data-filter="${filter}"]`);
+            if (activeBtn) activeBtn.classList.add('date-filter-active');
+            updateUI();
+        }
+        function openDateRangeModal() {
+            activeDateFilter = 'custom';
+            document.getElementById('date-range-modal').classList.remove('hidden');
+        }
+        function applyDateRange() {
+            if (document.getElementById('start-date').value && document.getElementById('end-date').value) {
+                updateUI();
+                closeModal('date-range-modal');
+            } else {
+                alert("Sanalarni kiriting!");
+            }
+        }
+
         function getDateRange() {
             const now = new Date();
-            let startDate = 0; 
-            let endDate = now.getTime();
+            let startDate = 0, endDate = now.getTime();
 
-            if (activeDateFilter === 'week') {
-                startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 7).getTime();
-            } else if (activeDateFilter === 'month') {
-                startDate = new Date(now.getFullYear(), now.getMonth() - 1, now.getDate()).getTime();
-            } else if (activeDateFilter === 'year') {
-                startDate = new Date(now.getFullYear() - 1, now.getMonth(), now.getDate()).getTime();
-            } else if (activeDateFilter === 'custom') {
-                const start = document.getElementById('start-date').value;
-                const end = document.getElementById('end-date').value;
-                if (start) startDate = getStartOfDay(new Date(start).getTime());
-                if (end) endDate = getStartOfDay(new Date(end).getTime()) + (24 * 60 * 60 * 1000) - 1;
+            if (activeDateFilter === 'week') startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 7).getTime();
+            else if (activeDateFilter === 'month') startDate = new Date(now.getFullYear(), now.getMonth() - 1, now.getDate()).getTime();
+            else if (activeDateFilter === 'year') startDate = new Date(now.getFullYear() - 1, now.getMonth(), now.getDate()).getTime();
+            else if (activeDateFilter === 'custom') {
+                const s = document.getElementById('start-date').value;
+                const e = document.getElementById('end-date').value;
+                if (s) startDate = getStartOfDay(new Date(s).getTime());
+                if (e) endDate = getStartOfDay(new Date(e).getTime()) + (24 * 60 * 60 * 1000) - 1;
             }
             return { startDate, endDate };
         }
 
-        // --- APP LOGIC ---
-        document.addEventListener('DOMContentLoaded', () => {
-            lucide.createIcons();
-            switchTab('dashboard'); 
-            updateUI(); 
-
-            const chatContainer = document.getElementById('chat-messages');
-            if (chatContainer && chatContainer.children.length === 0) {
-                addMessage("bot", "Assalomu alaykum! \nQo'llanma 'Bot Simulyatori' qatorini oxirida ❓ (?) belgisida. \nShunchaki malumotlarni kiriting, qolgan ishni botni o'zi qiladi. 😉");
-            }
-        });
-
-        // --- ANALITIKA FILTRLARI ---
-        function toggleTypeFilter(type) {
-            if (activeTypeFilter === type) {
-                activeTypeFilter = 'all'; 
-            } else {
-                activeTypeFilter = type;
-            }
-            updateUI();
-        }
-
-        function setDateFilter(filter) {
-            activeDateFilter = filter;
-
-            document.querySelectorAll('.date-filter-btn').forEach(btn => {
-                btn.classList.remove('date-filter-active');
-            });
-            const activeBtn = document.querySelector(`.date-filter-btn[data-filter="${filter}"]`);
-            if (activeBtn) {
-                activeBtn.classList.add('date-filter-active');
-            }
-
-            updateUI();
-        }
-
-        function openDateRangeModal() {
-            document.querySelector('.date-filter-btn[data-filter="all"]').classList.remove('date-filter-active');
-            activeDateFilter = 'custom';
-            document.getElementById('date-range-modal').classList.remove('hidden');
-        }
-
-        function applyDateRange() {
-            const start = document.getElementById('start-date').value;
-            const end = document.getElementById('end-date').value;
-
-            if (start && end) {
-                updateUI();
-                closeModal('date-range-modal');
-            } else {
-                alert("Iltimos, boshlanish va tugash sanalarini kiriting!");
-            }
-        }
-
-        function updateFilterStyles() {
-            const incCard = document.getElementById('card-income');
-            const expCard = document.getElementById('card-expense');
-
-            incCard.classList.remove('filter-active', 'filter-inactive');
-            expCard.classList.remove('filter-active', 'filter-inactive');
-
-            if (activeTypeFilter === 'all') return;
-
-            if (activeTypeFilter === 'income') {
-                incCard.classList.add('filter-active');
-                expCard.classList.add('filter-inactive');
-            } else if (activeTypeFilter === 'expense') {
-                expCard.classList.add('filter-active');
-                incCard.classList.add('filter-inactive');
-            }
-        }
-
-        function switchTab(tab) {
-            document.getElementById('view-dashboard').classList.add('hidden');
-            document.getElementById('view-bot').classList.add('hidden');
-            document.getElementById('view-history').classList.add('hidden');
-
-            document.getElementById('nav-dashboard').className = "flex flex-col items-center gap-1 w-16 text-slate-500 transition-all";
-            document.getElementById('nav-history').className = "flex flex-col items-center gap-1 w-16 text-slate-500 transition-all";
-            document.getElementById('nav-bot').className = "relative -top-6 flex flex-col items-center justify-center w-14 h-14 rounded-full bg-slate-700 text-slate-400 shadow-lg shadow-black/30 transition-all border-4 border-slate-900";
-
-            document.getElementById(`view-${tab}`).classList.remove('hidden');
-
-            if (tab === 'dashboard') {
-                document.getElementById('nav-dashboard').className = "flex flex-col items-center gap-1 w-16 text-blue-500 scale-110 transition-all";
-                updateUI();
-            } else if (tab === 'history') {
-                document.getElementById('nav-history').className = "flex flex-col items-center gap-1 w-16 text-blue-500 scale-110 transition-all";
-            } else if (tab === 'bot') {
-                // Yangilangan Navigatsiya stili
-                document.getElementById('nav-bot').className = "relative -top-6 flex flex-col items-center justify-center w-14 h-14 rounded-full bg-blue-600 text-white shadow-lg shadow-blue-600/40 scale-110 transition-all border-4 border-slate-900";
-            }
-
-            setTimeout(() => { lucide.createIcons(); }, 10);
-        }
-
-        // --- UI Update Central Function ---
         function updateUI() {
             const { startDate, endDate } = getDateRange();
+            const filtered = transactions.filter(t => t.date >= startDate && t.date <= endDate);
+            
+            const inc = filtered.filter(t => t.type === 'income').reduce((a, c) => a + c.amount, 0);
+            const exp = filtered.filter(t => t.type === 'expense').reduce((a, c) => a + c.amount, 0);
+            
+            document.getElementById('total-balance').innerText = `${formatNumber(inc - exp)} so'm`;
+            document.getElementById('total-income').innerText = `+${formatNumber(inc)}`;
+            document.getElementById('total-expense').innerText = `-${formatNumber(exp)}`;
 
-            const filteredTransactions = transactions.filter(t => t.date >= startDate && t.date <= endDate);
+            const iC = document.getElementById('card-income'), eC = document.getElementById('card-expense');
+            iC.className = `bg-emerald-500/10 p-3 rounded-xl border border-emerald-500/20 flex items-center gap-3 cursor-pointer transition-all ${activeTypeFilter==='income'?'ring-2 ring-emerald-500 shadow-lg': activeTypeFilter==='expense'?'opacity-40 grayscale':''}`;
+            eC.className = `bg-rose-500/10 p-3 rounded-xl border border-rose-500/20 flex items-center gap-3 cursor-pointer transition-all ${activeTypeFilter==='expense'?'ring-2 ring-rose-500 shadow-lg': activeTypeFilter==='income'?'opacity-40 grayscale':''}`;
 
-            const incomeTransactions = filteredTransactions.filter(t => t.type === 'income');
-            const expenseTransactions = filteredTransactions.filter(t => t.type === 'expense');
-
-            const totalIncome = incomeTransactions.reduce((a, c) => a + c.amount, 0);
-            const totalExpense = expenseTransactions.reduce((a, c) => a + c.amount, 0);
-            const balance = totalIncome - totalExpense;
-
-            document.getElementById('total-balance').innerText = `${formatNumber(balance)} so'm`;
-            document.getElementById('total-income').innerText = `+${formatNumber(totalIncome)}`;
-            document.getElementById('total-expense').innerText = `-${formatNumber(totalExpense)}`;
-
-            updateFilterStyles();
-            renderCategoryChart(filteredTransactions);
-            renderBalanceChart(filteredTransactions);
-            renderTopList(filteredTransactions);
+            renderCharts(filtered);
+            renderTopList(filtered);
             renderHistory();
         }
 
-        // --- ANALITIKA RENDER FUNKSIYALARI (O'zgarishsiz) ---
-        function renderCategoryChart(data) {
-            const ctx = document.getElementById('categoryChart').getContext('2d');
-            const titleEl = document.getElementById('chart-title');
+        // --- CHARTS (UPDATED WITH BAR CHART) ---
+        function renderCharts(data) {
+            // 1. Category Chart (Doughnut)
+            const ctxCat = document.getElementById('categoryChart').getContext('2d');
+            let target = activeTypeFilter === 'income' ? data.filter(t => t.type === 'income') : data.filter(t => t.type === 'expense');
+            let label = activeTypeFilter === 'income' ? "Kirimlar" : "Xarajatlar";
+            let colors = activeTypeFilter === 'income' ? ['#10b981', '#34d399', '#6ee7b7'] : ['#ef4444', '#f59e0b', '#3b82f6', '#8b5cf6'];
+            
+            document.getElementById('chart-title').innerText = label;
+            document.getElementById('no-data-msg').classList.toggle('hidden', target.length > 0);
 
-            let chartData = [];
-            let chartLabel = "";
-            let colors = [];
+            const cats = {};
+            target.forEach(t => cats[t.category] = (cats[t.category] || 0) + t.amount);
 
-            if (activeTypeFilter === 'income') {
-                chartData = data.filter(t => t.type === 'income');
-                chartLabel = "Kirimlar Analitikasi";
-                colors = ['#10b981', '#34d399', '#6ee7b7', '#059669', '#047857', '#99f6e4', '#a7f3d0'];
-            } else if (activeTypeFilter === 'expense') {
-                chartData = data.filter(t => t.type === 'expense');
-                chartLabel = "Xarajatlar Analitikasi";
-                colors = ['#ef4444', '#f59e0b', '#3b82f6', '#8b5cf6', '#ec4899', '#eab308', '#f43f5e'];
-            } else {
-                chartData = data.filter(t => t.type === 'expense');
-                chartLabel = "Xarajatlar Analitikasi";
-                colors = ['#ef4444', '#f59e0b', '#3b82f6', '#8b5cf6', '#ec4899', '#eab308', '#f43f5e'];
-            }
-
-            titleEl.innerText = chartLabel;
-
-            if (chartData.length === 0) {
-                document.getElementById('no-data-msg').classList.remove('hidden');
-                if (categoryChartInstance) categoryChartInstance.destroy();
-                return;
-            }
-            document.getElementById('no-data-msg').classList.add('hidden');
-
-            const categories = {};
-            chartData.forEach(t => {
-                categories[t.category] = (categories[t.category] || 0) + t.amount;
-            });
-
-            const labels = Object.keys(categories);
-            const values = Object.values(categories);
-
-            if (categoryChartInstance) {
-                categoryChartInstance.destroy();
-            }
-
-            categoryChartInstance = new Chart(ctx, {
+            if (categoryChartInstance) categoryChartInstance.destroy();
+            categoryChartInstance = new Chart(ctxCat, {
                 type: 'doughnut',
+                data: { labels: Object.keys(cats), datasets: [{ data: Object.values(cats), backgroundColor: colors, borderWidth: 0 }] },
+                options: { responsive: true, maintainAspectRatio: false, cutout: '70%', plugins: { legend: { display: false } } }
+            });
+
+            // 2. NEW: Comparison Chart (Bar) - ANIQROQ VA TUSHUNARLIROQ
+            const ctxComp = document.getElementById('comparisonChart').getContext('2d');
+            
+            const totalInc = data.filter(t => t.type === 'income').reduce((a,c) => a+c.amount, 0);
+            const totalExp = data.filter(t => t.type === 'expense').reduce((a,c) => a+c.amount, 0);
+            
+            // Agar ikkalasi ham 0 bo'lsa "Malumot yo'q" deymiz
+            const hasData = totalInc > 0 || totalExp > 0;
+            document.getElementById('no-comparison-data-msg').classList.toggle('hidden', hasData);
+
+            if (comparisonChartInstance) comparisonChartInstance.destroy();
+            
+            comparisonChartInstance = new Chart(ctxComp, {
+                type: 'bar',
                 data: {
-                    labels: labels,
+                    labels: ['Kirim', 'Chiqim'],
                     datasets: [{
-                        data: values,
-                        backgroundColor: colors,
-                        borderWidth: 0,
-                        hoverOffset: 8
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: {
-                        legend: { display: false },
-                        tooltip: {
-                            callbacks: {
-                                label: (context) => {
-                                    const value = formatNumber(context.parsed);
-                                    return `${context.label}: ${value} so'm`;
-                                }
-                            }
-                        }
-                    },
-                    cutout: '70%'
-                }
-            });
-        }
-
-        function renderBalanceChart(data) {
-            const ctx = document.getElementById('balanceChart').getContext('2d');
-
-            const dailyData = {};
-            data.forEach(t => {
-                const dateKey = new Date(t.date).toLocaleDateString('en-CA'); 
-                dailyData[dateKey] = dailyData[dateKey] || { income: 0, expense: 0 };
-
-                if (t.type === 'income') {
-                    dailyData[dateKey].income += t.amount;
-                } else {
-                    dailyData[dateKey].expense += t.amount;
-                }
-            });
-
-            const sortedDates = Object.keys(dailyData).sort();
-
-            if (sortedDates.length === 0) {
-                document.getElementById('no-balance-data-msg').classList.remove('hidden');
-                if (balanceChartInstance) balanceChartInstance.destroy();
-                return;
-            }
-            document.getElementById('no-balance-data-msg').classList.add('hidden');
-
-            let runningBalance = transactions
-                .filter(t => t.date < getStartOfDay(new Date(sortedDates[0])))
-                .reduce((acc, t) => t.type === 'income' ? acc + t.amount : acc - t.amount, 0);
-
-            const balanceHistory = sortedDates.map(date => {
-                const day = dailyData[date];
-                runningBalance += day.income - day.expense;
-                return runningBalance;
-            });
-
-            if (balanceChartInstance) {
-                balanceChartInstance.destroy();
-            }
-
-            balanceChartInstance = new Chart(ctx, {
-                type: 'line',
-                data: {
-                    labels: sortedDates.map(d => new Date(d).toLocaleDateString('uz-UZ', { day: 'numeric', month: 'short' })),
-                    datasets: [{
-                        label: 'Balans',
-                        data: balanceHistory,
-                        borderColor: '#3b82f6', 
-                        backgroundColor: 'rgba(59, 130, 246, 0.1)',
-                        fill: true,
-                        tension: 0.4,
-                        pointRadius: 3,
-                        pointHoverRadius: 5
+                        data: [totalInc, totalExp],
+                        backgroundColor: ['#10b981', '#ef4444'], // Yashil va Qizil
+                        borderRadius: 8,
+                        barThickness: 40,
                     }]
                 },
                 options: {
@@ -713,16 +491,13 @@
                     maintainAspectRatio: false,
                     plugins: { legend: { display: false } },
                     scales: {
-                        x: {
-                            grid: { color: 'rgba(255,255,255,0.05)' },
-                            ticks: { color: '#94a3b8' }
+                        x: { 
+                            grid: { display: false },
+                            ticks: { color: document.body.classList.contains('light-mode') ? '#475569' : '#94a3b8', font: { weight: 'bold' } }
                         },
-                        y: {
-                            grid: { color: 'rgba(255,255,255,0.05)' },
-                            ticks: {
-                                color: '#94a3b8',
-                                callback: (value) => formatNumber(value) 
-                            }
+                        y: { 
+                            grid: { color: document.body.classList.contains('light-mode') ? '#e2e8f0' : 'rgba(255,255,255,0.05)' },
+                            ticks: { display: false } // Y o'qi raqamlarini yashirish (toza ko'rinish uchun)
                         }
                     }
                 }
@@ -730,192 +505,177 @@
         }
 
         function renderTopList(data) {
-            const tableBody = document.getElementById('top-transaction-list');
-            const titleEl = document.getElementById('table-title');
-            const noDataMsg = document.getElementById('no-top-data-msg');
-
-            tableBody.innerHTML = '';
-
-            let targetData = [];
-            let isIncomeList = false;
-
-            if (activeTypeFilter === 'income') {
-                targetData = data.filter(t => t.type === 'income');
-                titleEl.innerText = "Top 10 Kirimlar";
-                isIncomeList = true;
-            } else if (activeTypeFilter === 'expense') {
-                targetData = data.filter(t => t.type === 'expense');
-                titleEl.innerText = "Top 10 Xarajatlar";
-            } else {
-                targetData = data.filter(t => t.type === 'expense');
-                titleEl.innerText = "Top 10 Xarajatlar";
-            }
-
-            if (targetData.length === 0) {
-                noDataMsg.classList.remove('hidden');
-                return;
-            }
-            noDataMsg.classList.add('hidden');
-
-            const aggregated = targetData.reduce((acc, t) => {
-                acc[t.category] = (acc[t.category] || 0) + t.amount;
-                return acc;
-            }, {});
-
-            const topCategories = Object.entries(aggregated)
-                .sort(([, a], [, b]) => b - a)
-                .slice(0, 10);
-
-            topCategories.forEach(([category, amount]) => {
-                const row = `
-                    <tr class="text-slate-300">
-                        <td class="py-2 capitalize">${category}</td>
-                        <td class="py-2 text-right font-semibold ${isIncomeList ? 'text-emerald-400' : 'text-rose-400'}">
-                            ${formatNumber(amount)} so'm
-                        </td>
-                    </tr>
-                `;
-                tableBody.innerHTML += row;
+            const table = document.getElementById('top-transaction-list');
+            const target = activeTypeFilter === 'income' ? data.filter(t=>t.type==='income') : data.filter(t=>t.type==='expense');
+            document.getElementById('table-title').innerText = activeTypeFilter === 'income' ? "Top 5 Kirimlar" : "Top 5 Xarajatlar";
+            document.getElementById('no-top-data-msg').classList.toggle('hidden', target.length > 0);
+            
+            table.innerHTML = '';
+            const agg = target.reduce((a,c)=>{ a[c.category]=(a[c.category]||0)+c.amount; return a; }, {});
+            Object.entries(agg).sort(([,a],[,b])=>b-a).slice(0,5).forEach(([c,a]) => {
+                table.innerHTML += `<tr class="text-slate-300"><td class="py-2 capitalize">${c}</td><td class="py-2 text-right font-semibold ${activeTypeFilter==='income'?'text-emerald-400':'text-rose-400'}">${formatNumber(a)} so'm</td></tr>`;
             });
         }
 
+        // --- BOT LOGIC (NEW CARD DESIGN) ---
+        function startBotFlow(type) {
+            draftTransaction = { type: type, category: '', amount: 0 };
+            
+            document.getElementById('bot-default-actions').classList.add('hidden');
+            document.getElementById('bot-input-container').classList.remove('hidden');
+            const input = document.getElementById('bot-input');
 
-        // --- BOT LOGIC (OPTIMALLASHTIRILGAN) ---
+            if (type === 'income') {
+                botState = 'income_category';
+                addMessage('user', 'Kirim 📈');
+                setTimeout(() => addMessage('bot', "Pul qayerdan keldi? (Masalan: Oylik, Bonus)"), 300);
+                input.placeholder = "Manba...";
+            } else {
+                botState = 'expense_category';
+                addMessage('user', 'Chiqim 📉');
+                setTimeout(() => addMessage('bot', "Nima uchun xarajat qildingiz?"), 300);
+                input.placeholder = "Xarajat nomi...";
+            }
+            input.type = "text";
+            input.value = '';
+            input.focus();
+        }
 
-        const botInput = document.getElementById('bot-input');
+        function cancelBotFlow() {
+            document.getElementById('bot-default-actions').classList.remove('hidden');
+            document.getElementById('bot-input-container').classList.add('hidden');
+            botState = 'idle';
+            addMessage('bot', "Bekor qilindi ❌");
+        }
 
-        botInput.addEventListener('keypress', (e) => {
-            if (e.key === 'Enter') sendMessage();
-        });
+        function submitBotInput() {
+            const input = document.getElementById('bot-input');
+            const val = input.value.trim();
+            if (!val) return;
 
-        function sendMessage() {
-            const text = botInput.value.trim();
-            if (!text) return;
+            addMessage('user', val);
+            input.value = '';
+            input.focus(); 
 
-            addMessage('user', text);
-            botInput.value = '';
+            if (botState.includes('category')) {
+                draftTransaction.category = val;
+                botState = botState === 'income_category' ? 'income_amount' : 'expense_amount';
+                setTimeout(() => addMessage('bot', "Summani kiriting (faqat raqam):"), 300);
+                input.placeholder = "Summa (so'm)...";
+                input.type = "tel";
+            } else if (botState.includes('amount')) {
+                const amt = parseInt(val.replace(/\D/g, ''));
+                if (!amt || amt <= 0) {
+                    setTimeout(() => addMessage('bot', "⚠️ Iltimos, to'g'ri summa kiriting."), 300);
+                    return;
+                }
+                draftTransaction.amount = amt;
+                finishTransaction();
+            }
+        }
 
-            setTimeout(() => processBotCommand(text), 600);
+        function finishTransaction() {
+            const newTrans = {
+                id: Date.now() + Math.random(), 
+                date: Date.now(),
+                type: draftTransaction.type,
+                amount: draftTransaction.amount,
+                category: draftTransaction.category.charAt(0).toUpperCase() + draftTransaction.category.slice(1)
+            };
+            transactions.push(newTrans);
+            saveToStorage();
+
+            document.getElementById('bot-input-container').classList.add('hidden');
+            document.getElementById('bot-default-actions').classList.remove('hidden');
+            botState = 'idle';
+            
+            // YANGI DIZAYN: Bot xabari o'rniga Karta (Card)
+            setTimeout(() => addTransactionCard(newTrans), 300);
+        }
+
+        // Yangi Funksiya: Bot ichida chiroyli karta chiqarish
+        function addTransactionCard(t) {
+            const chat = document.getElementById('chat-messages');
+            const div = document.createElement('div');
+            div.className = "flex justify-start fade-in";
+            
+            const isInc = t.type === 'income';
+            const d = new Date(t.date);
+            const timeStr = `${d.getHours()}:${String(d.getMinutes()).padStart(2,'0')}`;
+
+            // Karta HTML strukturasi (Dashboarddagi kabi)
+            // bot-card-success klassi Light mode uchun ishlatiladi
+            div.innerHTML = `
+                <div class="w-[85%] bg-slate-800 bot-card-success p-3 rounded-2xl border border-slate-700 flex items-center justify-between shadow-md">
+                    <div class="flex items-center gap-3 overflow-hidden">
+                        <div class="p-2.5 rounded-full shrink-0 ${isInc ? 'bg-emerald-500/20 text-emerald-400' : 'bg-rose-500/20 text-rose-400'}">
+                            <i data-lucide="${isInc ? 'arrow-down-left' : 'arrow-up-right'}" class="w-5 h-5"></i>
+                        </div>
+                        <div class="overflow-hidden">
+                            <div class="text-white font-bold text-sm capitalize truncate">${t.category}</div>
+                            <div class="text-xs text-slate-400">Bugun, ${timeStr}</div>
+                        </div>
+                    </div>
+                    <div class="font-bold ${isInc ? 'text-emerald-400' : 'text-rose-400'} text-sm whitespace-nowrap pl-2">
+                        ${isInc ? '+' : '-'}${formatNumber(t.amount)}
+                    </div>
+                </div>
+            `;
+            
+            chat.appendChild(div);
+            chat.scrollTop = chat.scrollHeight;
+            lucide.createIcons();
         }
 
         function addMessage(sender, text) {
-            const container = document.getElementById('chat-messages');
+            const chat = document.getElementById('chat-messages');
             const div = document.createElement('div');
-            div.className = `flex ${sender === 'user' ? 'justify-end' : 'justify-start'} fade-in`;
-
-            div.innerHTML = `
-                <div class="max-w-[80%] p-3 rounded-3xl text-sm ${sender === 'user'
-                    ? 'bg-blue-600 text-white rounded-tr-none'
-                    : 'bg-slate-700 text-slate-200 border border-slate-600 rounded-tl-none'
-                }">
-                    ${text}
-                </div>
-            `;
-            container.appendChild(div);
-            container.scrollTop = container.scrollHeight;
+            div.className = `flex ${sender==='user'?'justify-end':'justify-start'} fade-in`;
+            div.innerHTML = `<div class="max-w-[80%] p-3 rounded-2xl text-sm shadow-sm ${sender==='user'?'bg-blue-600 text-white rounded-tr-none':'bg-slate-700 text-slate-200 rounded-tl-none bot-msg-bg'}">${text.replace(/\n/g, '<br>')}</div>`;
+            chat.appendChild(div);
+            chat.scrollTop = chat.scrollHeight;
         }
 
-        function processBotCommand(text) {
-            const lower = text.toLowerCase().trim();
-
-            // 1. Salomlashishni tekshirish
-            const welcomeKeywords = ['salom', 'assalom', 'salomlar', 'assalomu alaykum', 'salom alaykum', 'assalomu aleykum'];
-            if (welcomeKeywords.some(keyword => lower.includes(keyword))) {
-                addMessage('bot', "Va alaykum assalom! 👋\n\nQanday yordam bera olaman?\nIltimos, 'kirim' yoki 'rasxod' buyruqlarini ishlating.");
+        // --- HISTORY & ACTIONS ---
+        function renderHistory() {
+            const list = document.getElementById('history-list');
+            list.innerHTML = '';
+            if (transactions.length === 0) {
+                document.getElementById('empty-history').classList.remove('hidden');
                 return;
             }
+            document.getElementById('empty-history').classList.add('hidden');
+
+            const sorted = [...transactions].sort((a, b) => b.date - a.date);
             
-            // 2. Summani ajratish
-            const amountMatch = lower.match(/(\d[\d\s]*\d|\d+)/);
-            const amountStr = amountMatch ? amountMatch[0].replace(/\s/g, '') : '0';
-            const amount = parseInt(amountStr);
-
-            // Matndan raqamni va 'so'm', 'sum', 'som' kabi keraksiz so'zlarni olib tashlash
-            let description = lower
-                .replace(amountMatch ? amountMatch[0] : '', '')
-                .replace(/\sso['’]?m|\ssum|\ssom|\stg|\s$/, '')
-                .trim();
-            
-            let type = '';
-            let category = '';
-
-            // 3. Buyruq turini aniqlash
-            const incomeKeywords = ['oylik', 'kirim', 'daromad', 'topdim', 'tushum', 'tushdi', 'daxod'];
-            const expenseKeywords = ['rasxod','chiqim', 'xarajat', 'oldim', 'ketdi'];
-            
-            const isIncome = incomeKeywords.some(keyword => lower.includes(keyword));
-            const isExpense = expenseKeywords.some(keyword => lower.includes(keyword));
-
-            if (isIncome && !isExpense) {
-                type = 'income';
-                incomeKeywords.forEach(word => {
-                    description = description.replace(new RegExp(`\\b${word}\\b`, 'g'), '').trim();
-                });
-                category = description.length > 0 ? description : 'Kirim';
-
-            } else if (isExpense && !isIncome) {
-                type = 'expense';
-                expenseKeywords.forEach(word => {
-                    description = description.replace(new RegExp(`\\b${word}\\b`, 'g'), '').trim();
-                });
-                category = description.length > 0 ? description : 'Chiqim';
-            }
-            
-            // Agar summa topilmasa yoki tur aniqlanmasa
-            if (!amount) {
-                addMessage('bot', "⚠️ Summani tushunmadim. Iltimos, raqam ishlating.\nMasalan: 'kirim 1 000 000'");
-                return;
-            }
-
-            if (!type) {
-                addMessage('bot', "🤷‍♂️ Bu 'kirim'mi yoki 'rasxod'mi tushunmadim. Iltimos aniqlik kiriting.");
-                return;
-            }
-
-            // 4. Balansni tekshirish (faqat chiqim uchun)
-            if (type === 'expense') {
-                const currentBalance = transactions.reduce((acc, t) => t.type === 'income' ? acc + t.amount : acc - t.amount, 0);
-                if (currentBalance < amount) {
-                    addMessage('bot', `❌ Balans yetarli emas! Sizda: ${formatNumber(currentBalance)} so'm bor.`);
-                    return;
-                }
-            }
-            
-            // 5. Tranzaksiyani saqlash
-            const newTransaction = {
-                id: Date.now(),
-                amount: amount,
-                type: type,
-                category: category.charAt(0).toUpperCase() + category.slice(1),
-                date: Date.now()
-            };
-
-            transactions.push(newTransaction);
-            saveToStorage();
-
-            const icon = type === 'income' ? '🤑' : '💸';
-            addMessage('bot', `${icon} Qabul qilindi: ${newTransaction.category} \nSumma: ${formatNumber(amount)} so'm`);
-        }
-
-        // ACTIONS & MODALS (O'zgarishsiz)
-        const helpData = {
-            general: "Bu ilova orqali moliyaviy holatingizni boshqaring. Bot bo'limida buyruqlar yozing, Tarix bo'limida tahrirlang.",
-            dashboard: "Asosiy sahifa. Balansingiz va analiz. 'Kirim' yoki 'Chiqim' kartalarini bosib diagrammani filtrlashingiz mumkin. Yuqorida esa sana filtrlarini ishlating.",
-            bot: "Botga yozish uchun buyruqlar:\n1. 'kirim oylik 5 000 000'\n2. 'rasxod bozorga 200 000'\n\nBot avtomatik hisoblaydi. Buyruq turini ('kirim' yoki 'rasxod') aniq ko'rsating.",
-            history: "Barcha operatsiyalar ro'yxati. O'ng tomondagi 3 nuqtani bosib tahrirlang yoki o'chiring."
-        };
-
-        function openHelp(section) {
-            document.getElementById('help-title').innerText = section === 'general' ? "Umumiy Yordam" :
-                section === 'dashboard' ? "Dashboard Haqida" :
-                    section === 'bot' ? "Bot Buyruqlari" : "Tarix Bo'limi";
-
-            document.getElementById('help-content').innerText = helpData[section];
-            document.getElementById('help-modal').classList.remove('hidden');
-        }
-
-        function closeModal(id) {
-            document.getElementById(id).classList.add('hidden');
+            sorted.forEach(t => {
+                const isInc = t.type === 'income';
+                const date = new Date(t.date);
+                const dStr = `${date.getDate()}.${date.getMonth()+1} ${date.getHours()}:${String(date.getMinutes()).padStart(2,'0')}`;
+                
+                const item = document.createElement('div');
+                item.className = "bg-slate-800 p-3 rounded-xl border border-slate-700 flex items-center justify-between hover:bg-slate-750 transition-colors";
+                item.innerHTML = `
+                    <div class="flex items-center gap-3">
+                        <div class="p-2 rounded-full ${isInc?'bg-emerald-500/20 text-emerald-400':'bg-rose-500/20 text-rose-400'}">
+                            <i data-lucide="${isInc?'arrow-down-left':'arrow-up-right'}" class="w-5 h-5"></i>
+                        </div>
+                        <div>
+                            <div class="text-white font-medium capitalize text-sm">${t.category}</div>
+                            <div class="text-xs text-slate-400">${dStr}</div>
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-3">
+                        <div class="font-bold ${isInc?'text-emerald-400':'text-rose-400'} text-sm">${isInc?'+':'-'}${formatNumber(t.amount)}</div>
+                        <button class="action-btn p-1 text-slate-500 hover:text-white rounded">
+                            <i data-lucide="more-vertical" class="w-5 h-5"></i>
+                        </button>
+                    </div>
+                `;
+                item.querySelector('.action-btn').addEventListener('click', (e) => openActionSheet(e, t.id));
+                list.appendChild(item);
+            });
+            lucide.createIcons();
         }
 
         function openActionSheet(e, id) {
@@ -933,7 +693,6 @@
             document.getElementById('action-sheet').classList.add('hidden');
             document.getElementById('delete-modal').classList.remove('hidden');
         }
-
         function confirmDelete() {
             transactions = transactions.filter(t => t.id !== selectedTransactionId);
             saveToStorage();
@@ -944,139 +703,69 @@
             document.getElementById('action-sheet').classList.add('hidden');
             const t = transactions.find(tr => tr.id === selectedTransactionId);
             if (!t) return;
-
             document.getElementById('edit-category').value = t.category;
             document.getElementById('edit-amount').value = t.amount;
             document.getElementById('edit-type').value = t.type;
-
             document.getElementById('edit-modal').classList.remove('hidden');
         }
 
         function saveEdit() {
             const cat = document.getElementById('edit-category').value;
-            const amount = parseInt(document.getElementById('edit-amount').value);
+            const amt = parseInt(document.getElementById('edit-amount').value);
             const type = document.getElementById('edit-type').value;
-
-            if (!cat || !amount) {
-                alert("Ma'lumotlarni to'liq kiriting");
-                return;
-            }
-
-            const index = transactions.findIndex(t => t.id === selectedTransactionId);
-            if (index !== -1) {
-                transactions[index].category = cat;
-                transactions[index].amount = amount;
-                transactions[index].type = type;
-                saveToStorage();
+            if (cat && amt) {
+                const idx = transactions.findIndex(t => t.id === selectedTransactionId);
+                if (idx !== -1) {
+                    transactions[idx].category = cat;
+                    transactions[idx].amount = amt;
+                    transactions[idx].type = type;
+                    saveToStorage();
+                }
             }
             closeModal('edit-modal');
         }
 
-        function renderHistory() {
-            const list = document.getElementById('history-list');
-            const emptyState = document.getElementById('empty-history');
-            list.innerHTML = '';
+        // --- SYSTEM ---
+        function switchTab(tab) {
+            ['dashboard', 'bot', 'history'].forEach(t => document.getElementById(`view-${t}`).classList.add('hidden'));
+            document.getElementById('nav-dashboard').className = "flex flex-col items-center gap-1 w-16 text-slate-500 transition-all";
+            document.getElementById('nav-history').className = "flex flex-col items-center gap-1 w-16 text-slate-500 transition-all";
+            document.getElementById('nav-bot').className = "relative -top-6 flex flex-col items-center justify-center w-14 h-14 rounded-full bg-slate-700 text-slate-400 shadow-lg border-4 border-slate-900";
 
-            if (transactions.length === 0) {
-                emptyState.classList.remove('hidden');
-                return;
+            document.getElementById(`view-${tab}`).classList.remove('hidden');
+            
+            if (tab === 'dashboard') {
+                document.getElementById('nav-dashboard').className = "flex flex-col items-center gap-1 w-16 text-blue-500 scale-110 transition-all";
+                updateUI();
+            } else if (tab === 'bot') {
+                document.getElementById('nav-bot').className = "relative -top-6 flex flex-col items-center justify-center w-14 h-14 rounded-full bg-blue-600 text-white shadow-lg shadow-blue-600/40 scale-110 transition-all border-4 border-slate-900";
+            } else if (tab === 'history') {
+                document.getElementById('nav-history').className = "flex flex-col items-center gap-1 w-16 text-blue-500 scale-110 transition-all";
             }
-            emptyState.classList.add('hidden');
-
-            const sorted = [...transactions].sort((a, b) => b.date - a.date);
-
-            sorted.forEach(t => {
-                const isIncome = t.type === 'income';
-                const date = new Date(t.date);
-                const timeStr = `${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
-                const dateStr = `${date.getDate()}.${date.getMonth() + 1}.${date.getFullYear()}`;
-
-                const item = document.createElement('div');
-                item.className = "bg-slate-800 p-3 rounded-xl border border-slate-700 flex items-center justify-between hover:bg-slate-750 transition-colors group";
-                item.innerHTML = `
-                    <div class="flex items-center gap-3">
-                        <div class="p-2 rounded-full ${isIncome ? 'bg-emerald-500/20 text-emerald-400' : 'bg-rose-500/20 text-rose-400'}">
-                            <i data-lucide="${isIncome ? 'arrow-down-left' : 'arrow-up-right'}" class="w-5 h-5"></i>
-                        </div>
-                        <div>
-                            <div class="text-white font-medium capitalize text-sm">${t.category}</div>
-                            <div class="text-xs text-slate-400">${dateStr} ${timeStr}</div>
-                        </div>
-                    </div>
-                    <div class="flex items-center gap-3">
-                        <div class="font-bold ${isIncome ? 'text-emerald-400' : 'text-rose-400'} text-sm">
-                            ${isIncome ? '+' : '-'}${formatNumber(t.amount)}
-                        </div>
-                        <button onclick="openActionSheet(event, ${t.id})" class="p-1 text-slate-500 hover:text-white hover:bg-slate-700 rounded">
-                            <i data-lucide="more-vertical" class="w-5 h-5"></i>
-                        </button>
-                    </div>
-                `;
-                list.appendChild(item);
-            });
-            lucide.createIcons();
+            setTimeout(lucide.createIcons, 50);
         }
-
-        // --- THEME (Dark / Light) ---
-        function applyTheme(theme) {
-            const body = document.body;
-            const toggle = document.getElementById('theme-toggle');
-
-            if (theme === 'light') {
-                body.classList.add('light-mode');
-                toggle.setAttribute('data-theme', 'light');
-                toggle.innerHTML = '<i data-lucide="sun" class="w-5 h-5"></i>';
-            } else {
-                body.classList.remove('light-mode');
-                toggle.setAttribute('data-theme', 'dark');
-                toggle.innerHTML = '<i data-lucide="moon" class="w-5 h-5"></i>';
-            }
-            lucide.createIcons();
-            localStorage.setItem('kassir_theme', theme);
-
-            // Chart ranglarini yangilash (Light mode uchun)
-            if (categoryChartInstance) {
-                categoryChartInstance.options.scales = theme === 'light' ? { 
-                    x: { grid: { color: '#e6edf3' }, ticks: { color: '#475569' } },
-                    y: { grid: { color: '#e6edf3' }, ticks: { color: '#475569' } }
-                } : {
-                    x: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#94a3b8' } },
-                    y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#94a3b8' } }
-                };
-                categoryChartInstance.update();
-            }
-            if (balanceChartInstance) {
-                balanceChartInstance.options.scales = theme === 'light' ? {
-                    x: { grid: { color: '#e6edf3' }, ticks: { color: '#475569' } },
-                    y: { grid: { color: '#e6edf3' }, ticks: { color: '#475569' } }
-                } : {
-                    x: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#94a3b8' } },
-                    y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#94a3b8' } }
-                };
-                balanceChartInstance.update();
-            }
+        function closeModal(id) { document.getElementById(id).classList.add('hidden'); }
+        function openHelp(s) {
+            const txt = { general: "Moliyaviy yordamchi.", bot: "Kirim/Chiqim qo'shish.", history: "Tahrirlash uchun 3 nuqtani bosing." };
+            document.getElementById('help-content').innerText = txt[s] || txt.general;
+            document.getElementById('help-modal').classList.remove('hidden');
         }
-
+        
         function toggleTheme() {
-            const current = document.body.classList.contains('light-mode') ? 'light' : 'dark';
-            const next = current === 'light' ? 'dark' : 'light';
-            applyTheme(next);
-        }
-
-        (function initTheme() {
-            try {
-                const saved = localStorage.getItem('kassir_theme');
-                if (saved) {
-                    applyTheme(saved);
-                    return;
-                }
-                const prefersLight = window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches;
-                applyTheme(prefersLight ? 'light' : 'dark');
-            } catch (e) {
-                console.error("Theme initialization error:", e);
+            const isLight = document.body.classList.toggle('light-mode');
+            localStorage.setItem('theme', isLight ? 'light' : 'dark');
+            document.getElementById('theme-toggle').innerHTML = isLight ? '<i data-lucide="sun" class="w-5 h-5"></i>' : '<i data-lucide="moon" class="w-5 h-5"></i>';
+            lucide.createIcons();
+            
+            // Update Chart Colors on Theme Change
+            if(comparisonChartInstance) {
+                comparisonChartInstance.options.scales.x.ticks.color = isLight ? '#475569' : '#94a3b8';
+                comparisonChartInstance.options.scales.y.grid.color = isLight ? '#e2e8f0' : 'rgba(255,255,255,0.05)';
+                comparisonChartInstance.update();
             }
-        })();
+        }
+        if (localStorage.getItem('theme') === 'light') toggleTheme();
+
     </script>
 </body>
-
 </html>
