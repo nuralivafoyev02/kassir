@@ -1,3 +1,4 @@
+from keep_alive import keep_alive
 import logging
 import re
 import time
@@ -42,46 +43,58 @@ def parse_text(text):
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     
-    # 1. Matnni aniqlash (Rasm tagida caption bo'lishi mumkin)
+    # Matnni olish (Rasm tagida yoki oddiy xabar)
     text = update.message.text or update.message.caption
+    
+    # Agar rasm tashlab, tagiga hech narsa yozilmagan bo'lsa
+    if not text:
+        await update.message.reply_text("Rasm tagiga izoh yozmadingiz. Masalan: '30 ming tushlik'")
+        return
+
     parsed = parse_text(text)
     
     if not parsed:
-        await update.message.reply_text("Summani tushunmadim. Iltimos, raqam bilan yozing.")
+        await update.message.reply_text("Summani tushunmadim. Iltimos, raqam bilan yozing (Masalan: 30 ming).")
         return
 
     receipt_url = None
     
-    # 2. Rasmni tekshirish va yuklash
+    # --- RASM YUKLASH QISMI (O'ZGARTIRILDI) ---
     if update.message.photo:
         status_msg = await update.message.reply_text("Rasm yuklanmoqda... ⏳")
         try:
-            # Eng sifatli variantini olamiz
+            # Eng sifatli rasmni olamiz
             photo = update.message.photo[-1]
             file = await photo.get_file()
             
-            # Faylni xotiraga yuklab olish
+            # Faylni yuklab olish
             file_bytes = await file.download_as_bytearray()
             
-            # Supabase uchun nom: user_id/vaqt.jpg
-            file_name = f"{user_id}/{int(time.time())}.jpg"
+            # MUHIM: bytearray ni bytes ga o'giramiz
+            final_bytes = bytes(file_bytes)
             
-            # Storagega yuklash
+            # Fayl nomi
+            file_name = f"{user_id}_{int(time.time())}.jpg"
+            
+            # Supabasega yuklash
             res = supabase.storage.from_("receipts").upload(
-                file_name,
-                file_bytes,
-                {"content-type": "image/jpeg"}
+                path=file_name,
+                file=final_bytes,
+                file_options={"content-type": "image/jpeg"}
             )
             
-            # Public linkni olish
+            # Linkni olish
             receipt_url = supabase.storage.from_("receipts").get_public_url(file_name)
             await status_msg.delete()
             
         except Exception as e:
-            print(f"Rasm xatosi: {e}")
-            await status_msg.edit_text("Rasmni yuklay olmadim, lekin summani saqlayman.")
+            # Xatolikni terminalga ham, telegramga ham chiqarish
+            error_text = str(e)
+            print(f"Rasm xatosi: {error_text}")
+            await status_msg.edit_text(f"⚠️ Rasm yuklanmadi! Xato: {error_text}\nLekin summa saqlanadi.")
+            # Agar xato "Duplicate" bo'lsa yoki fayl nomi bilan bog'liq bo'lsa, shuni bilib olamiz
 
-    # 3. Bazaga yozish
+    # --- BAZAGA YOZISH ---
     try:
         data = {
             "user_id": user_id,
@@ -89,31 +102,30 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "category": parsed['category'],
             "type": parsed['type'],
             "date": int(update.message.date.timestamp() * 1000),
-            "receipt_url": receipt_url # Rasm linki (yoki None)
+            "receipt_url": receipt_url
         }
         
         supabase.table("transactions").insert(data).execute()
         
         emoji = "🟢" if parsed['type'] == 'income' else "🔴"
         formatted_amount = f"{parsed['amount']:,}".replace(",", " ")
-        photo_icon = "📸 Rasm bilan" if receipt_url else ""
+        photo_icon = "📸 Rasm bilan" if receipt_url else "⚠️ Rasmsiz"
         
         await update.message.reply_text(
-            f"{emoji} chiqim saqlandi! {photo_icon}\n\n"
-            f"💰 {formatted_amount} so'm\n"
-            f"📂 {parsed['category']}"
-            f"\nKassaga kirsangiz yuklab qo'ydim!✅"
+            f"{emoji} Tayyor! ({photo_icon})\n\n"
+            f"💰Summa: {formatted_amount} so'm\n"
+            f"📂Kategoriya: {parsed['category']}\n"
+            f"Tranzaksiyani Kassaga kiritib qo'ydim✅"
         )
         
     except Exception as e:
         print(f"Baza xatosi: {e}")
-        await update.message.reply_text("Xatolik yuz berdi.")
-
+        await update.message.reply_text(f"Baza xatosi: {e}")
 if __name__ == '__main__':
     application = ApplicationBuilder().token(BOT_TOKEN).build()
     # FOTO va TEXT ni qabul qiladigan filter
     application.add_handler(CommandHandler('start', start))
     application.add_handler(MessageHandler(filters.PHOTO | (filters.TEXT & ~filters.COMMAND), handle_message))
-    
+    keep_alive()
     print("Bot ishga tushdi...")
     application.run_polling()
