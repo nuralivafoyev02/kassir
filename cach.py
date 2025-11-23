@@ -15,7 +15,7 @@ supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Assalomu alaykum! Menga yozing yoki rasm (chek) yuboring.\nMasalan: '30 ming obed'")
+    await update.message.reply_text(f"Assalomu alaykum, {update.effective_user.first_name}👋! \nMenga yozing yoki rasm (chek) yuboring kategoriya va summasi bilan.\nMasalan: '30 ming obed'")
 
 def parse_text(text):
     if not text: return None
@@ -99,9 +99,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         photo_icon = "📸 Rasm bilan" if receipt_url else ""
         
         await update.message.reply_text(
-            f"{emoji} Saqlandi! {photo_icon}\n"
+            f"{emoji} chiqim saqlandi! {photo_icon}\n\n"
             f"💰 {formatted_amount} so'm\n"
             f"📂 {parsed['category']}"
+            f"\nKassaga kirsangiz yuklab qo'ydim!✅"
         )
         
     except Exception as e:
