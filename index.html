@@ -5,7 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <link rel="icon" href="https://cdn-icons-png.flaticon.com/512/433/433424.png" type="faw-icon">
-    <title>Mening Kassam - Test</title>
+    <title>Mening Kassam</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
@@ -121,12 +121,12 @@
         </div>
     </header>
 
-    <div id="ai-sidebar" class="ai-sidebar fixed right-0 top-28 z-40 flex items-center justify-end">
+    <!-- <div id="ai-sidebar" class="ai-sidebar fixed right-0 top-28 z-40 flex items-center justify-end">
         <button onclick="toggleAiSidebar()" class="bg-gradient-to-r from-blue-600 to-violet-600 text-white p-2.5 pl-4 rounded-l-full shadow-xl border-y border-l border-white/10 flex items-center gap-2 active:scale-95">
             <i data-lucide="chevron-left" id="ai-toggle-icon" class="w-5 h-5"></i>
             <span class="text-sm font-bold">AI Tahlil</span>
         </button>
-    </div>
+    </div> -->
 
     <main id="main-container" class="flex-1 overflow-y-auto relative bg-slate-900 rounded-t-3xl mt-2 pb-24 px-4 pt-6 scroll-smooth">
         <div id="view-dashboard" class="space-y-6 fade-in">
@@ -254,7 +254,7 @@
         <button onclick="deleteCatFromMenu()" class="w-full text-left px-4 py-3 hover:bg-slate-700 text-rose-400 text-sm font-medium flex items-center gap-2"><i data-lucide="trash-2" class="w-4 h-4"></i> O'chirish</button>
     </div>
     <div id="receipt-modal" class="fixed inset-0 bg-black/95 z-[90] hidden flex items-center justify-center p-2" onclick="closeReceiptModal()"><button class="absolute top-4 right-4 p-2 bg-white/10 rounded-full text-white"><i data-lucide="x" class="w-6 h-6"></i></button><img id="full-receipt-image" class="max-w-full max-h-[85vh] rounded shadow-2xl object-contain"></div>
-    <div id="gemini-modal" class="fixed inset-0 z-[60] hidden flex flex-col glass-modal slide-up">
+    <!-- <div id="gemini-modal" class="fixed inset-0 z-[60] hidden flex flex-col glass-modal slide-up">
         <div class="p-4 border-b border-white/10 flex items-center justify-between bg-white/5">
             <div class="flex items-center gap-3">
                 <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-blue-600 to-purple-600 flex items-center justify-center shadow-lg"><i data-lucide="sparkles" class="w-5 h-5 text-white"></i></div>
@@ -265,13 +265,13 @@
         <div class="p-4 bg-slate-900/80 border-t border-white/10">
             <div class="flex gap-2 bg-slate-800/50 p-1.5 rounded-3xl border border-white/5"><input type="text" id="ai-input" placeholder="Savol..." class="flex-1 bg-transparent text-white px-4 py-3 outline-none text-sm"><button onclick="sendToGemini()" class="bg-blue-600 text-white p-3 rounded-2xl"><i data-lucide="send" class="w-5 h-5"></i></button></div>
         </div>
-    </div>
+    </div> -->
     <div id="settings-modal" class="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
         <div class="bg-slate-800 rounded-2xl p-6 w-full max-w-sm border border-slate-700 slide-up">
             <div class="flex justify-between items-center mb-6"><h3 class="text-lg font-bold text-white">Sozlamalar</h3><button onclick="closeModal('settings-modal')"><i data-lucide="x" class="text-slate-400"></i></button></div>
             <div class="space-y-3">
                 <div class="bg-slate-700 rounded-xl p-1 overflow-hidden mb-4"><button onclick="startPinSetup()" class="w-full p-4 flex items-center justify-between hover:bg-slate-600 transition-colors rounded-lg"><div class="flex items-center gap-3"><div class="p-2 bg-blue-500/20 rounded-lg text-blue-400"><i data-lucide="lock" class="w-5 h-5"></i></div><div><div class="text-white text-sm font-bold">PIN Kod</div><div id="pin-status-text" class="text-xs text-slate-400"></div></div></div><i data-lucide="chevron-right" class="w-4 h-4 text-slate-500"></i></button><button id="btn-remove-pin" onclick="removePin()" class="w-full p-4 flex items-center justify-between hover:bg-slate-600 transition-colors rounded-lg border-t border-slate-600 hidden"><div class="flex items-center gap-3"><div class="p-2 bg-rose-500/20 rounded-lg text-rose-400"><i data-lucide="unlock" class="w-5 h-5"></i></div><div class="text-white text-sm font-bold text-rose-400">PINni o'chirish</div></div></button><div class="h-[1px] bg-slate-600 mx-4"></div><div id="bio-row" class="p-4 flex items-center justify-between hidden"><div class="flex items-center gap-3"><div class="p-2 bg-purple-500/20 rounded-lg text-purple-400"><i data-lucide="scan-face" class="w-5 h-5"></i></div><div class="text-white text-sm font-bold">Face ID / Touch ID</div></div><label class="relative inline-flex items-center cursor-pointer"><input type="checkbox" id="bio-toggle" class="sr-only peer" onchange="toggleBiometric(this)"><div class="w-11 h-6 bg-slate-600 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div></label></div></div>
-                <div class="grid grid-cols-2 gap-3"><button onclick="exportData()" class="p-4 bg-slate-700 rounded-xl flex flex-col items-center gap-2 hover:bg-slate-600"><i data-lucide="download" class="text-emerald-400"></i><span class="text-xs text-slate-300 font-bold">Backup</span></button><button onclick="document.getElementById('import-file').click()" class="p-4 bg-slate-700 rounded-xl flex flex-col items-center gap-2 hover:bg-slate-600"><i data-lucide="upload" class="text-blue-400"></i><span class="text-xs text-slate-300 font-bold">Tiklash</span></button><input type="file" id="import-file" class="hidden" onchange="importData(event)" accept=".json"></div><button onclick="confirmResetData()" class="w-full p-4 bg-rose-900/20 text-rose-400 rounded-xl flex items-center justify-center gap-2 mt-2 hover:bg-rose-900/30"><i data-lucide="trash-2" class="w-4 h-4"></i> Tozalash</button>
+                <div class="grid grid-cols-2 gap-3"><button onclick="exportData()" class="p-4 bg-slate-700 rounded-xl flex flex-col items-center gap-2 hover:bg-slate-600"><i data-lucide="download" class="text-emerald-400"></i><span class="text-xs text-slate-300 font-bold">Yuklash</span></button><button onclick="document.getElementById('import-file').click()" class="p-4 bg-slate-700 rounded-xl flex flex-col items-center gap-2 hover:bg-slate-600"><i data-lucide="upload" class="text-blue-400"></i><span class="text-xs text-slate-300 font-bold">Tiklash</span></button><input type="file" id="import-file" class="hidden" onchange="importData(event)" accept=".json"></div><button onclick="confirmResetData()" class="w-full p-4 bg-rose-900/20 text-rose-400 rounded-xl flex items-center justify-center gap-2 mt-2 hover:bg-rose-900/30"><i data-lucide="trash-2" class="w-4 h-4"></i> Tozalash</button>
             </div>
         </div>
     </div>
