@@ -16,7 +16,7 @@ supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(f"Assalomu alaykum, {update.effective_user.first_name}👋! \nMenga yozing yoki rasm (chek) yuboring kategoriya va summasi bilan.\nMasalan: '30 ming obed'")
+    await update.message.reply_text(f"Assalomu alaykum, {update.effective_user.first_name}👋! \n\nMenga yozing yoki rasm (chek) yuboring kategoriya va summasi bilan.\nMasalan: '30 ming obed. \n\nAgar muammo yoki takliflar bo'lsa @uyqur_nurali ga murojaat qilishizngiz mumkin.'")
 
 def parse_text(text):
     if not text: return None
@@ -48,7 +48,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # Agar rasm tashlab, tagiga hech narsa yozilmagan bo'lsa
     if not text:
-        await update.message.reply_text("Rasm tagiga izoh yozmadingiz. Masalan: '30 ming tushlik'")
+        await update.message.reply_text("Rasm tagiga izoh yozmadingiz. Masalan: 30 ming nimagadur")
         return
 
     parsed = parse_text(text)
@@ -109,12 +109,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         emoji = "🟢" if parsed['type'] == 'income' else "🔴"
         formatted_amount = f"{parsed['amount']:,}".replace(",", " ")
-        photo_icon = "📸 Rasm bilan" if receipt_url else "⚠️ Rasmsiz"
+        photo_icon = "📸 Rasm bilan" if receipt_url else ""
         
         await update.message.reply_text(
             f"{emoji} Tayyor! ({photo_icon})\n\n"
             f"💰Summa: {formatted_amount} so'm\n"
-            f"📂Kategoriya: {parsed['category']}\n"
+            f"📂Kategoriya: {parsed['category']}\n\n"
             f"Tranzaksiyani Kassaga kiritib qo'ydim✅"
         )
         
