@@ -16,65 +16,315 @@
 
     <style>
         /* --- GLOBAL --- */
-        ::-webkit-scrollbar { width: 0px; background: transparent; }
-        body { background-color: #0f172a; font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; -webkit-tap-highlight-color: transparent; user-select: none; touch-action: manipulation; }
-        
+        ::-webkit-scrollbar {
+            width: 0px;
+            background: transparent;
+        }
+
+        body {
+            background-color: #0f172a;
+            font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            -webkit-tap-highlight-color: transparent;
+            user-select: none;
+            touch-action: manipulation;
+        }
+
+        /* SKELETON ANIMATOR */
+        /* --- SKELETON LOADER STYLES --- */
+        .skeleton-box {
+            position: relative;
+            overflow: hidden;
+            background-color: #1e293b;
+            /* slate-800 */
+            border-radius: 0.75rem;
+            /* rounded-xl */
+        }
+
+        .skeleton-box::after {
+            position: absolute;
+            top: 0;
+            right: 0;
+            bottom: 0;
+            left: 0;
+            transform: translateX(-100%);
+            background-image: linear-gradient(90deg,
+                    rgba(255, 255, 255, 0) 0,
+                    rgba(255, 255, 255, 0.05) 20%,
+                    rgba(255, 255, 255, 0.1) 60%,
+                    rgba(255, 255, 255, 0));
+            animation: shimmer 2s infinite;
+            content: '';
+        }
+
+        @keyframes shimmer {
+            100% {
+                transform: translateX(100%);
+            }
+        }
+
+        /* Light mode uchun moslashtirish */
+        body.light-mode .skeleton-box {
+            background-color: #e2e8f0;
+        }
+
+        body.light-mode .skeleton-box::after {
+            background-image: linear-gradient(90deg,
+                    rgba(255, 255, 255, 0) 0,
+                    rgba(255, 255, 255, 0.4) 20%,
+                    rgba(255, 255, 255, 0.7) 60%,
+                    rgba(255, 255, 255, 0));
+        }
+
         /* ANIMATIONS */
-        .fade-in { animation: fadeIn 0.3s ease-out; }
-        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
-        .slide-up { animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1); }
-        @keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
-        .scale-in { animation: scaleIn 0.2s ease-out; }
-        @keyframes scaleIn { from { transform: scale(0.9); opacity: 0; } to { transform: scale(1); opacity: 1; } }
-        .shake { animation: shake 0.4s cubic-bezier(.36, .07, .19, .97) both; }
-        @keyframes shake { 10%, 90% { transform: translate3d(-1px, 0, 0); } 20%, 80% { transform: translate3d(2px, 0, 0); } 30%, 50%, 70% { transform: translate3d(-4px, 0, 0); } 40%, 60% { transform: translate3d(4px, 0, 0); } }
+        .fade-in {
+            animation: fadeIn 0.3s ease-out;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .slide-up {
+            animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        @keyframes slideUp {
+            from {
+                transform: translateY(100%);
+            }
+
+            to {
+                transform: translateY(0);
+            }
+        }
+
+        .scale-in {
+            animation: scaleIn 0.2s ease-out;
+        }
+
+        @keyframes scaleIn {
+            from {
+                transform: scale(0.9);
+                opacity: 0;
+            }
+
+            to {
+                transform: scale(1);
+                opacity: 1;
+            }
+        }
+
+        .shake {
+            animation: shake 0.4s cubic-bezier(.36, .07, .19, .97) both;
+        }
+
+        @keyframes shake {
+
+            10%,
+            90% {
+                transform: translate3d(-1px, 0, 0);
+            }
+
+            20%,
+            80% {
+                transform: translate3d(2px, 0, 0);
+            }
+
+            30%,
+            50%,
+            70% {
+                transform: translate3d(-4px, 0, 0);
+            }
+
+            40%,
+            60% {
+                transform: translate3d(4px, 0, 0);
+            }
+        }
 
         /* UI ELEMENTS */
-        .glass-panel { background: rgba(30, 41, 59, 0.7); backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.05); }
-        .glass-modal { background: rgba(15, 23, 42, 0.95); backdrop-filter: blur(16px); }
-        .nav-item { color: #64748b; transition: all 0.3s; }
-        .nav-item.active { color: #3b82f6 !important; transform: translateY(-2px); }
-        .nav-item.active i { stroke-width: 2.5px; }
-        #nav-bot.active { border-color: #3b82f6; box-shadow: 0 0 15px rgba(59, 130, 246, 0.5); }
-        #nav-bot.active i { color: #3b82f6; }
-        .filter-active { background-color: #334155 !important; border-color: #475569 !important; color: white !important; }
-        .icon-opt.selected { background-color: #2563eb !important; ring: 2px solid white; box-shadow: 0 0 10px rgba(37, 99, 235, 0.5); transform: scale(1.1); }
-        .icon-opt.selected i { color: white; }
+        .glass-panel {
+            background: rgba(30, 41, 59, 0.7);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .glass-modal {
+            background: rgba(15, 23, 42, 0.95);
+            backdrop-filter: blur(16px);
+        }
+
+        .nav-item {
+            color: #64748b;
+            transition: all 0.3s;
+        }
+
+        .nav-item.active {
+            color: #3b82f6 !important;
+            transform: translateY(-2px);
+        }
+
+        .nav-item.active i {
+            stroke-width: 2.5px;
+        }
+
+        #nav-bot.active {
+            border-color: #3b82f6;
+            box-shadow: 0 0 15px rgba(59, 130, 246, 0.5);
+        }
+
+        #nav-bot.active i {
+            color: #3b82f6;
+        }
+
+        .filter-active {
+            background-color: #334155 !important;
+            border-color: #475569 !important;
+            color: white !important;
+        }
+
+        .icon-opt.selected {
+            background-color: #2563eb !important;
+            ring: 2px solid white;
+            box-shadow: 0 0 10px rgba(37, 99, 235, 0.5);
+            transform: scale(1.1);
+        }
+
+        .icon-opt.selected i {
+            color: white;
+        }
 
         /* CHAT STYLES */
-        .chat-content { display: flex; flex-direction: column; gap: 12px; padding-bottom: 20px; }
-        .msg-wrapper { display: flex; width: 100%; }
-        .msg-wrapper.user { justify-content: flex-end; }
-        .msg-wrapper.ai { justify-content: flex-start; }
-        .msg-bubble { max-width: 80%; padding: 10px 14px; font-size: 14px; line-height: 1.4; position: relative; word-wrap: break-word; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1); }
-        .msg-bubble.user { background: linear-gradient(135deg, #3b82f6, #2563eb); color: white; border-radius: 18px 18px 4px 18px; }
-        .msg-bubble.ai { background: #1e293b; color: #e2e8f0; border-radius: 18px 18px 18px 4px; border: 1px solid rgba(255, 255, 255, 0.05); }
-        .ai-sidebar { transition: transform 0.4s cubic-bezier(0.4, 0, 0.2, 1); transform: translateX(calc(100% - 48px)); }
-        .ai-sidebar.open { transform: translateX(0); }
+        .chat-content {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            padding-bottom: 20px;
+        }
+
+        .msg-wrapper {
+            display: flex;
+            width: 100%;
+        }
+
+        .msg-wrapper.user {
+            justify-content: flex-end;
+        }
+
+        .msg-wrapper.ai {
+            justify-content: flex-start;
+        }
+
+        .msg-bubble {
+            max-width: 80%;
+            padding: 10px 14px;
+            font-size: 14px;
+            line-height: 1.4;
+            position: relative;
+            word-wrap: break-word;
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+        }
+
+        .msg-bubble.user {
+            background: linear-gradient(135deg, #3b82f6, #2563eb);
+            color: white;
+            border-radius: 18px 18px 4px 18px;
+        }
+
+        .msg-bubble.ai {
+            background: #1e293b;
+            color: #e2e8f0;
+            border-radius: 18px 18px 18px 4px;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .ai-sidebar {
+            transition: transform 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+            transform: translateX(calc(100% - 48px));
+        }
+
+        .ai-sidebar.open {
+            transform: translateX(0);
+        }
 
         /* LIGHT MODE */
-        body.light-mode { background-color: #f0f3f6 !important; color: #0f172a; }
-        body.light-mode .bg-slate-900, body.light-mode .bg-slate-800 { background-color: #ffffff !important; color: #0f172a !important; border-color: #e2e8f0 !important; }
-        body.light-mode .glass-panel { background: rgba(255, 255, 255, 0.9); border-color: #e2e8f0; }
-        body.light-mode .text-slate-400 { color: #64748b !important; }
-        body.light-mode .text-white { color: #0f172a !important; }
-        body.light-mode #bot-input { background: #f1f5f9 !important; color: #0f172a; }
-        body.light-mode .cat-btn { background: #f8fafc !important; border-color: #e2e8f0 !important; }
-        body.light-mode nav { background: #ffffff !important; border-top-color: #e2e8f0; }
-        body.light-mode .bg-slate-700 { background-color: #f1f5f9 !important; color: #0f172a !important; }
-        body.light-mode .msg-bubble.ai { background: #f1f5f9; color: #0f172a; border-color: #e2e8f0; }
-        
+        body.light-mode {
+            background-color: #f0f3f6 !important;
+            color: #0f172a;
+        }
+
+        body.light-mode .bg-slate-900,
+        body.light-mode .bg-slate-800 {
+            background-color: #ffffff !important;
+            color: #0f172a !important;
+            border-color: #e2e8f0 !important;
+        }
+
+        body.light-mode .glass-panel {
+            background: rgba(255, 255, 255, 0.9);
+            border-color: #e2e8f0;
+        }
+
+        body.light-mode .text-slate-400 {
+            color: #64748b !important;
+        }
+
+        body.light-mode .text-white {
+            color: #0f172a !important;
+        }
+
+        body.light-mode #bot-input {
+            background: #f1f5f9 !important;
+            color: #0f172a;
+        }
+
+        body.light-mode .cat-btn {
+            background: #f8fafc !important;
+            border-color: #e2e8f0 !important;
+        }
+
+        body.light-mode nav {
+            background: #ffffff !important;
+            border-top-color: #e2e8f0;
+        }
+
+        body.light-mode .bg-slate-700 {
+            background-color: #f1f5f9 !important;
+            color: #0f172a !important;
+        }
+
+        body.light-mode .msg-bubble.ai {
+            background: #f1f5f9;
+            color: #0f172a;
+            border-color: #e2e8f0;
+        }
+
         /* PINS */
-        .pin-dot { transition: all 0.2s; }
-        .pin-dot.active { transform: scale(1.2); }
+        .pin-dot {
+            transition: all 0.2s;
+        }
+
+        .pin-dot.active {
+            transform: scale(1.2);
+        }
     </style>
 </head>
 
-<body class="text-slate-100 h-screen flex flex-col overflow-hidden max-w-md mx-auto border-x border-slate-800 shadow-2xl relative">
+<body
+    class="text-slate-100 h-screen flex flex-col overflow-hidden max-w-md mx-auto border-x border-slate-800 shadow-2xl relative">
 
     <div id="pin-screen" class="fixed inset-0 z-[100] bg-slate-900 flex flex-col items-center justify-center hidden">
         <div class="mb-8 text-center fade-in">
-            <div class="w-16 h-16 bg-blue-600 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg shadow-blue-500/30">
+            <div
+                class="w-16 h-16 bg-blue-600 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg shadow-blue-500/30">
                 <i data-lucide="lock" class="w-8 h-8 text-white"></i>
             </div>
             <h2 id="pin-title" class="text-2xl font-bold text-white mb-1">PIN Kod</h2>
@@ -87,28 +337,45 @@
             <div class="pin-dot w-4 h-4 rounded-full bg-slate-700"></div>
         </div>
         <div class="grid grid-cols-3 gap-6 fade-in mb-6">
-            <button onclick="handlePinInput(1)" class="w-16 h-16 rounded-full bg-slate-800 text-2xl font-medium text-white hover:bg-slate-700 transition-colors">1</button>
-            <button onclick="handlePinInput(2)" class="w-16 h-16 rounded-full bg-slate-800 text-2xl font-medium text-white hover:bg-slate-700 transition-colors">2</button>
-            <button onclick="handlePinInput(3)" class="w-16 h-16 rounded-full bg-slate-800 text-2xl font-medium text-white hover:bg-slate-700 transition-colors">3</button>
-            <button onclick="handlePinInput(4)" class="w-16 h-16 rounded-full bg-slate-800 text-2xl font-medium text-white hover:bg-slate-700 transition-colors">4</button>
-            <button onclick="handlePinInput(5)" class="w-16 h-16 rounded-full bg-slate-800 text-2xl font-medium text-white hover:bg-slate-700 transition-colors">5</button>
-            <button onclick="handlePinInput(6)" class="w-16 h-16 rounded-full bg-slate-800 text-2xl font-medium text-white hover:bg-slate-700 transition-colors">6</button>
-            <button onclick="handlePinInput(7)" class="w-16 h-16 rounded-full bg-slate-800 text-2xl font-medium text-white hover:bg-slate-700 transition-colors">7</button>
-            <button onclick="handlePinInput(8)" class="w-16 h-16 rounded-full bg-slate-800 text-2xl font-medium text-white hover:bg-slate-700 transition-colors">8</button>
-            <button onclick="handlePinInput(9)" class="w-16 h-16 rounded-full bg-slate-800 text-2xl font-medium text-white hover:bg-slate-700 transition-colors">9</button>
-            <button onclick="triggerBiometric()" id="bio-btn" class="w-16 h-16 rounded-full bg-transparent text-blue-500 flex items-center justify-center hover:bg-slate-800/50 hidden"><i data-lucide="scan-face" class="w-8 h-8"></i></button>
+            <button onclick="handlePinInput(1)"
+                class="w-16 h-16 rounded-full bg-slate-800 text-2xl font-medium text-white hover:bg-slate-700 transition-colors">1</button>
+            <button onclick="handlePinInput(2)"
+                class="w-16 h-16 rounded-full bg-slate-800 text-2xl font-medium text-white hover:bg-slate-700 transition-colors">2</button>
+            <button onclick="handlePinInput(3)"
+                class="w-16 h-16 rounded-full bg-slate-800 text-2xl font-medium text-white hover:bg-slate-700 transition-colors">3</button>
+            <button onclick="handlePinInput(4)"
+                class="w-16 h-16 rounded-full bg-slate-800 text-2xl font-medium text-white hover:bg-slate-700 transition-colors">4</button>
+            <button onclick="handlePinInput(5)"
+                class="w-16 h-16 rounded-full bg-slate-800 text-2xl font-medium text-white hover:bg-slate-700 transition-colors">5</button>
+            <button onclick="handlePinInput(6)"
+                class="w-16 h-16 rounded-full bg-slate-800 text-2xl font-medium text-white hover:bg-slate-700 transition-colors">6</button>
+            <button onclick="handlePinInput(7)"
+                class="w-16 h-16 rounded-full bg-slate-800 text-2xl font-medium text-white hover:bg-slate-700 transition-colors">7</button>
+            <button onclick="handlePinInput(8)"
+                class="w-16 h-16 rounded-full bg-slate-800 text-2xl font-medium text-white hover:bg-slate-700 transition-colors">8</button>
+            <button onclick="handlePinInput(9)"
+                class="w-16 h-16 rounded-full bg-slate-800 text-2xl font-medium text-white hover:bg-slate-700 transition-colors">9</button>
+            <button onclick="triggerBiometric()" id="bio-btn"
+                class="w-16 h-16 rounded-full bg-transparent text-blue-500 flex items-center justify-center hover:bg-slate-800/50 hidden"><i
+                    data-lucide="scan-face" class="w-8 h-8"></i></button>
             <div id="bio-placeholder" class="w-16 h-16 hidden"></div>
-            <button onclick="handlePinInput(0)" class="w-16 h-16 rounded-full bg-slate-800 text-2xl font-medium text-white hover:bg-slate-700 transition-colors">0</button>
-            <button onclick="handlePinDelete()" class="w-16 h-16 rounded-full bg-transparent text-white hover:bg-slate-800/50 transition-colors flex items-center justify-center"><i data-lucide="delete" class="w-8 h-8"></i></button>
+            <button onclick="handlePinInput(0)"
+                class="w-16 h-16 rounded-full bg-slate-800 text-2xl font-medium text-white hover:bg-slate-700 transition-colors">0</button>
+            <button onclick="handlePinDelete()"
+                class="w-16 h-16 rounded-full bg-transparent text-white hover:bg-slate-800/50 transition-colors flex items-center justify-center"><i
+                    data-lucide="delete" class="w-8 h-8"></i></button>
         </div>
-        <button id="cancel-pin-setup" onclick="cancelPinSetup()" class="text-slate-400 text-sm hover:text-white hidden">Bekor qilish</button>
+        <button id="cancel-pin-setup" onclick="cancelPinSetup()"
+            class="text-slate-400 text-sm hover:text-white hidden">Bekor qilish</button>
     </div>
 
     <header class="glass-panel rounded-2xl m-2 p-4 flex items-center justify-between z-20 sticky top-2 shadow-lg">
         <div class="flex items-center gap-3">
             <div class="relative">
-                <img src="https://ui-avatars.com/api/?name=User&background=3b82f6&color=fff" class="w-10 h-10 rounded-full border-2 border-blue-500 object-cover">
-                <div class="absolute bottom-0 right-0 w-3 h-3 bg-green-500 border-2 border-slate-800 rounded-full"></div>
+                <img src="https://ui-avatars.com/api/?name=User&background=3b82f6&color=fff"
+                    class="w-10 h-10 rounded-full border-2 border-blue-500 object-cover">
+                <div class="absolute bottom-0 right-0 w-3 h-3 bg-green-500 border-2 border-slate-800 rounded-full">
+                </div>
             </div>
             <div>
                 <div class="text-xs text-slate-400">Assalomu alaykum!</div>
@@ -116,8 +383,10 @@
             </div>
         </div>
         <div class="flex gap-2">
-            <button onclick="toggleTheme()" class="p-2 rounded-full hover:bg-slate-700/20"><i id="theme-icon" data-lucide="moon" class="w-5 h-5"></i></button>
-            <button onclick="openSettings()" class="p-2 bg-slate-700 hover:bg-slate-600 rounded-full text-slate-200"><i data-lucide="settings" class="w-5 h-5"></i></button>
+            <button onclick="toggleTheme()" class="p-2 rounded-full hover:bg-slate-700/20"><i id="theme-icon"
+                    data-lucide="moon" class="w-5 h-5"></i></button>
+            <button onclick="openSettings()" class="p-2 bg-slate-700 hover:bg-slate-600 rounded-full text-slate-200"><i
+                    data-lucide="settings" class="w-5 h-5"></i></button>
         </div>
     </header>
 
@@ -128,22 +397,89 @@
         </button>
     </div> -->
 
-    <main id="main-container" class="flex-1 overflow-y-auto relative bg-slate-900 rounded-t-3xl mt-2 pb-24 px-4 pt-6 scroll-smooth">
-        <div id="view-dashboard" class="space-y-6 fade-in">
-            <div class="bg-gradient-to-br from-slate-800 to-slate-900 p-6 rounded-3xl shadow-lg border border-slate-700 relative overflow-hidden">
-                <div class="absolute -top-6 -right-6 opacity-10 rotate-12"><i data-lucide="wallet" class="w-40 h-40 text-white"></i></div>
+    <main id="main-container"
+        class="flex-1 overflow-y-auto relative bg-slate-900 rounded-t-3xl mt-2 pb-24 px-4 pt-6 scroll-smooth">
+        <div id="dashboard-skeleton" class="space-y-6 pt-2">
+            <div class="skeleton-box h-48 w-full rounded-3xl relative overflow-hidden border border-slate-700/50">
+                <div class="absolute top-6 left-6 w-24 h-4 bg-slate-700/50 rounded skeleton-box"></div>
+                <div class="absolute top-12 left-6 w-40 h-10 bg-slate-700/50 rounded skeleton-box"></div>
+                <div class="absolute bottom-6 left-6 right-6 flex gap-3">
+                    <div class="h-16 flex-1 rounded-2xl bg-slate-700/50 skeleton-box"></div>
+                    <div class="h-16 flex-1 rounded-2xl bg-slate-700/50 skeleton-box"></div>
+                </div>
+            </div>
+
+            <div class="flex gap-2 overflow-x-hidden">
+                <div class="w-20 h-8 rounded-full bg-slate-800 skeleton-box"></div>
+                <div class="w-16 h-8 rounded-full bg-slate-800 skeleton-box"></div>
+                <div class="w-16 h-8 rounded-full bg-slate-800 skeleton-box"></div>
+                <div class="w-20 h-8 rounded-full bg-slate-800 skeleton-box"></div>
+            </div>
+
+            <div class="p-5 rounded-3xl border border-slate-700/30 bg-slate-800/50">
+                <div class="w-32 h-4 mb-4 rounded bg-slate-700/50 skeleton-box"></div>
+                <div class="h-40 w-40 mx-auto rounded-full bg-slate-700/50 skeleton-box border-4 border-slate-800">
+                </div>
+            </div>
+
+            <div class="space-y-3">
+                <div class="w-32 h-4 rounded bg-slate-700/50 skeleton-box mb-4"></div>
+                <div
+                    class="h-20 w-full rounded-2xl bg-slate-800/50 p-4 flex items-center justify-between border border-slate-700/30">
+                    <div class="flex items-center gap-4">
+                        <div class="w-12 h-12 rounded-full bg-slate-700/50 skeleton-box"></div>
+                        <div class="space-y-2">
+                            <div class="w-24 h-4 rounded bg-slate-700/50 skeleton-box"></div>
+                            <div class="w-16 h-3 rounded bg-slate-700/50 skeleton-box"></div>
+                        </div>
+                    </div>
+                    <div class="w-20 h-5 rounded bg-slate-700/50 skeleton-box"></div>
+                </div>
+                <div
+                    class="h-20 w-full rounded-2xl bg-slate-800/50 p-4 flex items-center justify-between border border-slate-700/30">
+                    <div class="flex items-center gap-4">
+                        <div class="w-12 h-12 rounded-full bg-slate-700/50 skeleton-box"></div>
+                        <div class="space-y-2">
+                            <div class="w-24 h-4 rounded bg-slate-700/50 skeleton-box"></div>
+                            <div class="w-16 h-3 rounded bg-slate-700/50 skeleton-box"></div>
+                        </div>
+                    </div>
+                    <div class="w-20 h-5 rounded bg-slate-700/50 skeleton-box"></div>
+                </div>
+                <div
+                    class="h-20 w-full rounded-2xl bg-slate-800/50 p-4 flex items-center justify-between border border-slate-700/30">
+                    <div class="flex items-center gap-4">
+                        <div class="w-12 h-12 rounded-full bg-slate-700/50 skeleton-box"></div>
+                        <div class="space-y-2">
+                            <div class="w-24 h-4 rounded bg-slate-700/50 skeleton-box"></div>
+                            <div class="w-16 h-3 rounded bg-slate-700/50 skeleton-box"></div>
+                        </div>
+                    </div>
+                    <div class="w-20 h-5 rounded bg-slate-700/50 skeleton-box"></div>
+                </div>
+            </div>
+        </div>
+        <div id="view-dashboard" class="space-y-6 fade-in hidden">
+            <div
+                class="bg-gradient-to-br from-slate-800 to-slate-900 p-6 rounded-3xl shadow-lg border border-slate-700 relative overflow-hidden">
+                <div class="absolute -top-6 -right-6 opacity-10 rotate-12"><i data-lucide="wallet"
+                        class="w-40 h-40 text-white"></i></div>
                 <h2 class="text-slate-400 text-xs font-bold uppercase tracking-wider mb-1">Umumiy Balans</h2>
                 <div id="total-balance" class="text-3xl font-bold text-[#2374f8] mb-6 font-mono">0 so'm</div>
                 <div class="grid grid-cols-2 gap-3 relative z-10">
-                    <div onclick="toggleTypeFilter('income')" id="card-income" class="glass-panel p-3 rounded-2xl flex items-center gap-3 cursor-pointer transition-all hover:bg-emerald-500/10">
-                        <div class="p-2 bg-emerald-500 rounded-full text-white shadow-lg shadow-emerald-500/30"><i data-lucide="arrow-down-left" class="w-4 h-4"></i></div>
+                    <div onclick="toggleTypeFilter('income')" id="card-income"
+                        class="glass-panel p-3 rounded-2xl flex items-center gap-3 cursor-pointer transition-all hover:bg-emerald-500/10">
+                        <div class="p-2 bg-emerald-500 rounded-full text-white shadow-lg shadow-emerald-500/30"><i
+                                data-lucide="arrow-down-left" class="w-4 h-4"></i></div>
                         <div class="overflow-hidden">
                             <div class="text-[10px] text-slate-400 uppercase">Kirim</div>
                             <div id="total-income" class="font-bold text-emerald-400 text-sm truncate">0</div>
                         </div>
                     </div>
-                    <div onclick="toggleTypeFilter('expense')" id="card-expense" class="glass-panel p-3 rounded-2xl flex items-center gap-3 cursor-pointer transition-all hover:bg-rose-500/10">
-                        <div class="p-2 bg-rose-500 rounded-full text-white shadow-lg shadow-rose-500/30"><i data-lucide="arrow-up-right" class="w-4 h-4"></i></div>
+                    <div onclick="toggleTypeFilter('expense')" id="card-expense"
+                        class="glass-panel p-3 rounded-2xl flex items-center gap-3 cursor-pointer transition-all hover:bg-rose-500/10">
+                        <div class="p-2 bg-rose-500 rounded-full text-white shadow-lg shadow-rose-500/30"><i
+                                data-lucide="arrow-up-right" class="w-4 h-4"></i></div>
                         <div class="overflow-hidden">
                             <div class="text-[10px] text-slate-400 uppercase">Chiqim</div>
                             <div id="total-expense" class="font-bold text-rose-400 text-sm truncate">0</div>
@@ -153,107 +489,172 @@
             </div>
 
             <div class="flex gap-2 overflow-x-auto pb-1 no-scrollbar">
-                <button data-filter="all" onclick="setDateFilter('all')" class="date-filter-btn bg-slate-800 border border-slate-700 text-slate-300 text-xs px-4 py-2 rounded-full shrink-0 font-medium transition-all filter-active">Barchasi</button>
-                <button data-filter="week" onclick="setDateFilter('week')" class="date-filter-btn bg-slate-800 border border-slate-700 text-slate-300 text-xs px-4 py-2 rounded-full shrink-0 font-medium transition-all">Hafta</button>
-                <button data-filter="month" onclick="setDateFilter('month')" class="date-filter-btn bg-slate-800 border border-slate-700 text-slate-300 text-xs px-4 py-2 rounded-full shrink-0 font-medium transition-all">Oy</button>
-                <button onclick="openDateRangeModal()" class="bg-slate-700 text-slate-300 text-xs px-3 py-1.5 rounded-full border border-slate-600 flex items-center gap-1 shrink-0 hover:bg-slate-600"><i data-lucide="calendar" class="w-3 h-3"></i> Sana</button>
+                <button data-filter="all" onclick="setDateFilter('all')"
+                    class="date-filter-btn bg-slate-800 border border-slate-700 text-slate-300 text-xs px-4 py-2 rounded-full shrink-0 font-medium transition-all filter-active">Barchasi</button>
+                <button data-filter="week" onclick="setDateFilter('week')"
+                    class="date-filter-btn bg-slate-800 border border-slate-700 text-slate-300 text-xs px-4 py-2 rounded-full shrink-0 font-medium transition-all">Hafta</button>
+                <button data-filter="month" onclick="setDateFilter('month')"
+                    class="date-filter-btn bg-slate-800 border border-slate-700 text-slate-300 text-xs px-4 py-2 rounded-full shrink-0 font-medium transition-all">Oy</button>
+                <button onclick="openDateRangeModal()"
+                    class="bg-slate-700 text-slate-300 text-xs px-3 py-1.5 rounded-full border border-slate-600 flex items-center gap-1 shrink-0 hover:bg-slate-600"><i
+                        data-lucide="calendar" class="w-3 h-3"></i> Sana</button>
             </div>
 
             <div id="trend-container" class="hidden space-y-3">
-                <h3 class="text-slate-400 text-xs font-bold uppercase tracking-wider ml-1">Trendlar (O'tgan oyga nisbatan)</h3>
+                <h3 class="text-slate-400 text-xs font-bold uppercase tracking-wider ml-1">Trendlar (O'tgan oyga
+                    nisbatan)</h3>
                 <div id="trend-list" class="grid grid-cols-2 gap-3"></div>
             </div>
 
             <div class="glass-panel p-5 rounded-3xl shadow-sm">
-                <h3 class="text-slate-200 font-semibold mb-4 flex items-center gap-2 text-sm"><i data-lucide="pie-chart" class="w-4 h-4 text-blue-500"></i> Statistika</h3>
-                <div class="h-48 relative flex items-center justify-center"><canvas id="categoryChart"></canvas><div id="no-data-msg" class="absolute text-slate-500 text-xs hidden">Ma'lumot yo'q</div></div>
+                <h3 class="text-slate-200 font-semibold mb-4 flex items-center gap-2 text-sm"><i data-lucide="pie-chart"
+                        class="w-4 h-4 text-blue-500"></i> Statistika</h3>
+                <div class="h-48 relative flex items-center justify-center"><canvas id="categoryChart"></canvas>
+                    <div id="no-data-msg" class="absolute text-slate-500 text-xs hidden">Ma'lumot yo'q</div>
+                </div>
             </div>
 
             <div class="glass-panel p-5 rounded-3xl shadow-sm">
                 <h3 class="text-slate-200 font-semibold mb-4 text-sm">Top 5 Operatsiyalar</h3>
-                <table class="w-full text-left text-sm"><tbody id="top-transaction-list" class="divide-y divide-slate-700/50"></tbody></table>
+                <table class="w-full text-left text-sm">
+                    <tbody id="top-transaction-list" class="divide-y divide-slate-700/50"></tbody>
+                </table>
             </div>
         </div>
 
         <div id="view-bot" class="flex flex-col h-full hidden fade-in relative">
-            <div class="text-center text-xs text-slate-500 py-2 bg-slate-900/50 backdrop-blur-sm absolute top-0 w-full z-10 border-b border-slate-800">Yordamchi Bot</div>
+            <div
+                class="text-center text-xs text-slate-500 py-2 bg-slate-900/50 backdrop-blur-sm absolute top-0 w-full z-10 border-b border-slate-800">
+                Yordamchi Bot</div>
             <div class="flex-1 overflow-y-auto p-2 pt-10 pb-32 chat-content" id="chat-messages">
-                <div class="msg-wrapper ai fade-in"><div class="msg-bubble ai">Assalomu alaykum! Qaysi operatsiyani bajaramiz?💸</div></div>
+                <div class="msg-wrapper ai fade-in">
+                    <div class="msg-bubble ai">Assalomu alaykum! Qaysi operatsiyani bajaramiz?💸</div>
+                </div>
             </div>
 
-            <div class="p-4 bg-slate-800/95 backdrop-blur-xl border-t border-slate-700 relative bottom-[-33px] left-0 right-0 z-20 rounded-t-3xl shadow-[0_-4px_20px_rgba(0,0,0,0.3)]">
+            <div
+                class="p-4 bg-slate-800/95 backdrop-blur-xl border-t border-slate-700 relative bottom-[-33px] left-0 right-0 z-20 rounded-t-3xl shadow-[0_-4px_20px_rgba(0,0,0,0.3)]">
                 <div id="bot-start-actions">
-                    <div class="text-center text-[10px] font-bold text-slate-500 mb-3 tracking-widest">Kirim / Chiqim</div>
+                    <div class="text-center text-[10px] font-bold text-slate-500 mb-3 tracking-widest">Kirim / Chiqim
+                    </div>
                     <div class="grid grid-cols-2 gap-3">
-                        <button onclick="startBotFlow('income')" class="bg-emerald-500/10 py-3 rounded-2xl border border-emerald-500/20 flex items-center justify-center gap-4 transition-all active:scale-95 group hover:bg-emerald-500/20">
-                            <div class="bg-emerald-500 text-white p-2 rounded-full shadow-lg shadow-emerald-500/30 transition-all"><i data-lucide="arrow-down-left" class="w-5 h-5"></i></div>
+                        <button onclick="startBotFlow('income')"
+                            class="bg-emerald-500/10 py-3 rounded-2xl border border-emerald-500/20 flex items-center justify-center gap-4 transition-all active:scale-95 group hover:bg-emerald-500/20">
+                            <div
+                                class="bg-emerald-500 text-white p-2 rounded-full shadow-lg shadow-emerald-500/30 transition-all">
+                                <i data-lucide="arrow-down-left" class="w-5 h-5"></i>
+                            </div>
                             <span class="text-emerald-400 font-bold">Kirim</span>
                         </button>
-                        <button onclick="startBotFlow('expense')" class="flex space-between bg-rose-500/10 p-1 rounded-2xl border border-rose-500/20 items-center justify-center gap-2 transition-all active:scale-95 group hover:bg-rose-500/20">
-                            <div class="bg-rose-500 text-white p-2 rounded-full shadow-lg shadow-rose-500/30 transition-all"><i data-lucide="arrow-up-right" class="w-5 h-5"></i></div>
+                        <button onclick="startBotFlow('expense')"
+                            class="flex space-between bg-rose-500/10 p-1 rounded-2xl border border-rose-500/20 items-center justify-center gap-2 transition-all active:scale-95 group hover:bg-rose-500/20">
+                            <div
+                                class="bg-rose-500 text-white p-2 rounded-full shadow-lg shadow-rose-500/30 transition-all">
+                                <i data-lucide="arrow-up-right" class="w-5 h-5"></i>
+                            </div>
                             <span class="text-rose-400 font-bold">Chiqim</span>
                         </button>
                     </div>
                 </div>
 
                 <div id="bot-input-container" class="hidden flex flex-col gap-3">
-                    <div id="receipt-preview-area" class="hidden flex items-center gap-3 bg-slate-700/50 p-2 rounded-xl border border-slate-600">
-                        <div class="w-12 h-12 bg-slate-800 rounded-lg overflow-hidden flex-shrink-0"><img id="receipt-img-preview" class="w-full h-full object-cover"></div>
+                    <div id="receipt-preview-area"
+                        class="hidden flex items-center gap-3 bg-slate-700/50 p-2 rounded-xl border border-slate-600">
+                        <div class="w-12 h-12 bg-slate-800 rounded-lg overflow-hidden flex-shrink-0"><img
+                                id="receipt-img-preview" class="w-full h-full object-cover"></div>
                         <div class="flex-1 text-xs text-emerald-400 font-medium">Chek biriktirildi</div>
-                        <button onclick="clearReceipt()" class="p-2 text-rose-400 hover:bg-slate-700 rounded-full"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
+                        <button onclick="clearReceipt()" class="p-2 text-rose-400 hover:bg-slate-700 rounded-full"><i
+                                data-lucide="trash-2" class="w-4 h-4"></i></button>
                     </div>
 
                     <div class="flex gap-2 items-center relative">
-                        <button onclick="document.getElementById('file-upload').click()" class="p-3 bg-slate-700 rounded-xl text-blue-400 hover:text-white hover:bg-slate-600 transition-colors"><i data-lucide="camera" class="w-5 h-5"></i></button>
-                        <input type="file" id="file-upload" accept="image/*" class="hidden" onchange="handleReceiptUpload(event)">
+                        <button onclick="document.getElementById('file-upload').click()"
+                            class="p-3 bg-slate-700 rounded-xl text-blue-400 hover:text-white hover:bg-slate-600 transition-colors"><i
+                                data-lucide="camera" class="w-5 h-5"></i></button>
+                        <input type="file" id="file-upload" accept="image/*" class="hidden"
+                            onchange="handleReceiptUpload(event)">
                         <div class="flex-1 relative">
-                            <input type="tel" id="bot-input" class="w-full bg-slate-700 text-white rounded-xl pl-4 pr-10 py-3 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm" placeholder="Summani kiriting..." autocomplete="off" onkeydown="if(event.key==='Enter'){submitBotInput();}">
-                            <button onclick="cancelBotFlow()" class="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-rose-400 p-1"><i data-lucide="x-circle" class="w-5 h-5"></i></button>
+                            <input type="tel" id="bot-input"
+                                class="w-full bg-slate-700 text-white rounded-xl pl-4 pr-10 py-3 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                                placeholder="Summani kiriting..." autocomplete="off"
+                                onkeydown="if(event.key==='Enter'){submitBotInput();}">
+                            <button onclick="cancelBotFlow()"
+                                class="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-rose-400 p-1"><i
+                                    data-lucide="x-circle" class="w-5 h-5"></i></button>
                         </div>
-                        <button onclick="submitBotInput()" class="bg-blue-600 text-white p-3 rounded-xl shadow-lg shadow-blue-600/30 hover:bg-blue-500 active:scale-95 transition-transform"><i data-lucide="send" class="w-5 h-5"></i></button>
+                        <button onclick="submitBotInput()"
+                            class="bg-blue-600 text-white p-3 rounded-xl shadow-lg shadow-blue-600/30 hover:bg-blue-500 active:scale-95 transition-transform"><i
+                                data-lucide="send" class="w-5 h-5"></i></button>
                     </div>
                 </div>
 
                 <div id="category-selector" class="hidden pt-4 relative">
                     <div class="flex justify-between items-center mb-3 px-1">
                         <span class="text-slate-400 text-xs font-bold uppercase">Kategoriya tanlang</span>
-                        <button onclick="openAddCategoryModal()" class="text-blue-400 text-xs font-bold flex items-center gap-1"><i data-lucide="plus" class="w-3 h-3"></i> Yangi</button>
+                        <button onclick="openAddCategoryModal()"
+                            class="text-blue-400 text-xs font-bold flex items-center gap-1"><i data-lucide="plus"
+                                class="w-3 h-3"></i> Yangi</button>
                     </div>
-                    <div class="text-[10px] text-slate-500 mb-2 italic text-center">Tahrirlash uchun ustiga bosib turing</div>
+                    <div class="text-[10px] text-slate-500 mb-2 italic text-center">Tahrirlash uchun ustiga bosib turing
+                    </div>
                     <div id="category-grid" class="grid grid-cols-4 gap-2 max-h-48 overflow-y-auto pb-2"></div>
-                    <button onclick="cancelBotFlow()" class="absolute -top-2 right-0 p-2 text-slate-500"><i data-lucide="x" class="w-4 h-4"></i></button>
+                    <button onclick="cancelBotFlow()" class="absolute -top-2 right-0 p-2 text-slate-500"><i
+                            data-lucide="x" class="w-4 h-4"></i></button>
                 </div>
             </div>
         </div>
         <div id="view-history" class="hidden fade-in space-y-4">
             <div class="flex items-center justify-between">
                 <h2 class="text-lg font-bold text-white">Tarix</h2>
-                <button onclick="openExportModal()" class="bg-slate-700 hover:bg-slate-600 text-white px-3 py-1.5 rounded-full text-xs font-bold flex items-center gap-2 transition-all border border-slate-600 active:scale-95"><i data-lucide="file-down" class="w-3 h-3"></i> PDF</button>
+                <button onclick="openExportModal()"
+                    class="bg-slate-700 hover:bg-slate-600 text-white px-3 py-1.5 rounded-full text-xs font-bold flex items-center gap-2 transition-all border border-slate-600 active:scale-95"><i
+                        data-lucide="file-down" class="w-3 h-3"></i> PDF</button>
             </div>
             <div id="history-list" class="space-y-3 pb-24"></div>
-            <div id="empty-history" class="hidden flex flex-col items-center justify-center py-10 text-slate-500"><i data-lucide="clipboard-list" class="w-12 h-12 mb-2 opacity-30"></i><p class="text-sm mt-2">Ma'lumot yo'q</p></div>
+            <div id="empty-history" class="hidden flex flex-col items-center justify-center py-10 text-slate-500"><i
+                    data-lucide="clipboard-list" class="w-12 h-12 mb-2 opacity-30"></i>
+                <p class="text-sm mt-2">Ma'lumot yo'q</p>
+            </div>
         </div>
     </main>
 
-    <nav class="glass-panel fixed bottom-0 left-0 right-0 rounded-t-2xl flex justify-around pt-2 px-2 z-30 max-w-md h-16 mx-auto shadow-[0_-4px_20px_rgba(0,0,0,0.2)] pb-4">
-        <button onclick="switchTab('dashboard')" id="nav-dashboard" class="flex flex-col items-center gap-1 w-14 nav-item active"><i data-lucide="layout-dashboard" class="w-5 h-5"></i><span class="text-[9px] font-bold">Asosiy</span></button>
-        <button onclick="switchTab('bot')" id="nav-bot" class="relative -top-6 bg-slate-800 border-4 border-slate-900 w-14 h-14 rounded-full flex items-center justify-center text-slate-400 shadow-lg transition-all"><i data-lucide="plus" class="w-6 h-6"></i></button>
-        <button onclick="switchTab('history')" id="nav-history" class="flex flex-col items-center gap-1 w-14 nav-item"><i data-lucide="history" class="w-5 h-5"></i><span class="text-[9px] font-bold">Tarix</span></button>
+    <nav
+        class="glass-panel fixed bottom-0 left-0 right-0 rounded-t-2xl flex justify-around pt-2 px-2 z-30 max-w-md h-16 mx-auto shadow-[0_-4px_20px_rgba(0,0,0,0.2)] pb-4">
+        <button onclick="switchTab('dashboard')" id="nav-dashboard"
+            class="flex flex-col items-center gap-1 w-14 nav-item active"><i data-lucide="layout-dashboard"
+                class="w-5 h-5"></i><span class="text-[9px] font-bold">Asosiy</span></button>
+        <button onclick="switchTab('bot')" id="nav-bot"
+            class="relative -top-6 bg-slate-800 border-4 border-slate-900 w-14 h-14 rounded-full flex items-center justify-center text-slate-400 shadow-lg transition-all"><i
+                data-lucide="plus" class="w-6 h-6"></i></button>
+        <button onclick="switchTab('history')" id="nav-history"
+            class="flex flex-col items-center gap-1 w-14 nav-item"><i data-lucide="history" class="w-5 h-5"></i><span
+                class="text-[9px] font-bold">Tarix</span></button>
     </nav>
 
-    <div id="action-sheet" class="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 hidden flex items-end justify-center" onclick="closeActionSheet(event)">
-        <div class="bg-slate-800 w-full max-w-md rounded-t-2xl p-5 border-t border-slate-700 slide-up shadow-2xl" onclick="event.stopPropagation()">
+    <div id="action-sheet" class="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 hidden flex items-end justify-center"
+        onclick="closeActionSheet(event)">
+        <div class="bg-slate-800 w-full max-w-md rounded-t-2xl p-5 border-t border-slate-700 slide-up shadow-2xl"
+            onclick="event.stopPropagation()">
             <div class="w-12 h-1 bg-slate-600 rounded-full mx-auto mb-6"></div>
             <div id="action-sheet-content" class="space-y-3"></div>
-            <button onclick="closeActionSheet(null)" class="mt-4 w-full py-3.5 bg-slate-900 rounded-xl text-slate-400 font-bold text-sm">Yopish</button>
+            <button onclick="closeActionSheet(null)"
+                class="mt-4 w-full py-3.5 bg-slate-900 rounded-xl text-slate-400 font-bold text-sm">Yopish</button>
         </div>
     </div>
 
-    <div id="cat-context-menu" class="fixed z-[60] hidden bg-slate-800 border border-slate-700 rounded-xl shadow-2xl overflow-hidden w-40 scale-in">
-        <button onclick="editCatFromMenu()" class="w-full text-left px-4 py-3 hover:bg-slate-700 text-blue-400 text-sm font-medium flex items-center gap-2"><i data-lucide="edit-2" class="w-4 h-4"></i> Tahrirlash</button>
-        <button onclick="deleteCatFromMenu()" class="w-full text-left px-4 py-3 hover:bg-slate-700 text-rose-400 text-sm font-medium flex items-center gap-2"><i data-lucide="trash-2" class="w-4 h-4"></i> O'chirish</button>
+    <div id="cat-context-menu"
+        class="fixed z-[60] hidden bg-slate-800 border border-slate-700 rounded-xl shadow-2xl overflow-hidden w-40 scale-in">
+        <button onclick="editCatFromMenu()"
+            class="w-full text-left px-4 py-3 hover:bg-slate-700 text-blue-400 text-sm font-medium flex items-center gap-2"><i
+                data-lucide="edit-2" class="w-4 h-4"></i> Tahrirlash</button>
+        <button onclick="deleteCatFromMenu()"
+            class="w-full text-left px-4 py-3 hover:bg-slate-700 text-rose-400 text-sm font-medium flex items-center gap-2"><i
+                data-lucide="trash-2" class="w-4 h-4"></i> O'chirish</button>
     </div>
-    <div id="receipt-modal" class="fixed inset-0 bg-black/95 z-[90] hidden flex items-center justify-center p-2" onclick="closeReceiptModal()"><button class="absolute top-4 right-4 p-2 bg-white/10 rounded-full text-white"><i data-lucide="x" class="w-6 h-6"></i></button><img id="full-receipt-image" class="max-w-full max-h-[85vh] rounded shadow-2xl object-contain"></div>
+    <div id="receipt-modal" class="fixed inset-0 bg-black/95 z-[90] hidden flex items-center justify-center p-2"
+        onclick="closeReceiptModal()"><button class="absolute top-4 right-4 p-2 bg-white/10 rounded-full text-white"><i
+                data-lucide="x" class="w-6 h-6"></i></button><img id="full-receipt-image"
+            class="max-w-full max-h-[85vh] rounded shadow-2xl object-contain"></div>
     <!-- <div id="gemini-modal" class="fixed inset-0 z-[60] hidden flex flex-col glass-modal slide-up">
         <div class="p-4 border-b border-white/10 flex items-center justify-between bg-white/5">
             <div class="flex items-center gap-3">
@@ -266,461 +667,571 @@
             <div class="flex gap-2 bg-slate-800/50 p-1.5 rounded-3xl border border-white/5"><input type="text" id="ai-input" placeholder="Savol..." class="flex-1 bg-transparent text-white px-4 py-3 outline-none text-sm"><button onclick="sendToGemini()" class="bg-blue-600 text-white p-3 rounded-2xl"><i data-lucide="send" class="w-5 h-5"></i></button></div>
         </div>
     </div> -->
-    <div id="settings-modal" class="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+    <div id="settings-modal"
+        class="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
         <div class="bg-slate-800 rounded-2xl p-6 w-full max-w-sm border border-slate-700 slide-up">
-            <div class="flex justify-between items-center mb-6"><h3 class="text-lg font-bold text-white">Sozlamalar</h3><button onclick="closeModal('settings-modal')"><i data-lucide="x" class="text-slate-400"></i></button></div>
+            <div class="flex justify-between items-center mb-6">
+                <h3 class="text-lg font-bold text-white">Sozlamalar</h3><button
+                    onclick="closeModal('settings-modal')"><i data-lucide="x" class="text-slate-400"></i></button>
+            </div>
             <div class="space-y-3">
-                <div class="bg-slate-700 rounded-xl p-1 overflow-hidden mb-4"><button onclick="startPinSetup()" class="w-full p-4 flex items-center justify-between hover:bg-slate-600 transition-colors rounded-lg"><div class="flex items-center gap-3"><div class="p-2 bg-blue-500/20 rounded-lg text-blue-400"><i data-lucide="lock" class="w-5 h-5"></i></div><div><div class="text-white text-sm font-bold">PIN Kod</div><div id="pin-status-text" class="text-xs text-slate-400"></div></div></div><i data-lucide="chevron-right" class="w-4 h-4 text-slate-500"></i></button><button id="btn-remove-pin" onclick="removePin()" class="w-full p-4 flex items-center justify-between hover:bg-slate-600 transition-colors rounded-lg border-t border-slate-600 hidden"><div class="flex items-center gap-3"><div class="p-2 bg-rose-500/20 rounded-lg text-rose-400"><i data-lucide="unlock" class="w-5 h-5"></i></div><div class="text-white text-sm font-bold text-rose-400">PINni o'chirish</div></div></button><div class="h-[1px] bg-slate-600 mx-4"></div><div id="bio-row" class="p-4 flex items-center justify-between hidden"><div class="flex items-center gap-3"><div class="p-2 bg-purple-500/20 rounded-lg text-purple-400"><i data-lucide="scan-face" class="w-5 h-5"></i></div><div class="text-white text-sm font-bold">Face ID / Touch ID</div></div><label class="relative inline-flex items-center cursor-pointer"><input type="checkbox" id="bio-toggle" class="sr-only peer" onchange="toggleBiometric(this)"><div class="w-11 h-6 bg-slate-600 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div></label></div></div>
-                <div class="grid grid-cols-2 gap-3"><button onclick="exportData()" class="p-4 bg-slate-700 rounded-xl flex flex-col items-center gap-2 hover:bg-slate-600"><i data-lucide="download" class="text-emerald-400"></i><span class="text-xs text-slate-300 font-bold">Yuklash</span></button><button onclick="document.getElementById('import-file').click()" class="p-4 bg-slate-700 rounded-xl flex flex-col items-center gap-2 hover:bg-slate-600"><i data-lucide="upload" class="text-blue-400"></i><span class="text-xs text-slate-300 font-bold">Tiklash</span></button><input type="file" id="import-file" class="hidden" onchange="importData(event)" accept=".json"></div><button onclick="confirmResetData()" class="w-full p-4 bg-rose-900/20 text-rose-400 rounded-xl flex items-center justify-center gap-2 mt-2 hover:bg-rose-900/30"><i data-lucide="trash-2" class="w-4 h-4"></i> Tozalash</button>
+                <div class="bg-slate-700 rounded-xl p-1 overflow-hidden mb-4"><button onclick="startPinSetup()"
+                        class="w-full p-4 flex items-center justify-between hover:bg-slate-600 transition-colors rounded-lg">
+                        <div class="flex items-center gap-3">
+                            <div class="p-2 bg-blue-500/20 rounded-lg text-blue-400"><i data-lucide="lock"
+                                    class="w-5 h-5"></i></div>
+                            <div>
+                                <div class="text-white text-sm font-bold">PIN Kod</div>
+                                <div id="pin-status-text" class="text-xs text-slate-400"></div>
+                            </div>
+                        </div><i data-lucide="chevron-right" class="w-4 h-4 text-slate-500"></i>
+                    </button><button id="btn-remove-pin" onclick="removePin()"
+                        class="w-full p-4 flex items-center justify-between hover:bg-slate-600 transition-colors rounded-lg border-t border-slate-600 hidden">
+                        <div class="flex items-center gap-3">
+                            <div class="p-2 bg-rose-500/20 rounded-lg text-rose-400"><i data-lucide="unlock"
+                                    class="w-5 h-5"></i></div>
+                            <div class="text-white text-sm font-bold text-rose-400">PINni o'chirish</div>
+                        </div>
+                    </button>
+                    <div class="h-[1px] bg-slate-600 mx-4"></div>
+                    <div id="bio-row" class="p-4 flex items-center justify-between hidden">
+                        <div class="flex items-center gap-3">
+                            <div class="p-2 bg-purple-500/20 rounded-lg text-purple-400"><i data-lucide="scan-face"
+                                    class="w-5 h-5"></i></div>
+                            <div class="text-white text-sm font-bold">Face ID / Touch ID</div>
+                        </div><label class="relative inline-flex items-center cursor-pointer"><input type="checkbox"
+                                id="bio-toggle" class="sr-only peer" onchange="toggleBiometric(this)">
+                            <div
+                                class="w-11 h-6 bg-slate-600 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600">
+                            </div>
+                        </label>
+                    </div>
+                </div>
+                <div class="grid grid-cols-2 gap-3"><button onclick="exportData()"
+                        class="p-4 bg-slate-700 rounded-xl flex flex-col items-center gap-2 hover:bg-slate-600"><i
+                            data-lucide="download" class="text-emerald-400"></i><span
+                            class="text-xs text-slate-300 font-bold">Yuklash</span></button><button
+                        onclick="document.getElementById('import-file').click()"
+                        class="p-4 bg-slate-700 rounded-xl flex flex-col items-center gap-2 hover:bg-slate-600"><i
+                            data-lucide="upload" class="text-blue-400"></i><span
+                            class="text-xs text-slate-300 font-bold">Tiklash</span></button><input type="file"
+                        id="import-file" class="hidden" onchange="importData(event)" accept=".json"></div><button
+                    onclick="confirmResetData()"
+                    class="w-full p-4 bg-rose-900/20 text-rose-400 rounded-xl flex items-center justify-center gap-2 mt-2 hover:bg-rose-900/30"><i
+                        data-lucide="trash-2" class="w-4 h-4"></i> Tozalash</button>
             </div>
         </div>
     </div>
-    <div id="edit-modal" class="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+    <div id="edit-modal"
+        class="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
         <div class="bg-slate-800 rounded-2xl p-5 w-full max-w-sm border border-slate-700">
             <h3 class="text-lg font-bold text-white mb-4">Tahrirlash</h3>
-            <div class="space-y-3"><input type="text" id="edit-category" class="w-full bg-slate-700 rounded-xl p-3 text-white outline-none border border-slate-600"><input type="tel" id="edit-amount" class="w-full bg-slate-700 rounded-xl p-3 text-white outline-none border border-slate-600"><select id="edit-type" class="w-full bg-slate-700 rounded-xl p-3 text-white outline-none border border-slate-600"><option value="income">Kirim (+)</option><option value="expense">Chiqim (-)</option></select></div>
-            <div class="flex gap-3 mt-6"><button onclick="closeModal('edit-modal')" class="flex-1 py-3 bg-slate-700 rounded-xl text-slate-300">Bekor</button><button onclick="saveEdit()" class="flex-1 py-3 bg-blue-600 rounded-xl text-white font-bold">Saqlash</button></div>
+            <div class="space-y-3"><input type="text" id="edit-category"
+                    class="w-full bg-slate-700 rounded-xl p-3 text-white outline-none border border-slate-600"><input
+                    type="tel" id="edit-amount"
+                    class="w-full bg-slate-700 rounded-xl p-3 text-white outline-none border border-slate-600"><select
+                    id="edit-type"
+                    class="w-full bg-slate-700 rounded-xl p-3 text-white outline-none border border-slate-600">
+                    <option value="income">Kirim (+)</option>
+                    <option value="expense">Chiqim (-)</option>
+                </select></div>
+            <div class="flex gap-3 mt-6"><button onclick="closeModal('edit-modal')"
+                    class="flex-1 py-3 bg-slate-700 rounded-xl text-slate-300">Bekor</button><button
+                    onclick="saveEdit()"
+                    class="flex-1 py-3 bg-blue-600 rounded-xl text-white font-bold">Saqlash</button></div>
         </div>
     </div>
-    <div id="delete-modal" class="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+    <div id="delete-modal"
+        class="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
         <div class="bg-slate-800 rounded-2xl p-5 w-full max-w-sm border border-slate-700 text-center">
             <h3 class="text-lg font-bold text-white mb-2">O'chirish</h3>
             <p class="text-slate-400 text-sm mb-6">Ushbu operatsiyani rostdan ham o'chirmoqchimisiz?</p>
-            <div class="flex gap-3"><button onclick="closeModal('delete-modal')" class="flex-1 py-3 bg-slate-700 rounded-xl text-slate-300">Bekor</button><button onclick="confirmDelete()" class="flex-1 py-3 bg-rose-600 rounded-xl text-white font-bold">O'chirish</button></div>
+            <div class="flex gap-3"><button onclick="closeModal('delete-modal')"
+                    class="flex-1 py-3 bg-slate-700 rounded-xl text-slate-300">Bekor</button><button
+                    onclick="confirmDelete()"
+                    class="flex-1 py-3 bg-rose-600 rounded-xl text-white font-bold">O'chirish</button></div>
         </div>
     </div>
-    <div id="add-cat-modal" class="fixed inset-0 bg-black/60 backdrop-blur-sm z-[70] hidden flex items-center justify-center p-4">
+    <div id="add-cat-modal"
+        class="fixed inset-0 bg-black/60 backdrop-blur-sm z-[70] hidden flex items-center justify-center p-4">
         <div class="bg-slate-800 rounded-2xl p-6 w-full max-w-sm border border-slate-700">
-            <h3 class="text-lg font-bold text-white mb-4">Yangi Kategoriya</h3><input type="text" id="new-cat-name" placeholder="Nomi" class="w-full bg-slate-700 rounded-xl p-3 text-white border border-slate-600 mb-4 focus:border-blue-500 outline-none">
+            <h3 class="text-lg font-bold text-white mb-4">Yangi Kategoriya</h3><input type="text" id="new-cat-name"
+                placeholder="Nomi"
+                class="w-full bg-slate-700 rounded-xl p-3 text-white border border-slate-600 mb-4 focus:border-blue-500 outline-none">
             <div class="grid grid-cols-5 gap-2 mb-6" id="icon-selector"></div>
-            <div class="flex gap-3"><button onclick="closeModal('add-cat-modal')" class="flex-1 py-3 bg-slate-700 rounded-xl text-slate-300">Bekor</button><button onclick="saveNewCategory()" class="flex-1 py-3 bg-blue-600 rounded-xl text-white font-bold">Saqlash</button></div>
+            <div class="flex gap-3"><button onclick="closeModal('add-cat-modal')"
+                    class="flex-1 py-3 bg-slate-700 rounded-xl text-slate-300">Bekor</button><button
+                    onclick="saveNewCategory()"
+                    class="flex-1 py-3 bg-blue-600 rounded-xl text-white font-bold">Saqlash</button></div>
         </div>
     </div>
-    <div id="edit-cat-modal" class="fixed inset-0 bg-black/60 backdrop-blur-sm z-[75] hidden flex items-center justify-center p-4">
+    <div id="edit-cat-modal"
+        class="fixed inset-0 bg-black/60 backdrop-blur-sm z-[75] hidden flex items-center justify-center p-4">
         <div class="bg-slate-800 rounded-2xl p-6 w-full max-w-sm border border-slate-700">
-            <h3 class="text-lg font-bold text-white mb-4">Kategoriyani Tahrirlash</h3><input type="text" id="edit-cat-name-input" class="w-full bg-slate-700 rounded-xl p-3 text-white border border-slate-600 mb-4 outline-none">
-            <div class="flex gap-3"><button onclick="closeModal('edit-cat-modal')" class="flex-1 py-3 bg-slate-700 rounded-xl text-slate-300">Bekor</button><button onclick="confirmEditCat()" class="flex-1 py-3 bg-blue-600 rounded-xl text-white font-bold">Saqlash</button></div>
+            <h3 class="text-lg font-bold text-white mb-4">Kategoriyani Tahrirlash</h3><input type="text"
+                id="edit-cat-name-input"
+                class="w-full bg-slate-700 rounded-xl p-3 text-white border border-slate-600 mb-4 outline-none">
+            <div class="flex gap-3"><button onclick="closeModal('edit-cat-modal')"
+                    class="flex-1 py-3 bg-slate-700 rounded-xl text-slate-300">Bekor</button><button
+                    onclick="confirmEditCat()"
+                    class="flex-1 py-3 bg-blue-600 rounded-xl text-white font-bold">Saqlash</button></div>
         </div>
     </div>
-    <div id="date-range-modal" class="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+    <div id="date-range-modal"
+        class="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
         <div class="bg-slate-800 rounded-2xl p-6 w-full max-w-sm border border-slate-700">
-            <div class="flex justify-between items-center mb-4"><h3 class="text-lg font-bold text-white">Maxsus Sana</h3><button onclick="closeModal('date-range-modal')" class="text-slate-400 hover:text-white"><i data-lucide="x" class="w-6 h-6"></i></button></div>
-            <div class="space-y-4"><input type="date" id="start-date" class="w-full bg-slate-700 rounded-xl p-3 text-white outline-none border border-slate-600"><input type="date" id="end-date" class="w-full bg-slate-700 rounded-xl p-3 text-white outline-none border border-slate-600"></div>
-            <button onclick="applyDateRange()" class="mt-6 w-full bg-blue-600 py-3 rounded-xl text-white font-bold">Qo'llash</button>
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="text-lg font-bold text-white">Maxsus Sana</h3><button
+                    onclick="closeModal('date-range-modal')" class="text-slate-400 hover:text-white"><i data-lucide="x"
+                        class="w-6 h-6"></i></button>
+            </div>
+            <div class="space-y-4"><input type="date" id="start-date"
+                    class="w-full bg-slate-700 rounded-xl p-3 text-white outline-none border border-slate-600"><input
+                    type="date" id="end-date"
+                    class="w-full bg-slate-700 rounded-xl p-3 text-white outline-none border border-slate-600"></div>
+            <button onclick="applyDateRange()"
+                class="mt-6 w-full bg-blue-600 py-3 rounded-xl text-white font-bold">Qo'llash</button>
         </div>
     </div>
-    <div id="export-modal" class="fixed inset-0 bg-black/60 backdrop-blur-sm z-[80] hidden flex items-center justify-center p-4">
+    <div id="export-modal"
+        class="fixed inset-0 bg-black/60 backdrop-blur-sm z-[80] hidden flex items-center justify-center p-4">
         <div class="bg-slate-800 rounded-2xl p-6 w-full max-w-sm border border-slate-700 slide-up">
-            <div class="flex justify-between items-center mb-4"><h3 class="text-lg font-bold text-white flex items-center gap-2"><i data-lucide="file-down" class="text-blue-400"></i> PDF Hisobot</h3><button onclick="closeModal('export-modal')" class="text-slate-400 hover:text-white"><i data-lucide="x" class="w-6 h-6"></i></button></div>
-            <div class="space-y-4"><div><label class="text-xs text-slate-400 ml-1">Boshlanish sanasi</label><input type="date" id="export-start-date" class="w-full bg-slate-700 rounded-xl p-3 text-white outline-none border border-slate-600 mt-1 focus:border-blue-500 transition-colors"></div><div><label class="text-xs text-slate-400 ml-1">Tugash sanasi</label><input type="date" id="export-end-date" class="w-full bg-slate-700 rounded-xl p-3 text-white outline-none border border-slate-600 mt-1 focus:border-blue-500 transition-colors"></div><div class="bg-slate-700/50 rounded-xl p-3 border border-slate-600"><div class="flex justify-between text-sm mb-1"><span class="text-slate-400">Topildi:</span><span id="export-count" class="text-white font-bold">0 ta</span></div><div class="flex justify-between text-sm"><span class="text-slate-400">Cheklar:</span><span id="export-receipts" class="text-blue-400 font-bold">0 ta</span></div></div></div>
-            <button onclick="generatePDF()" class="mt-6 w-full bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 py-3 rounded-xl text-white font-bold shadow-lg shadow-blue-500/30 active:scale-95 transition-all flex items-center justify-center gap-2"><i data-lucide="download" class="w-4 h-4"></i> Yuklash</button>
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="text-lg font-bold text-white flex items-center gap-2"><i data-lucide="file-down"
+                        class="text-blue-400"></i> PDF Hisobot</h3><button onclick="closeModal('export-modal')"
+                    class="text-slate-400 hover:text-white"><i data-lucide="x" class="w-6 h-6"></i></button>
+            </div>
+            <div class="space-y-4">
+                <div><label class="text-xs text-slate-400 ml-1">Boshlanish sanasi</label><input type="date"
+                        id="export-start-date"
+                        class="w-full bg-slate-700 rounded-xl p-3 text-white outline-none border border-slate-600 mt-1 focus:border-blue-500 transition-colors">
+                </div>
+                <div><label class="text-xs text-slate-400 ml-1">Tugash sanasi</label><input type="date"
+                        id="export-end-date"
+                        class="w-full bg-slate-700 rounded-xl p-3 text-white outline-none border border-slate-600 mt-1 focus:border-blue-500 transition-colors">
+                </div>
+                <div class="bg-slate-700/50 rounded-xl p-3 border border-slate-600">
+                    <div class="flex justify-between text-sm mb-1"><span class="text-slate-400">Topildi:</span><span
+                            id="export-count" class="text-white font-bold">0 ta</span></div>
+                    <div class="flex justify-between text-sm"><span class="text-slate-400">Cheklar:</span><span
+                            id="export-receipts" class="text-blue-400 font-bold">0 ta</span></div>
+                </div>
+            </div>
+            <button onclick="generatePDF()"
+                class="mt-6 w-full bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 py-3 rounded-xl text-white font-bold shadow-lg shadow-blue-500/30 active:scale-95 transition-all flex items-center justify-center gap-2"><i
+                    data-lucide="download" class="w-4 h-4"></i> Yuklash</button>
         </div>
     </div>
 
-<script>
-    // --- CONFIG ---
-    const SUPABASE_URL = "https://maahdpuwvaugqjfnihbu.supabase.co"; 
-    const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1hYWhkcHV3dmF1Z3FqZm5paGJ1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjM4ODM4NTEsImV4cCI6MjA3OTQ1OTg1MX0.ILp0bW01IMLydAuXcYXQSM6NORGG5yjJt367JsFyDm4";
-    
-    // API Clientlarni yaratish
-    const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-    const tg = window.Telegram.WebApp;
+    <script>
+        // --- CONFIG ---
+        const SUPABASE_URL = "https://maahdpuwvaugqjfnihbu.supabase.co";
+        const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1hYWhkcHV3dmF1Z3FqZm5paGJ1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjM4ODM4NTEsImV4cCI6MjA3OTQ1OTg1MX0.ILp0bW01IMLydAuXcYXQSM6NORGG5yjJt367JsFyDm4";
 
-    // Telegram sozlamalari
-    tg.expand(); 
-    const currentUserId = tg.initDataUnsafe?.user?.id || 123456; 
+        const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+        const tg = window.Telegram.WebApp;
+        tg.expand();
+        const currentUserId = tg.initDataUnsafe?.user?.id || 123456;
 
-    // const GEMINI_API_KEY = "AIzaSyCR97UX69UFaHQ984x0ACsrCNJRIjbNSto"; // Agar ishlatsangiz
-    // const GEMINI_API_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`;
+        const icons = ['shopping-cart', 'zap', 'wifi', 'smartphone', 'car', 'home', 'gift', 'coffee', 'music', 'book', 'heart', 'smile', 'star', 'briefcase', 'credit-card', 'monitor', 'tool', 'truck', 'shopping-bag', 'banknote', 'pill', 'shirt'];
 
-    const icons = ['shopping-cart', 'zap', 'wifi', 'smartphone', 'car', 'home', 'gift', 'coffee', 'music', 'book', 'heart', 'smile', 'star', 'briefcase', 'credit-card', 'monitor', 'tool', 'truck', 'shopping-bag', 'banknote', 'pill', 'shirt'];
+        // --- STATE ---
+        let transactions = [];
+        let allCats = { income: [], expense: [] };
+        let pin = localStorage.getItem('pin');
+        let bioEnabled = localStorage.getItem('bio') === 'true';
+        let activeType = 'all', activeDate = 'all', botState = 'idle', draft = { receipt: null, rawFile: null }, selId = null, selIcon = 'circle';
+        let pinInput = "", pinStep = 'unlock', tempPin = "";
+        let selCatIndex = null, selCatType = null;
+        let isBiometricAvailable = false;
 
-    // --- STATE ---
-    let transactions = [];
-    let allCats = { income: [], expense: [] };
-    let pin = localStorage.getItem('pin');
-    let bioEnabled = localStorage.getItem('bio') === 'true';
-    let activeType = 'all', activeDate = 'all', botState = 'idle', draft = { receipt: null, rawFile: null }, selId = null, selIcon = 'circle';
-    let pinInput = "", pinStep = 'unlock', tempPin = "";
-    let selCatIndex = null, selCatType = null;
-    let isBiometricAvailable = false;
+        // --- INIT ---
+        document.addEventListener('DOMContentLoaded', async () => {
+            lucide.createIcons();
+            isBiometricAvailable = window.PublicKeyCredential && await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
+            if (pin) showPinScreen('unlock');
+            if (localStorage.getItem('theme') === 'light') toggleTheme(true);
 
-    // --- INIT ---
-    document.addEventListener('DOMContentLoaded', async () => {
-        lucide.createIcons();
-        isBiometricAvailable = window.PublicKeyCredential && await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
-        if (pin) showPinScreen('unlock');
-        if (localStorage.getItem('theme') === 'light') toggleTheme(true);
+            console.log("Ma'lumotlar yuklanmoqda...");
 
-        console.log("Ma'lumotlar yuklanmoqda...");
-        await fetchInitialData();
-        updateUI();
-        updateSettingsUI();
-        
-        const navDash = document.getElementById('nav-dashboard');
-        if (navDash) navDash.classList.add('active');
-
-        const ic = document.getElementById('icon-selector');
-        if(ic) {
-            icons.forEach(i => {
-                const d = document.createElement('div');
-                d.className = "p-2 rounded-lg bg-slate-700 flex items-center justify-center cursor-pointer icon-opt transition-all";
-                d.innerHTML = `<i data-lucide="${i}" class="w-5 h-5 text-slate-300 pointer-events-none"></i>`;
-                d.onclick = () => { document.querySelectorAll('.icon-opt').forEach(e => e.classList.remove('selected')); d.classList.add('selected'); selIcon = i; };
-                ic.appendChild(d);
-            });
-        }
-        window.addEventListener('click', () => { const menu = document.getElementById('cat-context-menu'); if(menu) menu.classList.add('hidden'); });
-    });
-
-    // --- BACKEND FUNCTION (SUPABASE) ---
-    async function fetchInitialData() {
-        const { data: tData, error: tError } = await supabase.from('transactions').select('*').eq('user_id', currentUserId).order('date', { ascending: false });
-        if (!tError && tData) transactions = tData;
-        else console.error("Tranzaksiyalarni yuklashda xato:", tError);
-
-        const { data: cData, error: cError } = await supabase.from('categories').select('*').eq('user_id', currentUserId);
-        if (!cData || cData.length === 0) await initDefaultCategories();
-        else {
-            allCats.income = cData.filter(c => c.type === 'income');
-            allCats.expense = cData.filter(c => c.type === 'expense');
-        }
-    }
-
-    async function initDefaultCategories() {
-        const default_income = [{ name: "Oylik", icon: "banknote", type: "income" }, { name: "Bonus", icon: "gift", type: "income" }, { name: "Sotuv", icon: "shopping-bag", type: "income" }];
-        const default_expense = [{ name: "Oziq-ovqat", icon: "shopping-cart", type: "expense" }, { name: "Transport", icon: "bus", type: "expense" }, { name: "Kafe", icon: "coffee", type: "expense" }];
-        const all = [...default_income, ...default_expense].map(c => ({ ...c, user_id: currentUserId }));
-        const { error } = await supabase.from('categories').insert(all);
-        if(!error) { allCats.income = default_income; allCats.expense = default_expense; }
-    }
-
-    // --- NAVIGATION LOGIC ---
-    function switchTab(t) {
-        ['dashboard', 'bot', 'history'].forEach(v => { const el = document.getElementById(`view-${v}`); if(el) el.classList.add('hidden'); });
-        const target = document.getElementById(`view-${t}`);
-        if(target) target.classList.remove('hidden');
-        document.querySelectorAll('.nav-item').forEach(b => b.classList.remove('active'));
-        const botBtn = document.getElementById('nav-bot');
-        if(botBtn) { botBtn.classList.remove('active'); botBtn.querySelector('i').classList.remove('text-blue-500'); botBtn.querySelector('i').classList.add('text-white'); }
-        if (t === 'bot') { if(botBtn) { botBtn.classList.add('active'); botBtn.querySelector('i').classList.remove('text-white'); botBtn.querySelector('i').classList.add('text-blue-500'); } } 
-        else { const activeBtn = document.getElementById(`nav-${t}`); if (activeBtn) activeBtn.classList.add('active'); }
-        if (t === 'dashboard') updateUI();
-        lucide.createIcons();
-    }
-
-    // --- CATEGORY MANAGEMENT ---
-    let longPressTimer;
-    function handleCatPressStart(e, idx, type) { longPressTimer = setTimeout(() => showCatOptions(e, idx, type), 500); }
-    function handleCatPressEnd() { clearTimeout(longPressTimer); }
-    function showCatOptions(e, idx, type) {
-        e.preventDefault(); selCatIndex = idx; selCatType = type;
-        const menu = document.getElementById('cat-context-menu');
-        const clickX = e.clientX || e.touches[0].clientX; const clickY = e.clientY || e.touches[0].clientY;
-        menu.style.left = `${Math.min(clickX, window.innerWidth - 170)}px`; menu.style.top = `${Math.min(clickY, window.innerHeight - 100)}px`;
-        menu.classList.remove('hidden');
-    }
-    function editCatFromMenu() {
-        const cat = allCats[selCatType][selCatIndex];
-        document.getElementById('edit-cat-name-input').value = cat.name;
-        document.getElementById('edit-cat-modal').classList.remove('hidden'); document.getElementById('cat-context-menu').classList.add('hidden');
-    }
-    async function confirmEditCat() {
-        const newName = document.getElementById('edit-cat-name-input').value;
-        if (newName) {
-            const cat = allCats[selCatType][selCatIndex]; const oldName = cat.name;
-            allCats[selCatType][selCatIndex].name = newName; renderBotCats(selCatType); closeModal('edit-cat-modal');
-            await supabase.from('categories').update({ name: newName }).eq('user_id', currentUserId).eq('name', oldName).eq('type', selCatType);
-        }
-    }
-    async function deleteCatFromMenu() {
-        if (confirm("Bu kategoriyani o'chirasizmi?")) {
-            const catToDelete = allCats[selCatType][selCatIndex];
-            allCats[selCatType].splice(selCatIndex, 1); renderBotCats(selCatType); document.getElementById('cat-context-menu').classList.add('hidden');
-            await supabase.from('categories').delete().eq('user_id', currentUserId).eq('name', catToDelete.name).eq('type', selCatType);
-        }
-    }
-
-    // --- PIN & BIOMETRICS ---
-    function showPinScreen(step) {
-        pinStep = step; pinInput = ""; updatePinDots();
-        document.getElementById('pin-screen').classList.remove('hidden');
-        const t = document.getElementById('pin-title'), s = document.getElementById('pin-subtitle'), c = document.getElementById('cancel-pin-setup'), bioBtn = document.getElementById('bio-btn'), bioPlace = document.getElementById('bio-placeholder');
-        if (step === 'unlock') {
-            t.innerText = "PIN Kod"; s.innerText = "Kirish uchun"; c.classList.add('hidden');
-            if (bioEnabled && isBiometricAvailable) { bioBtn.classList.remove('hidden'); bioPlace.classList.add('hidden'); setTimeout(triggerBiometric, 300); } else { bioBtn.classList.add('hidden'); bioPlace.classList.remove('hidden'); }
-        } else if (step === 'setup_old') { t.innerText = "Eski PIN"; s.innerText = "Tasdiqlash uchun"; c.classList.remove('hidden'); bioBtn.classList.add('hidden'); bioPlace.classList.remove('hidden'); } else if (step === 'setup_new') { t.innerText = "Yangi PIN"; s.innerText = "4 xonali kod o'rnating"; c.classList.remove('hidden'); bioBtn.classList.add('hidden'); bioPlace.classList.remove('hidden'); } else if (step === 'setup_confirm') { t.innerText = "Qayta kiritish"; s.innerText = "Yangi PINni tasdiqlang"; }
-    }
-    function handlePinInput(n) { if (pinInput.length < 4) { pinInput += n; updatePinDots(); if (pinInput.length === 4) setTimeout(checkPin, 200); } }
-    function handlePinDelete() { pinInput = pinInput.slice(0, -1); updatePinDots(); }
-    function updatePinDots() { document.querySelectorAll('.pin-dot').forEach((d, i) => i < pinInput.length ? d.classList.add('bg-blue-500', 'active', 'scale-110') : d.classList.remove('bg-blue-500', 'active', 'scale-110')); }
-    function checkPin() {
-        const d = document.getElementById('pin-dots'); const err = () => { d.classList.add('shake'); setTimeout(() => { d.classList.remove('shake'); pinInput = ""; updatePinDots(); }, 400); };
-        if (pinStep === 'unlock') { if (pinInput === pin) { document.getElementById('pin-screen').classList.add('hidden'); } else err(); } else if (pinStep === 'setup_old') { if (pinInput === pin) { showPinScreen('setup_new'); } else err(); } else if (pinStep === 'setup_new') { tempPin = pinInput; showPinScreen('setup_confirm'); } else if (pinStep === 'setup_confirm') { if (pinInput === tempPin) { pin = tempPin; localStorage.setItem('pin', pin); document.getElementById('pin-screen').classList.add('hidden'); updateSettingsUI(); alert("PIN o'zgartirildi! ✅"); closeModal('settings-modal'); } else { alert("Mos kelmadi!"); showPinScreen('setup_new'); } }
-    }
-    async function triggerBiometric() { if (!isBiometricAvailable) return; try { const challenge = new Uint8Array(32); window.crypto.getRandomValues(challenge); await navigator.credentials.get({ publicKey: { challenge: challenge, timeout: 60000, userVerification: "required", } }); document.getElementById('pin-screen').classList.add('hidden'); } catch (e) { console.log("Biometric failed or cancelled", e); } }
-    function startPinSetup() { if (pin) showPinScreen('setup_old'); else showPinScreen('setup_new'); }
-    function cancelPinSetup() { document.getElementById('pin-screen').classList.add('hidden'); }
-    function toggleBiometric(el) { bioEnabled = el.checked; localStorage.setItem('bio', bioEnabled); }
-    function removePin() { if (confirm("PIN kodni olib tashlaysizmi?")) { localStorage.removeItem('pin'); pin = null; updateSettingsUI(); alert("PIN kod olib tashlandi."); closeModal('settings-modal'); } }
-
-    // --- IMAGE OPTIMIZATION & UPLOAD ---
-    function handleReceiptUpload(e) {
-        const file = e.target.files[0]; if (!file) return;
-        draft.rawFile = file; 
-        const reader = new FileReader();
-        reader.onload = (event) => {
-            const img = new Image(); img.src = event.target.result;
-            img.onload = () => {
-                const canvas = document.createElement('canvas'); const ctx = canvas.getContext('2d');
-                const maxW = 800; const scale = maxW / img.width;
-                canvas.width = scale < 1 ? maxW : img.width; canvas.height = scale < 1 ? img.height * scale : img.height;
-                ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-                draft.receipt = canvas.toDataURL('image/jpeg', 0.7);
-                document.getElementById('receipt-img-preview').src = draft.receipt;
-                document.getElementById('receipt-preview-area').classList.remove('hidden');
+            const ic = document.getElementById('icon-selector');
+            if (ic) {
+                icons.forEach(i => {
+                    const d = document.createElement('div');
+                    d.className = "p-2 rounded-lg bg-slate-700 flex items-center justify-center cursor-pointer icon-opt transition-all";
+                    d.innerHTML = `<i data-lucide="${i}" class="w-5 h-5 text-slate-300 pointer-events-none"></i>`;
+                    d.onclick = () => { document.querySelectorAll('.icon-opt').forEach(e => e.classList.remove('selected')); d.classList.add('selected'); selIcon = i; };
+                    ic.appendChild(d);
+                });
             }
-        }; reader.readAsDataURL(file);
-    }
 
-    async function uploadReceipt(file) {
-        const fileName = `${currentUserId}/${Date.now()}.jpg`;
-        const { data, error } = await supabase.storage.from('receipts').upload(fileName, file);
-        if (error) { console.error("Rasm yuklashda xato (Supabase Policy ni tekshiring):", error); throw error; }
-        const { data: { publicUrl } } = supabase.storage.from('receipts').getPublicUrl(fileName);
-        return publicUrl;
-    }
+            window.addEventListener('click', () => { const menu = document.getElementById('cat-context-menu'); if (menu) menu.classList.add('hidden'); });
 
-    function clearReceipt() { draft.receipt = null; draft.rawFile = null; document.getElementById('file-upload').value = ''; document.getElementById('receipt-preview-area').classList.add('hidden'); }
-    function viewReceipt(src) { document.getElementById('full-receipt-image').src = src; document.getElementById('receipt-modal').classList.remove('hidden'); }
-    function closeReceiptModal() { document.getElementById('receipt-modal').classList.add('hidden'); }
-
-    // --- CORE UI ---
-    function updateUI() {
-        const { s, e } = getDateRange(); transactions.sort((a, b) => b.date - a.date);
-        const f = transactions.filter(t => t.date >= s && t.date <= e);
-        const inc = f.filter(t => t.type === 'income').reduce((a, b) => a + b.amount, 0);
-        const exp = f.filter(t => t.type === 'expense').reduce((a, b) => a + b.amount, 0);
-        document.getElementById('total-balance').innerText = formatNumber(inc - exp) + " so'm";
-        document.getElementById('total-income').innerText = "+" + formatNumber(inc);
-        document.getElementById('total-expense').innerText = "-" + formatNumber(exp);
-        updateTrendWidgets();
-        const ci = document.getElementById('card-income'), ce = document.getElementById('card-expense');
-        ci.className = `glass-panel p-3 rounded-2xl flex items-center gap-3 cursor-pointer transition-all ${activeType === 'income' ? 'bg-emerald-500/20 border-emerald-500' : 'hover:bg-emerald-500/10'}`;
-        ce.className = `glass-panel p-3 rounded-2xl flex items-center gap-3 cursor-pointer transition-all ${activeType === 'expense' ? 'bg-rose-500/20 border-rose-500' : 'hover:bg-rose-500/10'}`;
-        renderCharts(f); renderHistory();
-    }
-
-    function updateTrendWidgets() {
-        const now = new Date(); const thisMonthStart = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
-        const lastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1).getTime(); const lastMonthEnd = thisMonthStart - 1;
-        const thisMonthTrans = transactions.filter(t => t.date >= thisMonthStart && t.type === 'expense');
-        const lastMonthTrans = transactions.filter(t => t.date >= lastMonthStart && t.date <= lastMonthEnd && t.type === 'expense');
-        const group = (arr) => arr.reduce((acc, t) => { acc[t.category] = (acc[t.category] || 0) + t.amount; return acc; }, {});
-        const curr = group(thisMonthTrans); const prev = group(lastMonthTrans);
-        let html = ''; const cats = [...new Set([...Object.keys(curr), ...Object.keys(prev)])];
-        if (cats.length > 0) {
-            document.getElementById('trend-container').classList.remove('hidden');
-            cats.forEach(c => {
-                const cVal = curr[c] || 0; const pVal = prev[c] || 0;
-                if (pVal > 0 && cVal > 0) {
-                    const pct = ((cVal - pVal) / pVal) * 100;
-                    if (Math.abs(pct) > 5) {
-                        const isBad = pct > 0; const color = isBad ? 'text-rose-400' : 'text-emerald-400'; const icon = isBad ? 'trending-up' : 'trending-down';
-                        html += `<div class="glass-panel p-3 rounded-xl flex justify-between items-center"><div><div class="text-xs text-slate-400">${c}</div><div class="font-bold text-sm text-white">${formatNumber(cVal)}</div></div><div class="text-right"><div class="${color} font-bold text-xs flex items-center gap-1 justify-end"><i data-lucide="${icon}" class="w-3 h-3"></i> ${Math.round(Math.abs(pct))}%</div><div class="text-xs text-slate-500">o'tgan oy</div></div></div>`;
-                    }
-                }
-            });
-        }
-        document.getElementById('trend-list').innerHTML = html || '<div class="col-span-2 text-center text-xs text-slate-500 py-2">Trendlar uchun ma\'lumot yetarli emas</div>';
-    }
-
-    function renderCharts(data) {
-        const ctx = document.getElementById('categoryChart').getContext('2d');
-        let t = activeType === 'income' ? data.filter(x => x.type === 'income') : data.filter(x => x.type === 'expense');
-        if (activeType === 'all') t = data.filter(x => x.type === 'expense');
-        document.getElementById('no-data-msg').classList.toggle('hidden', t.length > 0);
-        const cats = {}; t.forEach(x => cats[x.category] = (cats[x.category] || 0) + x.amount);
-        if (window.myChart) window.myChart.destroy();
-        window.myChart = new Chart(ctx, { type: 'doughnut', data: { labels: Object.keys(cats), datasets: [{ data: Object.values(cats), backgroundColor: ['#10b981', '#ef4444', '#f59e0b', '#3b82f6', '#8b5cf6'], borderWidth: 0 }] }, options: { responsive: true, maintainAspectRatio: false, cutout: '70%', plugins: { legend: { display: false } } } });
-        const list = document.getElementById('top-transaction-list'); list.innerHTML = '';
-        Object.entries(cats).sort(([, a], [, b]) => b - a).slice(0, 5).forEach(([c, a]) => { list.innerHTML += `<tr><td class="py-2.5 text-slate-300 capitalize pl-2">${c}</td><td class="text-right font-bold pr-2 ${activeType === 'income' ? 'text-emerald-400' : 'text-rose-400'}">${formatNumber(a)}</td></tr>`; });
-    }
-
-    function renderHistory() {
-        const list = document.getElementById('history-list'); list.innerHTML = '';
-        document.getElementById('empty-history').classList.toggle('hidden', transactions.length > 0);
-        transactions.forEach(t => {
-            const isInc = t.type === 'income';
-            const hasReceipt = t.receipt || t.receipt_url;
-            const receiptBadge = hasReceipt ? `<span class="ml-2 text-[10px] px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-400 border border-blue-500/30 flex items-center gap-0.5"><i data-lucide="paperclip" class="w-2 h-2"></i> Chek</span>` : '';
-            list.innerHTML += `<div onclick="openActionSheet(event, ${t.id})" class="glass-panel p-4 rounded-2xl flex justify-between items-center cursor-pointer active:scale-95 transition-transform hover:bg-slate-800/50"><div class="flex items-center gap-4"><div class="p-3 rounded-full ${isInc ? 'bg-emerald-500/10 text-emerald-400' : 'bg-rose-500/10 text-rose-400'}"><i data-lucide="${isInc ? 'arrow-down-left' : 'arrow-up-right'}" class="w-5 h-5"></i></div><div><div class="font-bold text-sm text-white capitalize flex items-center">${t.category} ${receiptBadge}</div><div class="text-xs text-slate-400 mt-0.5">${new Date(t.date).toLocaleDateString()} • ${new Date(t.date).toLocaleTimeString().slice(0, 5)}</div></div></div><div class="font-bold ${isInc ? 'text-emerald-400' : 'text-rose-400'} text-base">${isInc ? '+' : '-'}${formatNumber(t.amount)}</div></div>`;
-        });
-        lucide.createIcons();
-    }
-
-    // --- BOT FLOW (SUPABASE INSERT & UPLOAD) ---
-    function startBotFlow(type) { draft = { type, category: '', amount: 0, receipt: null, rawFile: null }; clearReceipt(); document.getElementById('bot-start-actions').classList.add('hidden'); document.getElementById('category-selector').classList.remove('hidden'); renderBotCats(type); }
-    function renderBotCats(type) {
-        const grid = document.getElementById('category-grid'); grid.innerHTML = '';
-        allCats[type].forEach((c, idx) => {
-            const btn = document.createElement('button');
-            btn.className = "cat-btn flex flex-col items-center justify-center p-3 rounded-2xl bg-slate-800 border border-slate-700 hover:border-blue-500 transition-all active:scale-95 select-none";
-            btn.innerHTML = `<i data-lucide="${c.icon}" class="w-6 h-6 mb-1 ${type === 'income' ? 'text-emerald-400' : 'text-rose-400'} pointer-events-none"></i><span class="text-[10px] text-slate-300 truncate w-full text-center pointer-events-none">${c.name}</span>`;
-            btn.onclick = () => { draft.category = c.name; document.getElementById('category-selector').classList.add('hidden'); document.getElementById('bot-input-container').classList.remove('hidden'); document.getElementById('bot-input').focus(); };
-            btn.oncontextmenu = (e) => showCatOptions(e, idx, type);
-            btn.ontouchstart = (e) => handleCatPressStart(e, idx, type);
-            btn.ontouchend = handleCatPressEnd;
-            grid.appendChild(btn);
-        });
-        lucide.createIcons();
-    }
-
-    async function submitBotInput() {
-        const val = parseInt(document.getElementById('bot-input').value);
-        if (!val) return;
-        
-        // 1. Agar rasm bo'lsa, yuklaymiz
-        let finalReceiptUrl = null;
-        if (draft.rawFile) {
+            // Skeleton va Yuklash
             try {
-                finalReceiptUrl = await uploadReceipt(draft.rawFile);
+                await fetchInitialData();
             } catch (e) {
-                console.error(e);
-                alert("Rasm yuklanmadi (Supabase da Policy yaratilmagan bo'lishi mumkin), lekin tranzaksiya saqlanadi.");
+                console.error("Xato:", e);
+            } finally {
+                setTimeout(() => {
+                    const skeleton = document.getElementById('dashboard-skeleton');
+                    const dashboard = document.getElementById('view-dashboard');
+                    if (skeleton) skeleton.classList.add('hidden');
+                    if (dashboard) {
+                        dashboard.classList.remove('hidden');
+                        updateUI();
+                        const navDash = document.getElementById('nav-dashboard');
+                        if (navDash) navDash.classList.add('active');
+                    }
+                    updateSettingsUI();
+                }, 500);
+            }
+        });
+
+        // --- BACKEND ---
+        async function fetchInitialData() {
+            const { data: tData, error: tError } = await supabase.from('transactions').select('*').eq('user_id', currentUserId).order('date', { ascending: false });
+            if (!tError && tData) transactions = tData;
+
+            const { data: cData, error: cError } = await supabase.from('categories').select('*').eq('user_id', currentUserId);
+            if (!cData || cData.length === 0) await initDefaultCategories();
+            else {
+                allCats.income = cData.filter(c => c.type === 'income');
+                allCats.expense = cData.filter(c => c.type === 'expense');
             }
         }
 
-        const newTrans = { user_id: currentUserId, amount: val, category: draft.category, type: draft.type, date: Date.now(), receipt_url: finalReceiptUrl };
-        const tempId = Date.now();
-        transactions.unshift({ ...newTrans, id: tempId, receipt: draft.receipt }); // Optimistic UI
-        updateUI();
-        
-        document.getElementById('bot-input').value = ''; cancelBotFlow();
-        const icon = draft.receipt ? '📎' : '';
-        const chat = document.getElementById('chat-messages');
-        chat.innerHTML += `<div class="msg-wrapper ai fade-in"><div class="msg-bubble ai border-l-4 ${draft.type === 'income' ? 'border-l-emerald-500' : 'border-l-rose-500'}">Saqlandi (Bulutda ☁️): <b>${formatNumber(val)} so'm</b> ${icon} <br><span class="text-xs opacity-70">${draft.category}</span></div></div>`;
-        setTimeout(() => chat.scrollTop = chat.scrollHeight, 100);
-        
-        draft = { receipt: null, rawFile: null };
-
-        const { data, error } = await supabase.from('transactions').insert([newTrans]).select();
-        if (error) console.error("Save error:", error);
-        else { const idx = transactions.findIndex(t => t.id === tempId); if(idx !== -1) transactions[idx].id = data[0].id; }
-    }
-
-    function cancelBotFlow() { document.getElementById('bot-input-container').classList.add('hidden'); document.getElementById('category-selector').classList.add('hidden'); document.getElementById('bot-start-actions').classList.remove('hidden'); clearReceipt(); }
-
-    // --- HELPERS ---
-    function toggleTheme(f) { const l = f || document.body.classList.toggle('light-mode'); localStorage.setItem('theme', l ? 'light' : 'dark'); lucide.createIcons(); }
-    function openAddCategoryModal() { document.getElementById('add-cat-modal').classList.remove('hidden'); }
-    async function saveNewCategory() { 
-        const n = document.getElementById('new-cat-name').value; 
-        if (n && draft.type) { 
-            const newCat = { user_id: currentUserId, name: n, icon: selIcon, type: draft.type };
-            allCats[draft.type].push(newCat); renderBotCats(draft.type); closeModal('add-cat-modal'); 
-            await supabase.from('categories').insert([newCat]);
-        } 
-    }
-    function openSettings() { updateSettingsUI(); document.getElementById('settings-modal').classList.remove('hidden'); }
-    function updateSettingsUI() {
-        document.getElementById('pin-status-text').innerText = pin ? "Faol" : "O'rnatilmagan"; document.getElementById('bio-toggle').checked = bioEnabled;
-        const removeBtn = document.getElementById('btn-remove-pin'); if (pin) removeBtn.classList.remove('hidden'); else removeBtn.classList.add('hidden');
-        if (isBiometricAvailable) document.getElementById('bio-row').classList.remove('hidden'); else document.getElementById('bio-row').classList.add('hidden');
-    }
-    function closeModal(id) { document.getElementById(id).classList.add('hidden'); }
-    function formatNumber(n) { return n.toString().replace(/\B(?=(\d{3})+(?!\d))/g, " "); }
-    function toggleTypeFilter(t) { activeType = activeType === t ? 'all' : t; updateUI(); }
-    function setDateFilter(f) { activeDate = f; document.querySelectorAll('.date-filter-btn').forEach(b => b.classList.remove('filter-active')); document.querySelector(`[data-filter="${f}"]`).classList.add('filter-active'); updateUI(); }
-    function getDateRange() { const now = new Date(); let s = 0, e = now.getTime(); if (activeDate === 'week') s = now.getTime() - 7 * 86400000; else if (activeDate === 'month') s = new Date(now.getFullYear(), now.getMonth(), 1).getTime(); else if (activeDate === 'custom') { s = new Date(document.getElementById('start-date').value).getTime(); e = new Date(document.getElementById('end-date').value).getTime() + 86400000; } return { s, e }; }
-    function openDateRangeModal() { activeDate = 'custom'; document.getElementById('date-range-modal').classList.remove('hidden'); }
-    function applyDateRange() { updateUI(); closeModal('date-range-modal'); }
-    function toggleAiSidebar() { const sb = document.getElementById('ai-sidebar'); const m = document.getElementById('gemini-modal'); if (sb.classList.contains('open')) { sb.classList.remove('open'); m.classList.add('hidden'); document.getElementById('ai-toggle-icon').setAttribute('data-lucide', 'chevron-left'); } else { sb.classList.add('open'); m.classList.remove('hidden'); document.getElementById('ai-toggle-icon').setAttribute('data-lucide', 'chevron-right'); } lucide.createIcons(); }
-    async function sendToGemini() {
-        const txt = document.getElementById('ai-input').value; if (!txt) return;
-        const chat = document.getElementById('ai-chat-area');
-        chat.innerHTML += `<div class="msg-wrapper user fade-in"><div class="msg-bubble user">${txt}</div></div>`; document.getElementById('ai-input').value = ''; chat.scrollTop = chat.scrollHeight;
-        const inc = transactions.filter(t => t.type === 'income').reduce((a, b) => a + b.amount, 0); const exp = transactions.filter(t => t.type === 'expense').reduce((a, b) => a + b.amount, 0);
-        const prompt = `Balans: ${inc - exp}. Kirim: ${inc}, Chiqim: ${exp}. Savol: ${txt}`;
-        try {
-            const res = await fetch(GEMINI_API_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }) });
-            const data = await res.json(); const reply = data.candidates[0].content.parts[0].text;
-            chat.innerHTML += `<div class="msg-wrapper ai fade-in"><div class="msg-bubble ai">${reply.replace(/\*\*(.*?)\*\*/g, '<b>$1</b>')}</div></div>`;
-        } catch (e) { chat.innerHTML += `<div class="msg-wrapper ai fade-in"><div class="msg-bubble ai text-rose-400">Xatolik yuz berdi. Internetni tekshiring.</div></div>`; } chat.scrollTop = chat.scrollHeight;
-    }
-
-    // --- MENUS & ACTION SHEET ---
-    function openActionSheet(e, id) {
-        if (e) e.stopPropagation(); selId = id; const t = transactions.find(x => x.id === id); 
-        const c = document.getElementById('action-sheet-content'); c.innerHTML = '';
-        const hasReceipt = t.receipt_url || t.receipt;
-        // Fix: Don't embed viewReceipt call with base64, use helper
-        if (hasReceipt) { c.innerHTML += `<button onclick="viewCurrentReceipt()" class="w-full flex items-center gap-3 p-3.5 bg-slate-900/50 rounded-xl hover:bg-slate-900 text-emerald-400 font-medium"><i data-lucide="file-text" class="w-5 h-5"></i> Chekni ko'rish</button>`; }
-        c.innerHTML += `<button onclick="handleEdit()" class="w-full flex items-center gap-3 p-3.5 bg-slate-900/50 rounded-xl hover:bg-slate-900 text-blue-400 font-medium"><i data-lucide="edit-3" class="w-5 h-5"></i> Tahrirlash</button><button onclick="handleDeleteConfirm()" class="w-full flex items-center gap-3 p-3.5 bg-slate-900/50 rounded-xl hover:bg-slate-900 text-rose-400 font-medium"><i data-lucide="trash-2" class="w-5 h-5"></i> O'chirish</button>`;
-        document.getElementById('action-sheet').classList.remove('hidden'); lucide.createIcons();
-    }
-    
-    function viewCurrentReceipt() { const t = transactions.find(x => x.id === selId); if (t) { const src = t.receipt_url || t.receipt; viewReceipt(src); } closeActionSheet(null); }
-    function closeActionSheet(e) { if (e && !e.target.closest('.bg-slate-800') && e.target.id !== 'action-sheet') return; document.getElementById('action-sheet').classList.add('hidden'); }
-    function handleDeleteConfirm() { closeActionSheet(null); document.getElementById('delete-modal').classList.remove('hidden'); }
-    async function confirmDelete() { const idToDelete = selId; transactions = transactions.filter(t => t.id !== idToDelete); updateUI(); closeModal('delete-modal'); await supabase.from('transactions').delete().eq('id', idToDelete).eq('user_id', currentUserId); }
-    function handleEdit() { closeActionSheet(null); const t = transactions.find(x => x.id === selId); if (!t) return; document.getElementById('edit-category').value = t.category; document.getElementById('edit-amount').value = t.amount; document.getElementById('edit-type').value = t.type; document.getElementById('edit-modal').classList.remove('hidden'); }
-    async function saveEdit() { 
-        const c = document.getElementById('edit-category').value, a = parseInt(document.getElementById('edit-amount').value), tp = document.getElementById('edit-type').value; 
-        if (c && a) { 
-            const i = transactions.findIndex(x => x.id === selId); 
-            if (i !== -1) { transactions[i].category = c; transactions[i].amount = a; transactions[i].type = tp; updateUI(); await supabase.from('transactions').update({ category: c, amount: a, type: tp }).eq('id', selId).eq('user_id', currentUserId); } 
-        } closeModal('edit-modal'); 
-    }
-
-    // --- DATA EXPORT / IMPORT ---
-    function exportData() {
-        const data = { transactions, allCats, pin, bio: bioEnabled };
-        const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-        const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `backup_kassa_${new Date().toISOString().slice(0, 10)}.json`; document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
-    }
-    function importData(e) {
-        const file = e.target.files[0]; if (!file) return; const r = new FileReader();
-        r.onload = ev => { try { const d = JSON.parse(ev.target.result); if (d.pin) localStorage.setItem('pin', d.pin); alert("PIN kod sozlamalari tiklandi. Ma'lumotlar bulutda saqlanadi."); location.reload(); } catch (err) { alert("Xato fayl formati!"); } };
-        r.readAsText(file); e.target.value = '';
-    }
-    function confirmResetData() { if (confirm("DIQQAT! Barcha ma'lumotlar BAZADAN o'chib ketadi. Davom etasizmi?")) { transactions = []; updateUI(); closeModal('settings-modal'); supabase.from('transactions').delete().eq('user_id', currentUserId).then(() => alert("Tozalandi!")); } }
-
-    // --- ADVANCED PDF EXPORT ---
-    function openExportModal() {
-        const now = new Date(); const firstDay = new Date(now.getFullYear(), now.getMonth(), 1);
-        document.getElementById('export-start-date').valueAsDate = firstDay; document.getElementById('export-end-date').valueAsDate = now;
-        updateExportPreview(); document.getElementById('export-modal').classList.remove('hidden');
-        document.getElementById('export-start-date').onchange = updateExportPreview; document.getElementById('export-end-date').onchange = updateExportPreview;
-    }
-    function updateExportPreview() {
-        const s = new Date(document.getElementById('export-start-date').value).getTime(); const e = new Date(document.getElementById('export-end-date').value).getTime() + 86400000; 
-        const data = transactions.filter(t => t.date >= s && t.date < e); const receipts = data.filter(t => t.receipt || t.receipt_url).length;
-        document.getElementById('export-count').innerText = data.length + " ta operatsiya"; document.getElementById('export-receipts').innerText = receipts + " ta rasm";
-    }
-    async function generatePDF() {
-        const { jsPDF } = window.jspdf; if (!jsPDF) { alert("PDF kutubxonalari yuklanmagan!"); return; }
-        const sStr = document.getElementById('export-start-date').value; const eStr = document.getElementById('export-end-date').value;
-        const s = new Date(sStr).getTime(); const e = new Date(eStr).getTime() + 86400000;
-        const data = transactions.filter(t => t.date >= s && t.date < e).sort((a, b) => a.date - b.date);
-        if (data.length === 0) { alert("Tanlangan davrda ma'lumot yo'q."); return; }
-        const doc = new jsPDF(); const pageWidth = doc.internal.pageSize.width;
-        doc.setFillColor(30, 41, 59); doc.rect(0, 0, pageWidth, 40, 'F'); doc.setTextColor(255, 255, 255); doc.setFontSize(22); doc.text("Mening Kassam", 14, 18); doc.setFontSize(10); doc.setTextColor(200, 200, 200); doc.text("Moliyaviy hisobot", 14, 26); doc.text(`${sStr} dan ${eStr} gacha`, pageWidth - 14, 26, { align: 'right' });
-        const inc = data.filter(t => t.type === 'income').reduce((a, b) => a + b.amount, 0); const exp = data.filter(t => t.type === 'expense').reduce((a, b) => a + b.amount, 0); const bal = inc - exp;
-        let yPos = 50; doc.setTextColor(0); doc.setFontSize(10); doc.text("Jami Kirim:", 14, yPos); doc.setTextColor(16, 185, 129); doc.setFont("helvetica", "bold"); doc.text(`+${formatNumber(inc)} so'm`, 40, yPos); doc.setTextColor(0); doc.setFont("helvetica", "normal"); doc.text("Jami Chiqim:", 80, yPos); doc.setTextColor(239, 68, 68); doc.setFont("helvetica", "bold"); doc.text(`-${formatNumber(exp)} so'm`, 110, yPos); doc.setTextColor(0); doc.setFont("helvetica", "normal"); doc.text("Sof Qoldiq:", 150, yPos); doc.setTextColor(59, 130, 246); doc.setFont("helvetica", "bold"); doc.text(`${formatNumber(bal)} so'm`, 175, yPos);
-        const tableData = data.map(t => [ new Date(t.date).toLocaleDateString(), t.category, t.type === 'income' ? 'Kirim' : 'Chiqim', (t.type === 'income' ? '+' : '-') + formatNumber(t.amount), ]);
-        doc.autoTable({ startY: yPos + 10, head: [['Sana', 'Kategoriya', 'Tur', 'Summa']], body: tableData, theme: 'striped', headStyles: { fillColor: [30, 41, 59] }, styles: { fontSize: 9 }, columnStyles: { 3: { halign: 'right', fontStyle: 'bold' } }, didParseCell: function(data) { if (data.section === 'body' && data.column.index === 3) { const raw = tableData[data.row.index][3]; data.cell.styles.textColor = raw.startsWith('+') ? [16, 185, 129] : [239, 68, 68]; } } });
-        const receipts = data.filter(t => t.receipt || t.receipt_url);
-        if (receipts.length > 0) {
-            doc.addPage(); let rY = 20; doc.setFontSize(16); doc.setTextColor(0); doc.setFont("helvetica", "bold"); doc.text("Biriktirilgan Cheklar", 14, rY); rY += 15; doc.setDrawColor(200); doc.line(14, rY - 5, pageWidth - 14, rY - 5);
-            receipts.forEach(t => {
-               if (rY > 250) { doc.addPage(); rY = 20; }
-               doc.setFontSize(10); doc.setTextColor(50); doc.text(`${new Date(t.date).toLocaleDateString()} - ${t.category}: ${formatNumber(t.amount)}`, 14, rY);
-               if (t.receipt) { try { doc.addImage(t.receipt, 'JPEG', 14, rY + 5, 40, 50, undefined, 'FAST'); rY += 60; } catch(e) {} } else if (t.receipt_url) { doc.setTextColor(59, 130, 246); doc.textWithLink("Chekni ko'rish (Browser)", 14, rY + 10, { url: t.receipt_url }); rY += 20; }
-            });
+        async function initDefaultCategories() {
+            const default_income = [{ name: "Oylik", icon: "banknote", type: "income" }, { name: "Bonus", icon: "gift", type: "income" }, { name: "Sotuv", icon: "shopping-bag", type: "income" }];
+            const default_expense = [{ name: "Oziq-ovqat", icon: "shopping-cart", type: "expense" }, { name: "Transport", icon: "bus", type: "expense" }, { name: "Kafe", icon: "coffee", type: "expense" }];
+            const all = [...default_income, ...default_expense].map(c => ({ ...c, user_id: currentUserId }));
+            const { error } = await supabase.from('categories').insert(all);
+            if (!error) { allCats.income = default_income; allCats.expense = default_expense; }
         }
-        doc.save(`Hisobot_${sStr}_${eStr}.pdf`); closeModal('export-modal');
-    }
-</script>
+
+        // --- NAVIGATION ---
+        function switchTab(t) {
+            ['dashboard', 'bot', 'history'].forEach(v => { const el = document.getElementById(`view-${v}`); if (el) el.classList.add('hidden'); });
+            const target = document.getElementById(`view-${t}`);
+            if (target) target.classList.remove('hidden');
+            document.querySelectorAll('.nav-item').forEach(b => b.classList.remove('active'));
+            const botBtn = document.getElementById('nav-bot');
+            if (botBtn) { botBtn.classList.remove('active'); botBtn.querySelector('i').classList.remove('text-blue-500'); botBtn.querySelector('i').classList.add('text-white'); }
+            if (t === 'bot') { if (botBtn) { botBtn.classList.add('active'); botBtn.querySelector('i').classList.remove('text-white'); botBtn.querySelector('i').classList.add('text-blue-500'); } }
+            else { const activeBtn = document.getElementById(`nav-${t}`); if (activeBtn) activeBtn.classList.add('active'); }
+            if (t === 'dashboard') updateUI();
+            lucide.createIcons();
+        }
+
+        // --- CATEGORY ACTIONS (EDIT/DELETE) ---
+        let longPressTimer;
+        function handleCatPressStart(e, idx, type) { longPressTimer = setTimeout(() => showCatOptions(e, idx, type), 500); }
+        function handleCatPressEnd() { clearTimeout(longPressTimer); }
+        function showCatOptions(e, idx, type) {
+            e.preventDefault(); selCatIndex = idx; selCatType = type;
+            const menu = document.getElementById('cat-context-menu');
+            const clickX = e.clientX || e.touches[0].clientX; const clickY = e.clientY || e.touches[0].clientY;
+            menu.style.left = `${Math.min(clickX, window.innerWidth - 170)}px`; menu.style.top = `${Math.min(clickY, window.innerHeight - 100)}px`;
+            menu.classList.remove('hidden');
+        }
+        function editCatFromMenu() {
+            const cat = allCats[selCatType][selCatIndex];
+            document.getElementById('edit-cat-name-input').value = cat.name;
+            document.getElementById('edit-cat-modal').classList.remove('hidden'); document.getElementById('cat-context-menu').classList.add('hidden');
+        }
+        async function confirmEditCat() {
+            const newName = document.getElementById('edit-cat-name-input').value;
+            if (newName) {
+                const cat = allCats[selCatType][selCatIndex]; const oldName = cat.name;
+                allCats[selCatType][selCatIndex].name = newName; renderBotCats(selCatType); closeModal('edit-cat-modal');
+                await supabase.from('categories').update({ name: newName }).eq('user_id', currentUserId).eq('name', oldName).eq('type', selCatType);
+            }
+        }
+        async function deleteCatFromMenu() {
+            if (confirm("Bu kategoriyani o'chirasizmi?")) {
+                const catToDelete = allCats[selCatType][selCatIndex];
+                allCats[selCatType].splice(selCatIndex, 1); renderBotCats(selCatType); document.getElementById('cat-context-menu').classList.add('hidden');
+                await supabase.from('categories').delete().eq('user_id', currentUserId).eq('name', catToDelete.name).eq('type', selCatType);
+            }
+        }
+
+        // --- PIN SYSTEM ---
+        function showPinScreen(step) {
+            pinStep = step; pinInput = ""; updatePinDots();
+            document.getElementById('pin-screen').classList.remove('hidden');
+            const t = document.getElementById('pin-title'), s = document.getElementById('pin-subtitle'), c = document.getElementById('cancel-pin-setup'), bioBtn = document.getElementById('bio-btn'), bioPlace = document.getElementById('bio-placeholder');
+            if (step === 'unlock') {
+                t.innerText = "PIN Kod"; s.innerText = "Kirish uchun"; c.classList.add('hidden');
+                if (bioEnabled && isBiometricAvailable) { bioBtn.classList.remove('hidden'); bioPlace.classList.add('hidden'); setTimeout(triggerBiometric, 300); } else { bioBtn.classList.add('hidden'); bioPlace.classList.remove('hidden'); }
+            } else if (step === 'setup_old') { t.innerText = "Eski PIN"; s.innerText = "Tasdiqlash uchun"; c.classList.remove('hidden'); bioBtn.classList.add('hidden'); bioPlace.classList.remove('hidden'); } else if (step === 'setup_new') { t.innerText = "Yangi PIN"; s.innerText = "4 xonali kod o'rnating"; c.classList.remove('hidden'); bioBtn.classList.add('hidden'); bioPlace.classList.remove('hidden'); } else if (step === 'setup_confirm') { t.innerText = "Qayta kiritish"; s.innerText = "Yangi PINni tasdiqlang"; }
+        }
+        function handlePinInput(n) { if (pinInput.length < 4) { pinInput += n; updatePinDots(); if (pinInput.length === 4) setTimeout(checkPin, 200); } }
+        function handlePinDelete() { pinInput = pinInput.slice(0, -1); updatePinDots(); }
+        function updatePinDots() { document.querySelectorAll('.pin-dot').forEach((d, i) => i < pinInput.length ? d.classList.add('bg-blue-500', 'active', 'scale-110') : d.classList.remove('bg-blue-500', 'active', 'scale-110')); }
+        function checkPin() {
+            const d = document.getElementById('pin-dots'); const err = () => { d.classList.add('shake'); setTimeout(() => { d.classList.remove('shake'); pinInput = ""; updatePinDots(); }, 400); };
+            if (pinStep === 'unlock') { if (pinInput === pin) { document.getElementById('pin-screen').classList.add('hidden'); } else err(); } else if (pinStep === 'setup_old') { if (pinInput === pin) { showPinScreen('setup_new'); } else err(); } else if (pinStep === 'setup_new') { tempPin = pinInput; showPinScreen('setup_confirm'); } else if (pinStep === 'setup_confirm') { if (pinInput === tempPin) { pin = tempPin; localStorage.setItem('pin', pin); document.getElementById('pin-screen').classList.add('hidden'); updateSettingsUI(); alert("PIN o'zgartirildi! ✅"); closeModal('settings-modal'); } else { alert("Mos kelmadi!"); showPinScreen('setup_new'); } }
+        }
+        async function triggerBiometric() { if (!isBiometricAvailable) return; try { const challenge = new Uint8Array(32); window.crypto.getRandomValues(challenge); await navigator.credentials.get({ publicKey: { challenge: challenge, timeout: 60000, userVerification: "required", } }); document.getElementById('pin-screen').classList.add('hidden'); } catch (e) { console.log("Biometric error", e); } }
+        function startPinSetup() { if (pin) showPinScreen('setup_old'); else showPinScreen('setup_new'); }
+        function cancelPinSetup() { document.getElementById('pin-screen').classList.add('hidden'); }
+        function toggleBiometric(el) { bioEnabled = el.checked; localStorage.setItem('bio', bioEnabled); }
+        function removePin() { if (confirm("PIN kodni olib tashlaysizmi?")) { localStorage.removeItem('pin'); pin = null; updateSettingsUI(); alert("PIN kod olib tashlandi."); closeModal('settings-modal'); } }
+
+        // --- UPLOAD & RECEIPT ---
+        function handleReceiptUpload(e) {
+            const file = e.target.files[0]; if (!file) return;
+            draft.rawFile = file;
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                const img = new Image(); img.src = event.target.result;
+                img.onload = () => {
+                    const canvas = document.createElement('canvas'); const ctx = canvas.getContext('2d');
+                    const maxW = 800; const scale = maxW / img.width;
+                    canvas.width = scale < 1 ? maxW : img.width; canvas.height = scale < 1 ? img.height * scale : img.height;
+                    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                    draft.receipt = canvas.toDataURL('image/jpeg', 0.7);
+                    document.getElementById('receipt-img-preview').src = draft.receipt;
+                    document.getElementById('receipt-preview-area').classList.remove('hidden');
+                }
+            }; reader.readAsDataURL(file);
+        }
+        async function uploadReceipt(file) {
+            const fileName = `${currentUserId}/${Date.now()}.jpg`;
+            const { data, error } = await supabase.storage.from('receipts').upload(fileName, file);
+            if (error) { console.error("Rasm xatolik:", error); throw error; }
+            const { data: { publicUrl } } = supabase.storage.from('receipts').getPublicUrl(fileName);
+            return publicUrl;
+        }
+        function clearReceipt() { draft.receipt = null; draft.rawFile = null; document.getElementById('file-upload').value = ''; document.getElementById('receipt-preview-area').classList.add('hidden'); }
+        function viewReceipt(src) { document.getElementById('full-receipt-image').src = src; document.getElementById('receipt-modal').classList.remove('hidden'); }
+        function closeReceiptModal() { document.getElementById('receipt-modal').classList.add('hidden'); }
+
+        // --- CORE UI ---
+        function updateUI() {
+            const { s, e } = getDateRange();
+            transactions.sort((a, b) => b.date - a.date);
+            const f = transactions.filter(t => t.date >= s && t.date <= e);
+
+            const inc = f.filter(t => t.type === 'income').reduce((a, b) => a + (Number(b.amount) || 0), 0);
+            const exp = f.filter(t => t.type === 'expense').reduce((a, b) => a + (Number(b.amount) || 0), 0);
+
+            document.getElementById('total-balance').innerText = formatNumber(inc - exp) + " so'm";
+            document.getElementById('total-income').innerText = "+" + formatNumber(inc);
+            document.getElementById('total-expense').innerText = "-" + formatNumber(exp);
+
+            updateTrendWidgets();
+
+            const ci = document.getElementById('card-income'), ce = document.getElementById('card-expense');
+            ci.className = `glass-panel p-3 rounded-2xl flex items-center gap-3 cursor-pointer transition-all ${activeType === 'income' ? 'bg-emerald-500/20 border-emerald-500' : 'hover:bg-emerald-500/10'}`;
+            ce.className = `glass-panel p-3 rounded-2xl flex items-center gap-3 cursor-pointer transition-all ${activeType === 'expense' ? 'bg-rose-500/20 border-rose-500' : 'hover:bg-rose-500/10'}`;
+
+            renderCharts(f); renderHistory();
+        }
+
+        function updateTrendWidgets() {
+            const now = new Date(); const thisMonthStart = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+            const lastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1).getTime(); const lastMonthEnd = thisMonthStart - 1;
+            const thisMonthTrans = transactions.filter(t => t.date >= thisMonthStart && t.type === 'expense');
+            const lastMonthTrans = transactions.filter(t => t.date >= lastMonthStart && t.date <= lastMonthEnd && t.type === 'expense');
+            const group = (arr) => arr.reduce((acc, t) => { acc[t.category] = (acc[t.category] || 0) + (Number(t.amount) || 0); return acc; }, {});
+            const curr = group(thisMonthTrans); const prev = group(lastMonthTrans);
+            let html = ''; const cats = [...new Set([...Object.keys(curr), ...Object.keys(prev)])];
+            if (cats.length > 0) {
+                document.getElementById('trend-container').classList.remove('hidden');
+                cats.forEach(c => {
+                    const cVal = curr[c] || 0; const pVal = prev[c] || 0;
+                    if (pVal > 0 && cVal > 0) {
+                        const pct = ((cVal - pVal) / pVal) * 100;
+                        if (Math.abs(pct) > 5) {
+                            const isBad = pct > 0; const color = isBad ? 'text-rose-400' : 'text-emerald-400'; const icon = isBad ? 'trending-up' : 'trending-down';
+                            html += `<div class="glass-panel p-3 rounded-xl flex justify-between items-center"><div><div class="text-xs text-slate-400">${c}</div><div class="font-bold text-sm text-white">${formatNumber(cVal)}</div></div><div class="text-right"><div class="${color} font-bold text-xs flex items-center gap-1 justify-end"><i data-lucide="${icon}" class="w-3 h-3"></i> ${Math.round(Math.abs(pct))}%</div><div class="text-xs text-slate-500">o'tgan oy</div></div></div>`;
+                        }
+                    }
+                });
+            }
+            document.getElementById('trend-list').innerHTML = html || '<div class="col-span-2 text-center text-xs text-slate-500 py-2">Trendlar uchun ma\'lumot yetarli emas</div>';
+        }
+
+        function renderCharts(data) {
+            const ctx = document.getElementById('categoryChart').getContext('2d');
+            let t = activeType === 'income' ? data.filter(x => x.type === 'income') : data.filter(x => x.type === 'expense');
+            if (activeType === 'all') t = data.filter(x => x.type === 'expense');
+            document.getElementById('no-data-msg').classList.toggle('hidden', t.length > 0);
+            const cats = {}; t.forEach(x => cats[x.category] = (cats[x.category] || 0) + (Number(x.amount) || 0));
+            if (window.myChart) window.myChart.destroy();
+            window.myChart = new Chart(ctx, { type: 'doughnut', data: { labels: Object.keys(cats), datasets: [{ data: Object.values(cats), backgroundColor: ['#10b981', '#ef4444', '#f59e0b', '#3b82f6', '#8b5cf6'], borderWidth: 0 }] }, options: { responsive: true, maintainAspectRatio: false, cutout: '70%', plugins: { legend: { display: false } } } });
+            const list = document.getElementById('top-transaction-list'); list.innerHTML = '';
+            Object.entries(cats).sort(([, a], [, b]) => b - a).slice(0, 5).forEach(([c, a]) => { list.innerHTML += `<tr><td class="py-2.5 text-slate-300 capitalize pl-2">${c}</td><td class="text-right font-bold pr-2 ${activeType === 'income' ? 'text-emerald-400' : 'text-rose-400'}">${formatNumber(a)}</td></tr>`; });
+        }
+
+        function renderHistory() {
+            const list = document.getElementById('history-list'); list.innerHTML = '';
+            document.getElementById('empty-history').classList.toggle('hidden', transactions.length > 0);
+            transactions.forEach(t => {
+                const isInc = t.type === 'income';
+                const hasReceipt = t.receipt || t.receipt_url;
+                const receiptBadge = hasReceipt ? `<span class="ml-2 text-[10px] px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-400 border border-blue-500/30 flex items-center gap-0.5"><i data-lucide="paperclip" class="w-2 h-2"></i> Chek</span>` : '';
+                list.innerHTML += `<div onclick="openActionSheet(event, ${t.id})" class="glass-panel p-4 rounded-2xl flex justify-between items-center cursor-pointer active:scale-95 transition-transform hover:bg-slate-800/50"><div class="flex items-center gap-4"><div class="p-3 rounded-full ${isInc ? 'bg-emerald-500/10 text-emerald-400' : 'bg-rose-500/10 text-rose-400'}"><i data-lucide="${isInc ? 'arrow-down-left' : 'arrow-up-right'}" class="w-5 h-5"></i></div><div><div class="font-bold text-sm text-white capitalize flex items-center">${t.category} ${receiptBadge}</div><div class="text-xs text-slate-400 mt-0.5">${new Date(t.date).toLocaleDateString()} • ${new Date(t.date).toLocaleTimeString().slice(0, 5)}</div></div></div><div class="font-bold ${isInc ? 'text-emerald-400' : 'text-rose-400'} text-base">${isInc ? '+' : '-'}${formatNumber(t.amount)}</div></div>`;
+            });
+            lucide.createIcons();
+        }
+
+        // --- BOT ---
+        function startBotFlow(type) { draft = { type, category: '', amount: 0, receipt: null, rawFile: null }; clearReceipt(); document.getElementById('bot-start-actions').classList.add('hidden'); document.getElementById('category-selector').classList.remove('hidden'); renderBotCats(type); }
+        function renderBotCats(type) {
+            const grid = document.getElementById('category-grid'); grid.innerHTML = '';
+            allCats[type].forEach((c, idx) => {
+                const btn = document.createElement('button');
+                btn.className = "cat-btn flex flex-col items-center justify-center p-3 rounded-2xl bg-slate-800 border border-slate-700 hover:border-blue-500 transition-all active:scale-95 select-none";
+                btn.innerHTML = `<i data-lucide="${c.icon}" class="w-6 h-6 mb-1 ${type === 'income' ? 'text-emerald-400' : 'text-rose-400'} pointer-events-none"></i><span class="text-[10px] text-slate-300 truncate w-full text-center pointer-events-none">${c.name}</span>`;
+                btn.onclick = () => { draft.category = c.name; document.getElementById('category-selector').classList.add('hidden'); document.getElementById('bot-input-container').classList.remove('hidden'); document.getElementById('bot-input').focus(); };
+                btn.oncontextmenu = (e) => showCatOptions(e, idx, type);
+                btn.ontouchstart = (e) => handleCatPressStart(e, idx, type);
+                btn.ontouchend = handleCatPressEnd;
+                grid.appendChild(btn);
+            });
+            lucide.createIcons();
+        }
+        async function submitBotInput() {
+            const val = parseInt(document.getElementById('bot-input').value);
+            if (!val) return;
+            let finalReceiptUrl = null;
+            if (draft.rawFile) { try { finalReceiptUrl = await uploadReceipt(draft.rawFile); } catch (e) { alert("Rasm yuklanmadi, lekin tranzaksiya saqlanadi."); } }
+            const newTrans = { user_id: currentUserId, amount: val, category: draft.category, type: draft.type, date: Date.now(), receipt_url: finalReceiptUrl };
+            const tempId = Date.now();
+            transactions.unshift({ ...newTrans, id: tempId, receipt: draft.receipt });
+            updateUI();
+            document.getElementById('bot-input').value = ''; cancelBotFlow();
+            const icon = draft.receipt ? '📎' : '';
+            const chat = document.getElementById('chat-messages');
+            chat.innerHTML += `<div class="msg-wrapper ai fade-in"><div class="msg-bubble ai border-l-4 ${draft.type === 'income' ? 'border-l-emerald-500' : 'border-l-rose-500'}">Saqlandi: <b>${formatNumber(val)} so'm</b> ${icon} <br><span class="text-xs opacity-70">${draft.category}</span></div></div>`;
+            setTimeout(() => chat.scrollTop = chat.scrollHeight, 100);
+            draft = { receipt: null, rawFile: null };
+            const { data, error } = await supabase.from('transactions').insert([newTrans]).select();
+            if (error) console.error("Save error:", error);
+            else { const idx = transactions.findIndex(t => t.id === tempId); if (idx !== -1) transactions[idx].id = data[0].id; }
+        }
+        function cancelBotFlow() { document.getElementById('bot-input-container').classList.add('hidden'); document.getElementById('category-selector').classList.add('hidden'); document.getElementById('bot-start-actions').classList.remove('hidden'); clearReceipt(); }
+
+        // --- HELPER FUNCTIONS ---
+        function toggleTheme(f) { const l = f || document.body.classList.toggle('light-mode'); localStorage.setItem('theme', l ? 'light' : 'dark'); lucide.createIcons(); }
+        function openAddCategoryModal() { document.getElementById('add-cat-modal').classList.remove('hidden'); }
+        async function saveNewCategory() {
+            const n = document.getElementById('new-cat-name').value;
+            if (n && draft.type) {
+                const newCat = { user_id: currentUserId, name: n, icon: selIcon, type: draft.type };
+                allCats[draft.type].push(newCat); renderBotCats(draft.type); closeModal('add-cat-modal');
+                await supabase.from('categories').insert([newCat]);
+            }
+        }
+        function openSettings() { updateSettingsUI(); document.getElementById('settings-modal').classList.remove('hidden'); }
+        function updateSettingsUI() {
+            document.getElementById('pin-status-text').innerText = pin ? "Faol" : "O'rnatilmagan"; document.getElementById('bio-toggle').checked = bioEnabled;
+            const removeBtn = document.getElementById('btn-remove-pin'); if (pin) removeBtn.classList.remove('hidden'); else removeBtn.classList.add('hidden');
+            if (isBiometricAvailable) document.getElementById('bio-row').classList.remove('hidden'); else document.getElementById('bio-row').classList.add('hidden');
+        }
+        function closeModal(id) { document.getElementById(id).classList.add('hidden'); }
+        function formatNumber(n) { return n.toString().replace(/\B(?=(\d{3})+(?!\d))/g, " "); }
+        function toggleTypeFilter(t) { activeType = activeType === t ? 'all' : t; updateUI(); }
+        function setDateFilter(f) { activeDate = f; document.querySelectorAll('.date-filter-btn').forEach(b => b.classList.remove('filter-active')); document.querySelector(`[data-filter="${f}"]`).classList.add('filter-active'); updateUI(); }
+        function getDateRange() {
+            const now = new Date();
+            let s = 0; let e = new Date().setHours(23, 59, 59, 999);
+            if (activeDate === 'week') s = now.getTime() - 7 * 86400000;
+            else if (activeDate === 'month') s = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+            else if (activeDate === 'custom') {
+                s = new Date(document.getElementById('start-date').value).getTime();
+                e = new Date(document.getElementById('end-date').value).getTime() + 86400000;
+            }
+            return { s, e };
+        }
+        function openDateRangeModal() { activeDate = 'custom'; document.getElementById('date-range-modal').classList.remove('hidden'); }
+        function applyDateRange() { updateUI(); closeModal('date-range-modal'); }
+
+        // --- IMPORT / EXPORT (Tuzatilgan) ---
+        function exportData() {
+            const data = { transactions, allCats, pin, bio: bioEnabled };
+            const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `backup_kassa_${new Date().toISOString().slice(0, 10)}.json`; document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+        }
+        async function importData(e) {
+            const file = e.target.files[0]; if (!file) return;
+            const reader = new FileReader();
+            reader.onload = async (event) => {
+                try {
+                    const backup = JSON.parse(event.target.result);
+                    if (backup.pin) localStorage.setItem('pin', backup.pin);
+                    if (backup.bio !== undefined) localStorage.setItem('bio', backup.bio);
+                    if (backup.transactions && Array.isArray(backup.transactions) && backup.transactions.length > 0) {
+                        const newTrans = backup.transactions.map(t => { const { id, ...rest } = t; return { ...rest, user_id: currentUserId }; });
+                        const { error } = await supabase.from('transactions').insert(newTrans);
+                        if (error) throw error;
+                    }
+                    alert("Muvaffaqiyatli! Dastur qayta yuklanmoqda..."); location.reload();
+                } catch (err) { alert("Xatolik!"); }
+            }; reader.readAsText(file); e.target.value = '';
+        }
+        function confirmResetData() { if (confirm("DIQQAT! Barcha ma'lumotlar BAZADAN o'chib ketadi. Davom etasizmi?")) { transactions = []; updateUI(); closeModal('settings-modal'); supabase.from('transactions').delete().eq('user_id', currentUserId).then(() => alert("Tozalandi!")); } }
+
+        // --- MODALS ACTIONS (Tahrirlash va O'chirish qaytarildi) ---
+        function openActionSheet(e, id) {
+            if (e) e.stopPropagation(); selId = id; const t = transactions.find(x => x.id === id);
+            const c = document.getElementById('action-sheet-content'); c.innerHTML = '';
+            const hasReceipt = t.receipt_url || t.receipt;
+            if (hasReceipt) { c.innerHTML += `<button onclick="viewCurrentReceipt()" class="w-full flex items-center gap-3 p-3.5 bg-slate-900/50 rounded-xl hover:bg-slate-900 text-emerald-400 font-medium"><i data-lucide="file-text" class="w-5 h-5"></i> Chekni ko'rish</button>`; }
+            c.innerHTML += `<button onclick="handleEdit()" class="w-full flex items-center gap-3 p-3.5 bg-slate-900/50 rounded-xl hover:bg-slate-900 text-blue-400 font-medium"><i data-lucide="edit-3" class="w-5 h-5"></i> Tahrirlash</button><button onclick="handleDeleteConfirm()" class="w-full flex items-center gap-3 p-3.5 bg-slate-900/50 rounded-xl hover:bg-slate-900 text-rose-400 font-medium"><i data-lucide="trash-2" class="w-5 h-5"></i> O'chirish</button>`;
+            document.getElementById('action-sheet').classList.remove('hidden'); lucide.createIcons();
+        }
+        function viewCurrentReceipt() { const t = transactions.find(x => x.id === selId); if (t) { const src = t.receipt_url || t.receipt; viewReceipt(src); } closeActionSheet(null); }
+        function closeActionSheet(e) { if (e && !e.target.closest('.bg-slate-800') && e.target.id !== 'action-sheet') return; document.getElementById('action-sheet').classList.add('hidden'); }
+        function handleDeleteConfirm() { closeActionSheet(null); document.getElementById('delete-modal').classList.remove('hidden'); }
+        async function confirmDelete() { const idToDelete = selId; transactions = transactions.filter(t => t.id !== idToDelete); updateUI(); closeModal('delete-modal'); await supabase.from('transactions').delete().eq('id', idToDelete).eq('user_id', currentUserId); }
+        function handleEdit() { closeActionSheet(null); const t = transactions.find(x => x.id === selId); if (!t) return; document.getElementById('edit-category').value = t.category; document.getElementById('edit-amount').value = t.amount; document.getElementById('edit-type').value = t.type; document.getElementById('edit-modal').classList.remove('hidden'); }
+        async function saveEdit() {
+            const c = document.getElementById('edit-category').value, a = parseInt(document.getElementById('edit-amount').value), tp = document.getElementById('edit-type').value;
+            if (c && a) {
+                const i = transactions.findIndex(x => x.id === selId);
+                if (i !== -1) { transactions[i].category = c; transactions[i].amount = a; transactions[i].type = tp; updateUI(); await supabase.from('transactions').update({ category: c, amount: a, type: tp }).eq('id', selId).eq('user_id', currentUserId); }
+            } closeModal('edit-modal');
+        }
+
+        // --- PDF ---
+        function openExportModal() {
+            const now = new Date(); const firstDay = new Date(now.getFullYear(), now.getMonth(), 1);
+            document.getElementById('export-start-date').valueAsDate = firstDay; document.getElementById('export-end-date').valueAsDate = now;
+            updateExportPreview(); document.getElementById('export-modal').classList.remove('hidden');
+            document.getElementById('export-start-date').onchange = updateExportPreview; document.getElementById('export-end-date').onchange = updateExportPreview;
+        }
+        function updateExportPreview() {
+            const s = new Date(document.getElementById('export-start-date').value).getTime(); const e = new Date(document.getElementById('export-end-date').value).getTime() + 86400000;
+            const data = transactions.filter(t => t.date >= s && t.date < e); const receipts = data.filter(t => t.receipt || t.receipt_url).length;
+            document.getElementById('export-count').innerText = data.length + " ta operatsiya"; document.getElementById('export-receipts').innerText = receipts + " ta rasm";
+        }
+        async function generatePDF() {
+            const { jsPDF } = window.jspdf; if (!jsPDF) { alert("PDF kutubxonalari yuklanmagan!"); return; }
+            const sStr = document.getElementById('export-start-date').value; const eStr = document.getElementById('export-end-date').value;
+            const s = new Date(sStr).getTime(); const e = new Date(eStr).getTime() + 86400000;
+            const data = transactions.filter(t => t.date >= s && t.date < e).sort((a, b) => a.date - b.date);
+            if (data.length === 0) { alert("Tanlangan davrda ma'lumot yo'q."); return; }
+            const doc = new jsPDF(); const pageWidth = doc.internal.pageSize.width;
+            doc.setFillColor(30, 41, 59); doc.rect(0, 0, pageWidth, 40, 'F'); doc.setTextColor(255, 255, 255); doc.setFontSize(22); doc.text("Mening Kassam", 14, 18); doc.setFontSize(10); doc.setTextColor(200, 200, 200); doc.text("Moliyaviy hisobot", 14, 26); doc.text(`${sStr} dan ${eStr} gacha`, pageWidth - 14, 26, { align: 'right' });
+            const inc = data.filter(t => t.type === 'income').reduce((a, b) => a + (Number(b.amount) || 0), 0); const exp = data.filter(t => t.type === 'expense').reduce((a, b) => a + (Number(b.amount) || 0), 0); const bal = inc - exp;
+            let yPos = 50; doc.setTextColor(0); doc.setFontSize(10); doc.text("Jami Kirim:", 14, yPos); doc.setTextColor(16, 185, 129); doc.setFont("helvetica", "bold"); doc.text(`+${formatNumber(inc)} so'm`, 40, yPos); doc.setTextColor(0); doc.setFont("helvetica", "normal"); doc.text("Jami Chiqim:", 80, yPos); doc.setTextColor(239, 68, 68); doc.setFont("helvetica", "bold"); doc.text(`-${formatNumber(exp)} so'm`, 110, yPos); doc.setTextColor(0); doc.setFont("helvetica", "normal"); doc.text("Sof Qoldiq:", 150, yPos); doc.setTextColor(59, 130, 246); doc.setFont("helvetica", "bold"); doc.text(`${formatNumber(bal)} so'm`, 175, yPos);
+            const tableData = data.map(t => [new Date(t.date).toLocaleDateString(), t.category, t.type === 'income' ? 'Kirim' : 'Chiqim', (t.type === 'income' ? '+' : '-') + formatNumber(t.amount),]);
+            doc.autoTable({ startY: yPos + 10, head: [['Sana', 'Kategoriya', 'Tur', 'Summa']], body: tableData, theme: 'striped', headStyles: { fillColor: [30, 41, 59] }, styles: { fontSize: 9 }, columnStyles: { 3: { halign: 'right', fontStyle: 'bold' } }, didParseCell: function (data) { if (data.section === 'body' && data.column.index === 3) { const raw = tableData[data.row.index][3]; data.cell.styles.textColor = raw.startsWith('+') ? [16, 185, 129] : [239, 68, 68]; } } });
+            const receipts = data.filter(t => t.receipt || t.receipt_url);
+            if (receipts.length > 0) {
+                doc.addPage(); let rY = 20; doc.setFontSize(16); doc.setTextColor(0); doc.setFont("helvetica", "bold"); doc.text("Biriktirilgan Cheklar", 14, rY); rY += 15; doc.setDrawColor(200); doc.line(14, rY - 5, pageWidth - 14, rY - 5);
+                receipts.forEach(t => {
+                    if (rY > 250) { doc.addPage(); rY = 20; }
+                    doc.setFontSize(10); doc.setTextColor(50); doc.text(`${new Date(t.date).toLocaleDateString()} - ${t.category}: ${formatNumber(t.amount)}`, 14, rY);
+                    if (t.receipt) { try { doc.addImage(t.receipt, 'JPEG', 14, rY + 5, 40, 50, undefined, 'FAST'); rY += 60; } catch (e) { } } else if (t.receipt_url) { doc.setTextColor(59, 130, 246); doc.textWithLink("Chekni ko'rish (Browser)", 14, rY + 10, { url: t.receipt_url }); rY += 20; }
+                });
+            }
+            doc.save(`Hisobot_${sStr}_${eStr}.pdf`); closeModal('export-modal');
+        }
+    </script>
 </body>
+
 </html>
