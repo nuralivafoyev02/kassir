@@ -11,27 +11,48 @@ const supabase = createClient(supabaseUrl, supabaseKey);
 // Yordamchi: Kutish (Animatsiya uchun)
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
-// Yordamchi: Matnni tahlil qilish
+// 🔥 KUCHAYTIRILGAN TAHLIL FUNKSIYASI (O'sha aqlli versiya)
 function parseText(text) {
     if (!text) return null;
-    text = text.toLowerCase();
-    
-    const numbers = text.replace(/\s/g, '').match(/\d+/g);
-    if (!numbers) return null;
-    
-    let amount = parseInt(numbers[0]);
-    if (text.includes('ming') || text.includes('k')) amount *= 1000;
-    else if (text.includes('mln') || text.includes('m')) amount *= 1000000;
-    
+    let originalText = text;
+    text = text.toLowerCase().trim();
+
+    // 1. "so'm", "$" va boshqa belgilarni tozalash
+    text = text.replace(/so'?m|sum|uzs|\$|€/g, '');
+
+    // 2. Regex: Raqam + (k/ming/mln)
+    let amount = 0;
+    const numberMatch = text.match(/(\d+[.,]?\d*)\s*(k|ming|mln|m|mill?ion)?\b/);
+
+    if (!numberMatch) return null;
+
+    let rawNumber = numberMatch[1].replace(',', '.');
+    let suffix = numberMatch[2];
+    amount = parseFloat(rawNumber);
+
+    if (suffix) {
+        if (['k', 'ming'].includes(suffix)) amount *= 1000;
+        else if (['m', 'mln', 'million'].includes(suffix)) amount *= 1000000;
+    }
+
+    // 3. Kirim/Chiqim aniqlash
     let type = 'expense';
-    if (['kirim', 'keldi', 'tushdi', 'savdo', '+'].some(word => text.includes(word))) type = 'income';
-    
-    const ignoreWords = ['ming', 'mln', 'kirim', 'chiqim', 'som', "so'm", 'ga', 'uchun', 'savdo', amount.toString()];
-    let category = text.replace(/\d+/g, '');
-    ignoreWords.forEach(word => { category = category.replace(word, ''); });
-    category = category.trim().replace(/^\w/, c => c.toUpperCase()) || "Umumiy";
-    
-    return { amount, type, category };
+    const incomeKeywords = ['+', 'kirim', 'tushdi', 'keldi', 'avans', 'oylik', 'bonus', 'qaytdi', 'foyda'];
+    const expenseKeywords = ['-', 'chiqim', 'ketdi', 'tolandi', 'to\'landi', 'xarajat', 'berdi'];
+
+    if (incomeKeywords.some(word => text.includes(word))) type = 'income';
+    else if (originalText.trim().startsWith('+')) type = 'income';
+
+    // 4. Kategoriya aniqlash
+    let cleanText = text;
+    cleanText = cleanText.replace(numberMatch[0], '');
+    [...incomeKeywords, ...expenseKeywords].forEach(word => { cleanText = cleanText.replace(word, ''); });
+    cleanText = cleanText.replace(/[+\-*/]/g, '').trim();
+
+    let category = cleanText.charAt(0).toUpperCase() + cleanText.slice(1);
+    if (category.length < 2) category = type === 'income' ? "Kirim" : "Umumiy xarajat";
+
+    return { amount: Math.round(amount), type, category };
 }
 
 const MAIN_KEYBOARD = {
@@ -55,16 +76,14 @@ module.exports = async (req, res) => {
         const { data: user } = await supabase.from('users').select('*').eq('user_id', userId).single();
 
         if (msg.contact) {
-            if (msg.contact.user_id !== userId) {
-                await bot.sendMessage(chatId, "Iltimos, o'zingizni raqamingizni yuboring!");
-                return res.status(200).send('OK');
-            }
+            if (msg.contact.user_id !== userId) return res.status(200).send('OK');
+            
             await supabase.from('users').upsert({
                 user_id: userId,
                 phone_number: msg.contact.phone_number,
                 full_name: `${msg.from.first_name} ${msg.from.last_name || ''}`.trim()
             });
-            await bot.sendMessage(chatId, "🎉 Ro'yxatdan o'tdingiz! Kassani ishlatishingiz mumkin.", { reply_markup: MAIN_KEYBOARD });
+            await bot.sendMessage(chatId, "🎉 <b>Ro'yxatdan o'tdingiz!</b>\nEndi xarajatlarni yozishingiz mumkin.", { reply_markup: MAIN_KEYBOARD, parse_mode: 'HTML' });
             return res.status(200).send('OK');
         }
 
@@ -72,136 +91,112 @@ module.exports = async (req, res) => {
             await bot.sendMessage(chatId, "👋 Assalomu alaykum!\nBotdan foydalanish uchun telefon raqamingizni tasdiqlang.", {
                 reply_markup: {
                     keyboard: [[{ text: "📱 Telefon raqamni yuborish", request_contact: true }]],
-                    resize_keyboard: true,
-                    one_time_keyboard: true
+                    resize_keyboard: true, one_time_keyboard: true
                 }
             });
             return res.status(200).send('OK');
         }
 
-        // --- HISOBOTLAR LOGIKASI (ANIMATSIYA BILAN) ---
+        // 2. HISOBOTLAR
+        if (text === '📊 Bugungi Hisobot' || text === '📅 Oylik Hisobot') {
+            // Status xabari
+            const statusMsg = await bot.sendMessage(chatId, "⏳ <b>Hisob-kitob qilinmoqda...</b>", { parse_mode: 'HTML' });
+            
+            const now = new Date();
+            let startTime;
+            let title;
 
-        // 2. BUGUNGI HISOBOT
-        if (text === '📊 Bugungi Hisobot') {
-            // 1. Loading xabari
-            const loadingMsg = await bot.sendMessage(chatId, "🔄 <b>Ma'lumotlarni yig'ayapman...</b>", { parse_mode: 'HTML' });
-            
-            const startOfDay = new Date();
-            startOfDay.setHours(0,0,0,0);
-            
-            // 2. Bazadan olish
+            if (text === '📊 Bugungi Hisobot') {
+                startTime = new Date(now.setHours(0,0,0,0)).getTime();
+                title = "BUGUNGI HISOBOT";
+            } else {
+                startTime = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+                title = `${now.toLocaleString('uz-UZ', { month: 'long' }).toUpperCase()} OYI HISOBOTI`;
+            }
+
             const { data: trans } = await supabase.from('transactions')
-                .select('*')
-                .eq('user_id', userId)
-                .gte('date', startOfDay.getTime());
-
-            // Animatsiya: Tahlil
-            await bot.editMessageText("📉 <b>Kirim/Chiqimlarni tahlil qilyapman...</b>", { chat_id: chatId, message_id: loadingMsg.message_id, parse_mode: 'HTML' });
-            await sleep(500); // 0.5 soniya pauza (chiroyli ko'rinishi uchun)
+                .select('*').eq('user_id', userId).gte('date', startTime);
 
             const inc = trans.filter(t => t.type === 'income').reduce((a, b) => a + (b.amount || 0), 0);
             const exp = trans.filter(t => t.type === 'expense').reduce((a, b) => a + (b.amount || 0), 0);
             const balance = inc - exp;
-            
-            // Animatsiya: Tayyor
-            await bot.editMessageText("✅ <b>Deyarli tayyor!</b>", { chat_id: chatId, message_id: loadingMsg.message_id, parse_mode: 'HTML' });
-            await sleep(500);
 
-            // 3. Yakuniy natija (Edit qilamiz)
-            const icon = balance >= 0 ? '📈' : '📉';
+            // Xabarni yangilash (Edit)
             await bot.editMessageText(
-                `📊 <b>BUGUNGI HISOBOT:</b>\n\n` +
+                `📊 <b>${title}:</b>\n\n` +
                 `📥 Kirim: <b>+${inc.toLocaleString()}</b> so'm\n` +
                 `📤 Chiqim: <b>-${exp.toLocaleString()}</b> so'm\n` +
                 `➖➖➖➖➖➖➖➖\n` +
-                `${icon} Sof qoldiq: <b>${balance.toLocaleString()} so'm</b>`, 
-                { chat_id: chatId, message_id: loadingMsg.message_id, parse_mode: 'HTML' }
+                `${balance >= 0 ? '🤑' : '💸'} Sof qoldiq: <b>${balance.toLocaleString()} so'm</b>`,
+                { chat_id: chatId, message_id: statusMsg.message_id, parse_mode: 'HTML' }
             );
             return res.status(200).send('OK');
         }
 
-        // 3. OYLIK HISOBOT
-        if (text === '📅 Oylik Hisobot') {
-            const loadingMsg = await bot.sendMessage(chatId, "🔄 <b>Ma'lumotlarni yig'ayapman...</b>", { parse_mode: 'HTML' });
-
-            const now = new Date();
-            const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
-            const monthName = now.toLocaleString('uz-UZ', { month: 'long' });
-
-            const { data: trans } = await supabase.from('transactions')
-                .select('*')
-                .eq('user_id', userId)
-                .gte('date', startOfMonth);
-            
-            await bot.editMessageText("📉 <b>Kirim/Chiqimlarni tahlil qilyapman...</b>", { chat_id: chatId, message_id: loadingMsg.message_id, parse_mode: 'HTML' });
-            await sleep(600);
-
-            const inc = trans.filter(t => t.type === 'income').reduce((a, b) => a + (b.amount || 0), 0);
-            const exp = trans.filter(t => t.type === 'expense').reduce((a, b) => a + (b.amount || 0), 0);
-            const balance = inc - exp;
-
-            await bot.editMessageText("✅ <b>Deyarli tayyor!</b>", { chat_id: chatId, message_id: loadingMsg.message_id, parse_mode: 'HTML' });
-            await sleep(500);
-            
-            const icon = balance >= 0 ? '🤑' : '💸';
-            
-            // Chiroyli format
-            await bot.editMessageText(
-                `📅 <b>${monthName.toUpperCase()} OYI HISOBOTI:</b>\n\n` +
-                `🟩 Jami Kirim: <b>+${inc.toLocaleString()}</b> so'm\n` +
-                `🟥 Jami Chiqim: <b>-${exp.toLocaleString()}</b> so'm\n` +
-                `➖➖➖➖➖➖➖➖\n` +
-                `${icon} <b>Sof Foyda: ${balance.toLocaleString()} so'm</b>`, 
-                { chat_id: chatId, message_id: loadingMsg.message_id, parse_mode: 'HTML' }
-            );
-            return res.status(200).send('OK');
-        }
-
-        // 4. UNDO
         if (text === "↩️ Oxirgisini O'chirish") {
+            const statusMsg = await bot.sendMessage(chatId, "⏳ <b>Oxirgi operatsiya qidirilmoqda...</b>", { parse_mode: 'HTML' });
+            
             const { data: lastTrans } = await supabase.from('transactions')
                 .select('*').eq('user_id', userId).order('date', { ascending: false }).limit(1).single();
 
             if (lastTrans) {
                 await supabase.from('transactions').delete().eq('id', lastTrans.id);
-                await bot.sendMessage(chatId, `🗑 O'chirildi:\n${lastTrans.category}: ${lastTrans.amount.toLocaleString()} so'm`);
+                await bot.editMessageText(
+                    `🗑 <b>Muvaffaqiyatli o'chirildi!</b>\n\n` +
+                    `📂 ${lastTrans.category}\n` +
+                    `💰 ${lastTrans.amount.toLocaleString()} so'm`,
+                    { chat_id: chatId, message_id: statusMsg.message_id, parse_mode: 'HTML' }
+                );
             } else {
-                await bot.sendMessage(chatId, "O'chirish uchun ma'lumot yo'q.");
+                await bot.editMessageText("⚠️ O'chirish uchun hech narsa topilmadi.", { chat_id: chatId, message_id: statusMsg.message_id });
             }
             return res.status(200).send('OK');
         }
 
         if (text === '/start') {
-            await bot.sendMessage(chatId, "Kassa ishlamoqda. Summa va izoh yozing:", { reply_markup: MAIN_KEYBOARD });
+            await bot.sendMessage(chatId, "Kassa botiga xush kelibsiz! \nSumma va izoh yozing:", { reply_markup: MAIN_KEYBOARD });
             return res.status(200).send('OK');
         }
 
-        // 5. TRANZAKSIYANI QABUL QILISH
+        // 3. ASOSIY TRANZAKSIYA LOGIKASI (Status qo'shilgan qism)
         const parsed = parseText(text);
-        if (!parsed && !msg.photo) return res.status(200).send('OK');
 
-        let receiptUrl = null;
-        if (msg.photo) {
-            const loading = await bot.sendMessage(chatId, "Rasm yuklanmoqda... ⏳");
-            try {
-                const photoId = msg.photo[msg.photo.length - 1].file_id;
-                const fileLink = await bot.getFileLink(photoId);
-                const response = await fetch(fileLink);
-                const arrayBuffer = await response.arrayBuffer();
-                const fileName = `${userId}_${Date.now()}.jpg`;
-
-                const { error } = await supabase.storage.from('receipts').upload(fileName, Buffer.from(arrayBuffer), { contentType: 'image/jpeg' });
-                if (!error) {
-                    const { data } = supabase.storage.from('receipts').getPublicUrl(fileName);
-                    receiptUrl = data.publicUrl;
-                }
-                await bot.deleteMessage(chatId, loading.message_id);
-            } catch (e) {
-                console.error(e);
-            }
-        }
-
+        // Agar matnni tahlil qila olsak (raqam va izoh bor bo'lsa)
         if (parsed) {
+            // 1-QADAM: Darhol javob qaytaramiz (Status)
+            const processingMsg = await bot.sendMessage(chatId, 
+                `⏳ <b>Ma'lumotlar tahlil qilinmoqda...</b>\n` + 
+                `<i>Biroz kuting, bazaga saqlayapman</i> 🔄`, 
+                { parse_mode: 'HTML' }
+            );
+
+            let receiptUrl = null;
+            
+            // Rasm yuklash (agar bo'lsa)
+            if (msg.photo) {
+                try {
+                    // Statusni o'zgartiramiz agar rasm bo'lsa
+                    await bot.editMessageText(
+                        `📸 <b>Chek rasmi yuklanmoqda...</b>\n` + 
+                        `<i>Biroz kuting...</i>`, 
+                        { chat_id: chatId, message_id: processingMsg.message_id, parse_mode: 'HTML' }
+                    );
+
+                    const photoId = msg.photo[msg.photo.length - 1].file_id;
+                    const fileLink = await bot.getFileLink(photoId);
+                    const response = await fetch(fileLink);
+                    const arrayBuffer = await response.arrayBuffer();
+                    const fileName = `${userId}_${Date.now()}.jpg`;
+
+                    const { error } = await supabase.storage.from('receipts').upload(fileName, Buffer.from(arrayBuffer), { contentType: 'image/jpeg' });
+                    if (!error) {
+                        const { data } = supabase.storage.from('receipts').getPublicUrl(fileName);
+                        receiptUrl = data.publicUrl;
+                    }
+                } catch (e) { console.error("Rasm yuklashda xato", e); }
+            }
+
+            // Bazaga yozish
             await supabase.from('transactions').insert({
                 user_id: userId,
                 amount: parsed.amount,
@@ -211,16 +206,25 @@ module.exports = async (req, res) => {
                 receipt_url: receiptUrl
             });
 
+            // Formatlash
             const emoji = parsed.type === 'income' ? '🟢' : '🔴';
-            const money = parsed.amount.toLocaleString().replace(/,/g, ' ');
-            const photoText = receiptUrl ? " 📸" : "";
-            
-            await bot.sendMessage(chatId, 
-                `${emoji} <b>Saqlandi:</b> ${money} so'm${photoText}\n📂 ${parsed.category}`,
-                { parse_mode: 'HTML' }
+            const typeText = parsed.type === 'income' ? 'Kirim' : 'Chiqim';
+            const photoStatus = receiptUrl ? "Bor 📸" : "Yo'q ❌";
+
+            // 2-QADAM: Xabarni yakuniy chiroyli chekga o'zgartiramiz
+            await bot.editMessageText(
+                `✅ <b>Muvaffaqiyatli saqlandi!</b>\n\n` +
+                `${emoji} <b>Turi:</b> ${typeText}\n` +
+                `💰 <b>Summa:</b> ${parsed.amount.toLocaleString('uz-UZ')} so'm\n` +
+                `📂 <b>Kategoriya:</b> ${parsed.category}\n` +
+                `🧾 <b>Chek rasm:</b> ${photoStatus}\n` +
+                `➖➖➖➖➖➖➖➖\n` +
+                `<i>📊 Umumiy statistikani ko'rish uchun "Bugungi Hisobot" tugmasini bosing.</i>`,
+                { chat_id: chatId, message_id: processingMsg.message_id, parse_mode: 'HTML' }
             );
+
         } else if (msg.photo && !parsed) {
-            await bot.sendMessage(chatId, "⚠️ Rasmni saqladim, lekin summani tushunmadim. Rasm tagiga izoh yozing.");
+            await bot.sendMessage(chatId, "⚠️ Rasmni ko'rdim, lekin summani topa olmadim. Iltimos, rasm tagiga summa va izoh yozib yuboring.", { parse_mode: 'HTML' });
         }
 
         res.status(200).send('OK');
