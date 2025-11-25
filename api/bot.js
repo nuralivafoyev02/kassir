@@ -83,7 +83,7 @@ module.exports = async (req, res) => {
                 phone_number: msg.contact.phone_number,
                 full_name: `${msg.from.first_name} ${msg.from.last_name || ''}`.trim()
             });
-            await bot.sendMessage(chatId, "🎉 <b>Ro'yxatdan o'tdingiz!</b>\nEndi xarajatlarni yozishingiz mumkin.", { reply_markup: MAIN_KEYBOARD, parse_mode: 'HTML' });
+            await bot.sendMessage(chatId, "🎉 <b>Ro'yxatdan o'tdingiz!</b>\nEndi xarajatlarni yozishingiz mumkin. \nMasalan: +5 mln oylik maosh\n -3 mln uy-joy xarajatlari", { reply_markup: MAIN_KEYBOARD, parse_mode: 'HTML' });
             return res.status(200).send('OK');
         }
 
@@ -154,7 +154,7 @@ module.exports = async (req, res) => {
         }
 
         if (text === '/start') {
-            await bot.sendMessage(chatId, "Kassa botiga xush kelibsiz! \nSumma va izoh yozing:", { reply_markup: MAIN_KEYBOARD });
+            await bot.sendMessage(chatId, "Assalomu aleykum! Bugun qanday operatsiyani bajaramiz? \nSumma va izoh yozing:", { reply_markup: MAIN_KEYBOARD });
             return res.status(200).send('OK');
         }
 
@@ -219,12 +219,12 @@ module.exports = async (req, res) => {
                 `📂 <b>Kategoriya:</b> ${parsed.category}\n` +
                 `🧾 <b>Chek rasm:</b> ${photoStatus}\n` +
                 `➖➖➖➖➖➖➖➖\n` +
-                `<i>📊 Umumiy statistikani ko'rish uchun "Bugungi Hisobot" tugmasini bosing.</i>`,
+                `<i>📊 Umumiy statistikani ko'rish uchun "Kassa" tugmasini bosing.</i>`,
                 { chat_id: chatId, message_id: processingMsg.message_id, parse_mode: 'HTML' }
             );
 
         } else if (msg.photo && !parsed) {
-            await bot.sendMessage(chatId, "⚠️ Rasmni ko'rdim, lekin summani topa olmadim. Iltimos, rasm tagiga summa va izoh yozib yuboring.", { parse_mode: 'HTML' });
+            await bot.sendMessage(chatId, "⚠️ Rasmni ko'rdim, lekin summani topa olmadim. Iltimos, rasm tagiga <b>summa</b> va <b>izoh</b> yozib yuboring.", { parse_mode: 'HTML' });
         }
 
         res.status(200).send('OK');
