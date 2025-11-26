@@ -140,7 +140,7 @@ module.exports = async (req, res) => {
         }
 
         // 3. YANGI TUGMA: "Botdan foydalanish"
-        if (text === '❓ Botdan foydalanish') {
+        if (text === 'Botdan foydalanish❓') {
             await bot.sendMessage(chatId, GUIDE_TEXT, { parse_mode: 'HTML' });
             return res.status(200).send('OK');
         }
@@ -204,8 +204,7 @@ module.exports = async (req, res) => {
 
         if (parsed) {
             const processingMsg = await bot.sendMessage(chatId, 
-                `⏳ <b>Ma'lumotlar tahlil qilinmoqda...</b>\n` + 
-                `<i>Biroz kuting, bazaga saqlayapman</i> 🔄`, 
+                `⏳ <b>Ma'lumotlar tahlil qilinmoqda...</b>`, 
                 { parse_mode: 'HTML' }
             );
 
@@ -213,7 +212,7 @@ module.exports = async (req, res) => {
             if (msg.photo) {
                 try {
                     await bot.editMessageText(
-                        `📸 <b>Chek rasmi yuklanmoqda...</b>\n<i>Biroz kuting...</i>`, 
+                        `📸 <b>Chek rasmi yuklanmoqda...</b>`, 
                         { chat_id: chatId, message_id: processingMsg.message_id, parse_mode: 'HTML' }
                     );
                     const photoId = msg.photo[msg.photo.length - 1].file_id;
@@ -240,7 +239,7 @@ module.exports = async (req, res) => {
 
             const emoji = parsed.type === 'income' ? '🟢' : '🔴';
             const typeText = parsed.type === 'income' ? 'Kirim' : 'Chiqim';
-            const photoStatus = receiptUrl ? "Bor 📸" : "Yo'q ❌";
+            const photoStatus = receiptUrl ? "Bor 📸" : "Yo'q";
 
             await bot.editMessageText(
                 `✅ <b>Muvaffaqiyatli saqlandi!</b>\n\n` +
