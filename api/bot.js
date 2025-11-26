@@ -8,10 +8,33 @@ const supabaseKey = process.env.SUPABASE_KEY;
 const bot = new TelegramBot(token);
 const supabase = createClient(supabaseUrl, supabaseKey);
 
-// Yordamchi: Kutish (Animatsiya uchun)
-const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+// --- SOZLAMALAR ---
 
-// 🔥 KUCHAYTIRILGAN TAHLIL FUNKSIYASI (O'sha aqlli versiya)
+// Qo'llanma matni (Start 2-marta bosilganda yoki tugma bosilganda chiqadi)
+const GUIDE_TEXT = `<b>📖 BOTDAN FOYDALANISH QO'LLANMASI:</b>\n\n` +
+    `Botga shunchaki xarajat yoki kirimni yozing. Bot o'zi tushunib oladi.\n\n` +
+    `<b>1. Chiqim qilish (Xarajat):</b>\n` +
+    `➖ <i>50 ming tushlik uchun</i>\n` +
+    `➖ <i>120000 taksi</i>\n` +
+    `➖ <i>-50$ bozorlik</i>\n\n` +
+    `<b>2. Kirim qilish (Daromad):</b>\n` +
+    `➕ <i>2 mln oylik tushdi</i>\n` +
+    `➕ <i>+100$ bonus oldim</i>\n\n` +
+    `<b>3. Valyutalar:</b>\n` +
+    `So'm, k (ming), mln, $, yevro kabilarni tushunadi.\n\n` +
+    `<i>Misol: <b>"150k benzin"</b> deb yozsangiz, bot buni <b>150 000 so'm xarajat</b> deb saqlaydi.</i>`;
+
+// Asosiy klaviatura (Yangi tugma qo'shildi)
+const MAIN_KEYBOARD = {
+    keyboard: [
+        ['📊 Bugungi Hisobot', '📅 Oylik Hisobot'],
+        ['↩️ Oxirgisini O\'chirish', 'Botdan foydalanish❓'] 
+    ],
+    resize_keyboard: true
+};
+
+// --- YORDAMCHI FUNKSIYALAR ---
+
 function parseText(text) {
     if (!text) return null;
     let originalText = text;
@@ -55,13 +78,7 @@ function parseText(text) {
     return { amount: Math.round(amount), type, category };
 }
 
-const MAIN_KEYBOARD = {
-    keyboard: [
-        ['📊 Bugungi Hisobot', '📅 Oylik Hisobot'],
-        ['↩️ Oxirgisini O\'chirish']
-    ],
-    resize_keyboard: true
-};
+// --- ASOSIY KOD ---
 
 module.exports = async (req, res) => {
     try {
@@ -72,21 +89,24 @@ module.exports = async (req, res) => {
         const userId = msg.from.id;
         const text = msg.text || msg.caption;
 
-        // 1. LOGIN TEKSHIRUVI
+        // 1. LOGIN VA FOYDALANUVCHINI ANIQLASH
         const { data: user } = await supabase.from('users').select('*').eq('user_id', userId).single();
 
+        // Kontakt qabul qilish
         if (msg.contact) {
             if (msg.contact.user_id !== userId) return res.status(200).send('OK');
             
             await supabase.from('users').upsert({
                 user_id: userId,
                 phone_number: msg.contact.phone_number,
-                full_name: `${msg.from.first_name} ${msg.from.last_name || ''}`.trim()
+                full_name: `${msg.from.first_name} ${msg.from.last_name || ''}`.trim(),
+                last_start_date: new Date() // Ro'yxatdan o'tish paytida vaqtni saqlaymiz
             });
-            await bot.sendMessage(chatId, "🎉 <b>Ro'yxatdan o'tdingiz!</b>\nEndi xarajatlarni yozishingiz mumkin. \nMasalan: +5 mln oylik maosh\n -3 mln uy-joy xarajatlari", { reply_markup: MAIN_KEYBOARD, parse_mode: 'HTML' });
+            await bot.sendMessage(chatId, "🎉 <b>Ro'yxatdan o'tdingiz!</b>\nEndi kirim yoki chiqimlarni yozishingiz mumkin.", { reply_markup: MAIN_KEYBOARD, parse_mode: 'HTML' });
             return res.status(200).send('OK');
         }
 
+        // Ro'yxatdan o'tmagan bo'lsa
         if (!user) {
             await bot.sendMessage(chatId, "👋 Assalomu alaykum!\nBotdan foydalanish uchun telefon raqamingizni tasdiqlang.", {
                 reply_markup: {
@@ -97,9 +117,36 @@ module.exports = async (req, res) => {
             return res.status(200).send('OK');
         }
 
-        // 2. HISOBOTLAR
+        // 2. /START LOGIKASI (YANGILANGAN)
+        if (text === '/start') {
+            const now = new Date();
+            const todayStr = now.toDateString(); // Masalan: "Wed Nov 26 2025"
+            
+            // Foydalanuvchining oxirgi start bosgan vaqti (bazadan)
+            const lastDate = user.last_start_date ? new Date(user.last_start_date).toDateString() : null;
+
+            // Agar bugun birinchi marta bosayotgan bo'lsa (yoki umuman yangi bo'lsa)
+            if (lastDate !== todayStr) {
+                await bot.sendMessage(chatId, `Assalomu aleykum, ${user.full_name || 'Hurmatli foydalanuvchi'}! ☀️\nBugun qanday moliyaviy operatsiyalarni bajaramiz?`, { reply_markup: MAIN_KEYBOARD });
+                
+                // Bazada vaqtni yangilaymiz
+                await supabase.from('users').update({ last_start_date: now }).eq('user_id', userId);
+            } 
+            // Agar bugun allaqachon kirgan bo'lsa (2-marta bosishi)
+            else {
+                await bot.sendMessage(chatId, GUIDE_TEXT, { reply_markup: MAIN_KEYBOARD, parse_mode: 'HTML' });
+            }
+            return res.status(200).send('OK');
+        }
+
+        // 3. YANGI TUGMA: "Botdan foydalanish"
+        if (text === '❓ Botdan foydalanish') {
+            await bot.sendMessage(chatId, GUIDE_TEXT, { parse_mode: 'HTML' });
+            return res.status(200).send('OK');
+        }
+
+        // 4. HISOBOTLAR
         if (text === '📊 Bugungi Hisobot' || text === '📅 Oylik Hisobot') {
-            // Status xabari
             const statusMsg = await bot.sendMessage(chatId, "⏳ <b>Hisob-kitob qilinmoqda...</b>", { parse_mode: 'HTML' });
             
             const now = new Date();
@@ -121,7 +168,6 @@ module.exports = async (req, res) => {
             const exp = trans.filter(t => t.type === 'expense').reduce((a, b) => a + (b.amount || 0), 0);
             const balance = inc - exp;
 
-            // Xabarni yangilash (Edit)
             await bot.editMessageText(
                 `📊 <b>${title}:</b>\n\n` +
                 `📥 Kirim: <b>+${inc.toLocaleString()}</b> so'm\n` +
@@ -134,8 +180,8 @@ module.exports = async (req, res) => {
         }
 
         if (text === "↩️ Oxirgisini O'chirish") {
+            // (O'chirish kodi o'zgarishsiz qoldi)
             const statusMsg = await bot.sendMessage(chatId, "⏳ <b>Oxirgi operatsiya qidirilmoqda...</b>", { parse_mode: 'HTML' });
-            
             const { data: lastTrans } = await supabase.from('transactions')
                 .select('*').eq('user_id', userId).order('date', { ascending: false }).limit(1).single();
 
@@ -153,17 +199,10 @@ module.exports = async (req, res) => {
             return res.status(200).send('OK');
         }
 
-        if (text === '/start') {
-            await bot.sendMessage(chatId, "Assalomu aleykum! Bugun qanday operatsiyani bajaramiz? \nSumma va izoh yozing:", { reply_markup: MAIN_KEYBOARD });
-            return res.status(200).send('OK');
-        }
-
-        // 3. ASOSIY TRANZAKSIYA LOGIKASI (Status qo'shilgan qism)
+        // 5. TRANZAKSIYA LOGIKASI
         const parsed = parseText(text);
 
-        // Agar matnni tahlil qila olsak (raqam va izoh bor bo'lsa)
         if (parsed) {
-            // 1-QADAM: Darhol javob qaytaramiz (Status)
             const processingMsg = await bot.sendMessage(chatId, 
                 `⏳ <b>Ma'lumotlar tahlil qilinmoqda...</b>\n` + 
                 `<i>Biroz kuting, bazaga saqlayapman</i> 🔄`, 
@@ -171,32 +210,25 @@ module.exports = async (req, res) => {
             );
 
             let receiptUrl = null;
-            
-            // Rasm yuklash (agar bo'lsa)
             if (msg.photo) {
                 try {
-                    // Statusni o'zgartiramiz agar rasm bo'lsa
                     await bot.editMessageText(
-                        `📸 <b>Chek rasmi yuklanmoqda...</b>\n` + 
-                        `<i>Biroz kuting...</i>`, 
+                        `📸 <b>Chek rasmi yuklanmoqda...</b>\n<i>Biroz kuting...</i>`, 
                         { chat_id: chatId, message_id: processingMsg.message_id, parse_mode: 'HTML' }
                     );
-
                     const photoId = msg.photo[msg.photo.length - 1].file_id;
                     const fileLink = await bot.getFileLink(photoId);
                     const response = await fetch(fileLink);
                     const arrayBuffer = await response.arrayBuffer();
                     const fileName = `${userId}_${Date.now()}.jpg`;
-
                     const { error } = await supabase.storage.from('receipts').upload(fileName, Buffer.from(arrayBuffer), { contentType: 'image/jpeg' });
                     if (!error) {
                         const { data } = supabase.storage.from('receipts').getPublicUrl(fileName);
                         receiptUrl = data.publicUrl;
                     }
-                } catch (e) { console.error("Rasm yuklashda xato", e); }
+                } catch (e) { console.error("Rasm yuklash xato", e); }
             }
 
-            // Bazaga yozish
             await supabase.from('transactions').insert({
                 user_id: userId,
                 amount: parsed.amount,
@@ -206,12 +238,10 @@ module.exports = async (req, res) => {
                 receipt_url: receiptUrl
             });
 
-            // Formatlash
             const emoji = parsed.type === 'income' ? '🟢' : '🔴';
             const typeText = parsed.type === 'income' ? 'Kirim' : 'Chiqim';
             const photoStatus = receiptUrl ? "Bor 📸" : "Yo'q ❌";
 
-            // 2-QADAM: Xabarni yakuniy chiroyli chekga o'zgartiramiz
             await bot.editMessageText(
                 `✅ <b>Muvaffaqiyatli saqlandi!</b>\n\n` +
                 `${emoji} <b>Turi:</b> ${typeText}\n` +
@@ -219,12 +249,15 @@ module.exports = async (req, res) => {
                 `📂 <b>Kategoriya:</b> ${parsed.category}\n` +
                 `🧾 <b>Chek rasm:</b> ${photoStatus}\n` +
                 `➖➖➖➖➖➖➖➖\n` +
-                `<i>📊 Umumiy statistikani ko'rish uchun "Kassa" tugmasini bosing.</i>`,
+                `<i>Yana qo'shishingiz mumkin...</i>`,
                 { chat_id: chatId, message_id: processingMsg.message_id, parse_mode: 'HTML' }
             );
 
         } else if (msg.photo && !parsed) {
             await bot.sendMessage(chatId, "⚠️ Rasmni ko'rdim, lekin summani topa olmadim. Iltimos, rasm tagiga <b>summa</b> va <b>izoh</b> yozib yuboring.", { parse_mode: 'HTML' });
+        } else if (text !== '/start' && !parsed) {
+             // Tushunarsiz so'z yozilsa ham qo'llanma chiqarish mumkin (ixtiyoriy)
+             await bot.sendMessage(chatId, "Tushunmadim. Iltimos quyidagicha yozing:\n" + GUIDE_TEXT, {parse_mode: 'HTML'});
         }
 
         res.status(200).send('OK');
