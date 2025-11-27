@@ -257,3 +257,22 @@ body.light-mode .msg-bubble.ai {
 .pin-dot.active {
     transform: scale(1.2);
 }
+
+/* SWIPE ANIMATIONS */
+.swiper-container {
+    transition: transform 0.3s cubic-bezier(0.25, 1, 0.5, 1);
+}
+
+.currency-dot {
+    transition: all 0.3s ease;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background-color: rgba(255, 255, 255, 0.3);
+}
+
+.currency-dot.active {
+    width: 18px;
+    background-color: white;
+    border-radius: 4px;
+}

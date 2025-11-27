@@ -1,4 +1,3 @@
-
 // --- CONFIG ---
 const SUPABASE_URL = "https://maahdpuwvaugqjfnihbu.supabase.co";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1hYWhkcHV3dmF1Z3FqZm5paGJ1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjM4ODM4NTEsImV4cCI6MjA3OTQ1OTg1MX0.ILp0bW01IMLydAuXcYXQSM6NORGG5yjJt367JsFyDm4";
@@ -7,15 +6,21 @@ const tg = window.Telegram.WebApp;
 tg.expand();
 const currentUserId = tg.initDataUnsafe?.user?.id || 123456;
 const icons = ['shopping-cart', 'zap', 'wifi', 'smartphone', 'car', 'home', 'gift', 'coffee', 'music', 'book', 'heart', 'smile', 'star', 'briefcase', 'credit-card', 'monitor', 'tool', 'truck', 'shopping-bag', 'banknote', 'pill', 'shirt'];
+
 // --- STATE ---
 let transactions = [];
 let allCats = { income: [], expense: [] };
 let pin = localStorage.getItem('pin');
 let bioEnabled = localStorage.getItem('bio') === 'true';
+// O'ZGARISH: exchangeRate shu yerda e'lon qilindi
+let exchangeRate = localStorage.getItem('exchangeRate') || 12850; 
 let activeType = 'all', activeDate = 'all', botState = 'idle', draft = { receipt: null, rawFile: null }, selId = null, selIcon = 'circle';
 let pinInput = "", pinStep = 'unlock', tempPin = "";
 let selCatIndex = null, selCatType = null;
 let isBiometricAvailable = false;
+let dashboardCurrency = 'UZS';
+let inputCurrency = 'UZS'; // Bot uchun
+
 // --- INIT ---
 document.addEventListener('DOMContentLoaded', async () => {
     lucide.createIcons();
@@ -53,11 +58,98 @@ document.addEventListener('DOMContentLoaded', async () => {
             updateSettingsUI();
         }, 500);
     }
+
+    // --- SWIPE LOGIC (O'ZGARTIRILDI: MOUSE EVENTS QO'SHILDI) ---
+    const card = document.getElementById('balance-card');
+    if (card) {
+        let startX = 0;
+        let endX = 0;
+
+        // Touch events (Telefonlar uchun)
+        card.addEventListener('touchstart', (e) => {
+            startX = e.changedTouches[0].screenX;
+        }, { passive: true });
+
+        card.addEventListener('touchend', (e) => {
+            endX = e.changedTouches[0].screenX;
+            handleDashboardSwipe(startX, endX);
+        }, { passive: true });
+
+        // Mouse events (Kompyuter/Laptop uchun)
+        card.addEventListener('mousedown', (e) => {
+            startX = e.clientX;
+        });
+
+        card.addEventListener('mouseup', (e) => {
+            endX = e.clientX;
+            handleDashboardSwipe(startX, endX);
+        });
+
+        // Swipe handler function
+        function handleDashboardSwipe(s, e) {
+            const threshold = 50; 
+            
+            // Chapga surish (UZS -> USD)
+            if (s - e > threshold) {
+                if (dashboardCurrency === 'UZS') {
+                    setDashboardCurrency('USD');
+                }
+            }
+            
+            // O'ngga surish (USD -> UZS)
+            if (e - s > threshold) {
+                if (dashboardCurrency === 'USD') {
+                    setDashboardCurrency('UZS');
+                }
+            }
+        }
+    }
 });
+
+function setDashboardCurrency(curr) {
+    if (curr === dashboardCurrency) return; // O'zgarmasa qayt
+
+    dashboardCurrency = curr;
+    vibrate('medium'); // Tebranish beramiz
+
+    // Animatsiya (swiper effekti)
+    const swiper = document.getElementById('balance-swiper');
+
+    // Bir oz siljish effekti va qaytish
+    if (curr === 'USD') {
+        swiper.style.transform = 'translateX(-10px)';
+        setTimeout(() => swiper.style.transform = 'translateX(0)', 150);
+        document.getElementById('dot-uzs').classList.remove('active');
+        document.getElementById('dot-usd').classList.add('active');
+    } else {
+        swiper.style.transform = 'translateX(10px)';
+        setTimeout(() => swiper.style.transform = 'translateX(0)', 150);
+        document.getElementById('dot-usd').classList.remove('active');
+        document.getElementById('dot-uzs').classList.add('active');
+    }
+
+    // Ma'lumotlarni yangilash
+    updateUI();
+}
+
 // --- BACKEND ---
 async function fetchInitialData() {
+    const { data: userData, error: uError } = await supabase
+        .from('users')
+        .select('exchange_rate')
+        .eq('user_id', currentUserId)
+        .single();
+    
+    if (userData && userData.exchange_rate) {
+        exchangeRate = userData.exchange_rate;
+        // Lokal xotirani ham yangilab qo'yamiz (zaxira uchun)
+        // localStorage.setItem('exchangeRate', exchangeRate); 
+    }
+    
+    // ... Qolgan ma'lumotlarni yuklash ...
     const { data: tData, error: tError } = await supabase.from('transactions').select('*').eq('user_id', currentUserId).order('date', { ascending: false });
     if (!tError && tData) transactions = tData;
+
     const { data: cData, error: cError } = await supabase.from('categories').select('*').eq('user_id', currentUserId);
     if (!cData || cData.length === 0) await initDefaultCategories();
     else {
@@ -65,13 +157,21 @@ async function fetchInitialData() {
         allCats.expense = cData.filter(c => c.type === 'expense');
     }
 }
+
 async function initDefaultCategories() {
-    const default_income = [{ name: "Oylik", icon: "banknote", type: "income" }, { name: "Bonus", icon: "gift", type: "income" }, { name: "Sotuv", icon: "shopping-bag", type: "income" }];
-    const default_expense = [{ name: "Oziq-ovqat", icon: "shopping-cart", type: "expense" }, { name: "Transport", icon: "bus", type: "expense" }, { name: "Kafe", icon: "coffee", type: "expense" }];
+    const default_income = [
+        { name: "Oylik", icon: "banknote", type: "income" }, 
+        { name: "Bonus", icon: "gift", type: "income" }, 
+        { name: "Sotuv", icon: "shopping-bag", type: "income" }];
+    const default_expense = [
+        { name: "Oziq-ovqat", icon: "shopping-cart", type: "expense" }, 
+        { name: "Transport", icon: "bus", type: "expense" }, 
+        { name: "Kafe", icon: "coffee", type: "expense" }];
     const all = [...default_income, ...default_expense].map(c => ({ ...c, user_id: currentUserId }));
     const { error } = await supabase.from('categories').insert(all);
     if (!error) { allCats.income = default_income; allCats.expense = default_expense; }
 }
+
 // --- NAVIGATION ---
 function switchTab(t) {
     vibrate('light');
@@ -86,6 +186,7 @@ function switchTab(t) {
     if (t === 'dashboard') updateUI();
     lucide.createIcons();
 }
+
 // --- CATEGORY ACTIONS (EDIT/DELETE) ---
 let longPressTimer;
 function handleCatPressStart(e, idx, type) { longPressTimer = setTimeout(() => showCatOptions(e, idx, type), 500); }
@@ -117,6 +218,7 @@ async function deleteCatFromMenu() {
         await supabase.from('categories').delete().eq('user_id', currentUserId).eq('name', catToDelete.name).eq('type', selCatType);
     }
 }
+
 // --- PIN SYSTEM ---
 function showPinScreen(step) {
     pinStep = step; pinInput = ""; updatePinDots();
@@ -139,6 +241,7 @@ function startPinSetup() { if (pin) showPinScreen('setup_old'); else showPinScre
 function cancelPinSetup() { document.getElementById('pin-screen').classList.add('hidden'); }
 function toggleBiometric(el) { bioEnabled = el.checked; localStorage.setItem('bio', bioEnabled); }
 function removePin() { if (confirm("PIN kodni olib tashlaysizmi?")) { localStorage.removeItem('pin'); pin = null; updateSettingsUI(); alert("PIN kod olib tashlandi."); closeModal('settings-modal'); } }
+
 // --- UPLOAD & RECEIPT ---
 function handleReceiptUpload(e) {
     const file = e.target.files[0]; if (!file) return;
@@ -167,22 +270,54 @@ async function uploadReceipt(file) {
 function clearReceipt() { draft.receipt = null; draft.rawFile = null; document.getElementById('file-upload').value = ''; document.getElementById('receipt-preview-area').classList.add('hidden'); }
 function viewReceipt(src) { document.getElementById('full-receipt-image').src = src; document.getElementById('receipt-modal').classList.remove('hidden'); }
 function closeReceiptModal() { document.getElementById('receipt-modal').classList.add('hidden'); }
+
 // --- CORE UI ---
 function updateUI() {
     const { s, e } = getDateRange();
     transactions.sort((a, b) => b.date - a.date);
     const f = transactions.filter(t => t.date >= s && t.date <= e);
-    const inc = f.filter(t => t.type === 'income').reduce((a, b) => a + (Number(b.amount) || 0), 0);
-    const exp = f.filter(t => t.type === 'expense').reduce((a, b) => a + (Number(b.amount) || 0), 0);
-    document.getElementById('total-balance').innerText = formatNumber(inc - exp) + " so'm";
-    document.getElementById('total-income').innerText = "+" + formatNumber(inc);
-    document.getElementById('total-expense').innerText = "-" + formatNumber(exp);
+
+    // Asosiy hisob (Doim UZS da hisoblanadi)
+    const incBase = f.filter(t => t.type === 'income').reduce((a, b) => a + (Number(b.amount) || 0), 0);
+    const expBase = f.filter(t => t.type === 'expense').reduce((a, b) => a + (Number(b.amount) || 0), 0);
+    const balBase = incBase - expBase;
+
+    // Ko'rsatish uchun konvertatsiya (VIEW LAYER)
+    let displayBal, displayInc, displayExp, suffix;
+
+    if (dashboardCurrency === 'USD' && exchangeRate > 0) {
+        // Dollarga o'girib ko'rsatish
+        displayBal = (balBase / exchangeRate).toFixed(2);
+        displayInc = (incBase / exchangeRate).toFixed(2);
+        displayExp = (expBase / exchangeRate).toFixed(2);
+        suffix = "$";
+
+        // UI elementlarini yangilash
+        document.getElementById('total-balance').innerText = `$ ${formatNumber(displayBal)}`;
+        document.getElementById('total-income').innerText = `+$ ${formatNumber(displayInc)}`;
+        document.getElementById('total-expense').innerText = `-$ ${formatNumber(displayExp)}`;
+        document.getElementById('currency-badge').innerText = "USD";
+        document.getElementById('currency-badge').className = "text-[10px] bg-blue-500 px-1.5 py-0.5 rounded text-white font-mono";
+    } else {
+        // So'mda ko'rsatish (Default)
+        document.getElementById('total-balance').innerText = `${formatNumber(balBase)} so'm`;
+        document.getElementById('total-income').innerText = `+${formatNumber(incBase)}`;
+        document.getElementById('total-expense').innerText = `-${formatNumber(expBase)}`;
+        document.getElementById('currency-badge').innerText = "UZS";
+        document.getElementById('currency-badge').className = "text-[10px] bg-white/10 px-1.5 py-0.5 rounded text-white font-mono";
+    }
+
+    // Trendlar va Diagrammalar (Bular foizda bo'lgani uchun o'zgartirish shart emas, lekin diagramma UZS da qoladi)
     updateTrendWidgets();
+
     const ci = document.getElementById('card-income'), ce = document.getElementById('card-expense');
     ci.className = `glass-panel p-3 rounded-2xl flex items-center gap-3 cursor-pointer transition-all ${activeType === 'income' ? 'bg-emerald-500/20 border-emerald-500' : 'hover:bg-emerald-500/10'}`;
     ce.className = `glass-panel p-3 rounded-2xl flex items-center gap-3 cursor-pointer transition-all ${activeType === 'expense' ? 'bg-rose-500/20 border-rose-500' : 'hover:bg-rose-500/10'}`;
-    renderCharts(f); renderHistory();
+
+    renderCharts(f);
+    renderHistory(); // Tarix o'zgarishsiz qoladi (Siz so'ragandek)
 }
+
 function updateTrendWidgets() {
     const now = new Date(); const thisMonthStart = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
     const lastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1).getTime(); const lastMonthEnd = thisMonthStart - 1;
@@ -244,26 +379,76 @@ function renderBotCats(type) {
     });
     lucide.createIcons();
 }
-async function submitBotInput() {
+
+// --- CURRENCY LOGIC ---
+function toggleInputCurrency() {
     vibrate('light');
-    const val = parseInt(document.getElementById('bot-input').value);
+    const btn = document.getElementById('currency-toggle');
+    if (inputCurrency === 'UZS') {
+        inputCurrency = 'USD';
+        btn.innerText = 'USD';
+        btn.classList.remove('text-emerald-400', 'border-emerald-500/30');
+        btn.classList.add('text-blue-400', 'border-blue-500/30'); // Dollar rangi
+        document.getElementById('bot-input').placeholder = "Necha dollar?";
+    } else {
+        inputCurrency = 'UZS';
+        btn.innerText = 'UZS';
+        btn.classList.remove('text-blue-400', 'border-blue-500/30');
+        btn.classList.add('text-emerald-400', 'border-emerald-500/30');
+        document.getElementById('bot-input').placeholder = "Summani kiriting...";
+    }
+}
+
+async function submitBotInput() {
+    vibrate('heavy');
+    let rawVal = document.getElementById('bot-input').value;
+    // Faqat raqamlarni ajratib olish
+    let val = parseFloat(rawVal.replace(/[^0-9.]/g, ''));
+    
     if (!val) return;
+
+    // AGAR VALYUTA USD BO'LSA:
+    let finalAmount = val;
+    let note = "";
+    
+    if (inputCurrency === 'USD') {
+        finalAmount = Math.round(val * exchangeRate);
+        note = ` ($${val})`; // Izohga dollar qiymatini qo'shib qo'yamiz
+    }
+
     let finalReceiptUrl = null;
     if (draft.rawFile) { try { finalReceiptUrl = await uploadReceipt(draft.rawFile); } catch (e) { alert("Rasm yuklanmadi, lekin tranzaksiya saqlanadi."); } }
-    const newTrans = { user_id: currentUserId, amount: val, category: draft.category, type: draft.type, date: Date.now(), receipt_url: finalReceiptUrl };
+    
+    const newTrans = { 
+        user_id: currentUserId, 
+        amount: finalAmount, 
+        category: draft.category + note, 
+        type: draft.type, 
+        date: Date.now(), 
+        receipt_url: finalReceiptUrl 
+    };
+    
     const tempId = Date.now();
     transactions.unshift({ ...newTrans, id: tempId, receipt: draft.receipt });
     updateUI();
-    document.getElementById('bot-input').value = ''; cancelBotFlow();
+    document.getElementById('bot-input').value = ''; 
+    
+    // Reset Currency to UZS after submit
+    if(inputCurrency === 'USD') toggleInputCurrency();
+    
+    cancelBotFlow();
+    
     const icon = draft.receipt ? '📎' : '';
     const chat = document.getElementById('chat-messages');
-    chat.innerHTML += `<div class="msg-wrapper ai fade-in"><div class="msg-bubble ai border-l-4 ${draft.type === 'income' ? 'border-l-emerald-500' : 'border-l-rose-500'}">Saqlandi: <b>${formatNumber(val)} so'm</b> ${icon} <br><span class="text-xs opacity-70">${draft.category}</span></div></div>`;
+    chat.innerHTML += `<div class="msg-wrapper ai fade-in"><div class="msg-bubble ai border-l-4 ${draft.type === 'income' ? 'border-l-emerald-500' : 'border-l-rose-500'}">Saqlandi: <b>${formatNumber(finalAmount)} so'm</b> ${icon} <br><span class="text-xs opacity-70">${draft.category}${note}</span></div></div>`;
     setTimeout(() => chat.scrollTop = chat.scrollHeight, 100);
+    
     draft = { receipt: null, rawFile: null };
     const { data, error } = await supabase.from('transactions').insert([newTrans]).select();
     if (error) console.error("Save error:", error);
     else { const idx = transactions.findIndex(t => t.id === tempId); if (idx !== -1) transactions[idx].id = data[0].id; }
 }
+
 function cancelBotFlow() { document.getElementById('bot-input-container').classList.add('hidden'); document.getElementById('category-selector').classList.add('hidden'); document.getElementById('bot-start-actions').classList.remove('hidden'); clearReceipt(); }
 // --- HELPER FUNCTIONS ---
 function toggleTheme(f) { const l = f || document.body.classList.toggle('light-mode'); localStorage.setItem('theme', l ? 'light' : 'dark'); lucide.createIcons(); }
@@ -277,11 +462,18 @@ async function saveNewCategory() {
     }
 }
 function openSettings() { updateSettingsUI(); document.getElementById('settings-modal').classList.remove('hidden'); }
+
+// O'ZGARTIRILDI: Kurs inputini yangilash qo'shildi
 function updateSettingsUI() {
     document.getElementById('pin-status-text').innerText = pin ? "Faol" : "O'rnatilmagan"; document.getElementById('bio-toggle').checked = bioEnabled;
     const removeBtn = document.getElementById('btn-remove-pin'); if (pin) removeBtn.classList.remove('hidden'); else removeBtn.classList.add('hidden');
     if (isBiometricAvailable) document.getElementById('bio-row').classList.remove('hidden'); else document.getElementById('bio-row').classList.add('hidden');
+    
+    // Kursni inputga yozish
+    const rateInput = document.getElementById('exchange-rate-input');
+    if(rateInput) rateInput.value = exchangeRate;
 }
+
 function closeModal(id) { document.getElementById(id).classList.add('hidden'); }
 function formatNumber(n) { return n.toString().replace(/\B(?=(\d{3})+(?!\d))/g, " "); }
 function toggleTypeFilter(t) { vibrate('soft'); activeType = activeType === t ? 'all' : t; updateUI(); }
@@ -385,4 +577,21 @@ async function generatePDF() {
         });
     }
     doc.save(`Hisobot_${sStr}_${eStr}.pdf`); closeModal('export-modal');
+}
+
+async function saveExchangeRate(val) {
+    if(val && val > 0) {
+        exchangeRate = val;
+        // 1. Lokal saqlash (tezkor ishlash uchun)
+        localStorage.setItem('exchangeRate', val);
+        vibrate('light');
+
+        // 2. Backendga (Supabase) saqlash
+        const { error } = await supabase
+            .from('users')
+            .update({ exchange_rate: val })
+            .eq('user_id', currentUserId);
+            
+        if (error) console.error("Kursni saqlashda xatolik:", error);
+    }
 }

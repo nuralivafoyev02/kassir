@@ -151,31 +151,50 @@
             </div>
         </div>
         <div id="view-dashboard" class="space-y-6 fade-in hidden">
-            <div
-                class="bg-gradient-to-br from-slate-800 to-slate-900 p-6 rounded-3xl shadow-lg border border-slate-700 relative overflow-hidden">
-                <div class="absolute -top-6 -right-6 opacity-10 rotate-12"><i data-lucide="wallet"
-                        class="w-40 h-40 text-white"></i></div>
-                <h2 class="text-slate-400 text-xs font-bold uppercase tracking-wider mb-1">Umumiy Balans</h2>
-                <div id="total-balance" class="text-3xl font-bold text-[#2374f8] mb-6 font-mono">0 so'm</div>
-                <div class="grid grid-cols-2 gap-3 relative z-10">
-                    <div onclick="toggleTypeFilter('income')" id="card-income"
-                        class="glass-panel p-3 rounded-2xl flex items-center gap-3 cursor-pointer transition-all hover:bg-emerald-500/10">
-                        <div class="p-2 bg-emerald-500 rounded-full text-white shadow-lg shadow-emerald-500/30"><i
-                                data-lucide="arrow-down-left" class="w-4 h-4"></i></div>
-                        <div class="overflow-hidden">
-                            <div class="text-[10px] text-slate-400 uppercase">Kirim</div>
-                            <div id="total-income" class="font-bold text-emerald-400 text-sm truncate">0</div>
+            <div id="balance-card"
+                class="bg-gradient-to-br from-slate-800 to-slate-900 p-6 rounded-3xl shadow-lg border border-slate-700 relative overflow-hidden select-none touch-pan-y cursor-grab active:cursor-grabbing">
+
+                <div class="absolute -top-6 -right-6 opacity-10 rotate-12">
+                    <i data-lucide="wallet" class="w-40 h-40 text-white"></i>
+                </div>
+
+                <div id="balance-swiper" class="swiper-container transform translate-x-0 relative z-10">
+                    <div class="flex items-center gap-2 mb-1">
+                        <h2 class="text-slate-400 text-xs font-bold uppercase tracking-wider">Umumiy Balans</h2>
+                        <span id="currency-badge"
+                            class="text-[10px] bg-white/10 px-1.5 py-0.5 rounded text-white font-mono">UZS</span>
+                    </div>
+
+                    <div id="total-balance" class="text-3xl font-bold text-[#2374f8] mb-6 font-mono transition-all">0
+                        so'm</div>
+
+                    <div class="grid grid-cols-2 gap-3">
+                        <div onclick="toggleTypeFilter('income')" id="card-income"
+                            class="glass-panel p-3 rounded-2xl flex items-center gap-3 cursor-pointer transition-all hover:bg-emerald-500/10">
+                            <div class="p-2 bg-emerald-500 rounded-full text-white shadow-lg shadow-emerald-500/30">
+                                <i data-lucide="arrow-down-left" class="w-4 h-4"></i>
+                            </div>
+                            <div class="overflow-hidden">
+                                <div class="text-[10px] text-slate-400 uppercase">Kirim</div>
+                                <div id="total-income" class="font-bold text-emerald-400 text-sm truncate">0</div>
+                            </div>
+                        </div>
+                        <div onclick="toggleTypeFilter('expense')" id="card-expense"
+                            class="glass-panel p-3 rounded-2xl flex items-center gap-3 cursor-pointer transition-all hover:bg-rose-500/10">
+                            <div class="p-2 bg-rose-500 rounded-full text-white shadow-lg shadow-rose-500/30">
+                                <i data-lucide="arrow-up-right" class="w-4 h-4"></i>
+                            </div>
+                            <div class="overflow-hidden">
+                                <div class="text-[10px] text-slate-400 uppercase">Chiqim</div>
+                                <div id="total-expense" class="font-bold text-rose-400 text-sm truncate">0</div>
+                            </div>
                         </div>
                     </div>
-                    <div onclick="toggleTypeFilter('expense')" id="card-expense"
-                        class="glass-panel p-3 rounded-2xl flex items-center gap-3 cursor-pointer transition-all hover:bg-rose-500/10">
-                        <div class="p-2 bg-rose-500 rounded-full text-white shadow-lg shadow-rose-500/30"><i
-                                data-lucide="arrow-up-right" class="w-4 h-4"></i></div>
-                        <div class="overflow-hidden">
-                            <div class="text-[10px] text-slate-400 uppercase">Chiqim</div>
-                            <div id="total-expense" class="font-bold text-rose-400 text-sm truncate">0</div>
-                        </div>
-                    </div>
+                </div>
+
+                <div class="absolute bottom-3 left-0 right-0 flex justify-center gap-1.5 z-20">
+                    <div id="dot-uzs" class="currency-dot active"></div>
+                    <div id="dot-usd" class="currency-dot"></div>
                 </div>
             </div>
 
@@ -259,6 +278,8 @@
                     </div>
 
                     <div class="flex gap-2 items-center relative">
+                        <button onclick="toggleInputCurrency()" id="currency-toggle"
+                            class="w-12 h-12 flex items-center justify-center bg-slate-700 rounded-xl text-emerald-400 font-bold text-xs border border-emerald-500/30 transition-all active:scale-95">UZS</button>
                         <button onclick="document.getElementById('file-upload').click()"
                             class="p-3 bg-slate-700 rounded-xl text-blue-400 hover:text-white hover:bg-slate-600 transition-colors"><i
                                 data-lucide="camera" class="w-5 h-5"></i></button>
@@ -385,6 +406,21 @@
                             </div>
                         </label>
                     </div>
+                </div>
+
+                <div class="bg-slate-700 rounded-xl p-4 mb-4 flex items-center justify-between">
+                    <div class="flex items-center gap-3">
+                        <div class="p-2 bg-green-500/20 rounded-lg text-green-400">
+                            <i data-lucide="dollar-sign" class="w-5 h-5"></i>
+                        </div>
+                        <div>
+                            <div class="text-white text-sm font-bold">Dollar Kursi</div>
+                            <div class="text-xs text-slate-400">Hisoblash uchun</div>
+                        </div>
+                    </div>
+                    <input type="number" id="exchange-rate-input" onchange="saveExchangeRate(this.value)"
+                        class="w-20 bg-slate-800 text-white text-right rounded-lg p-2 text-sm border border-slate-600 focus:border-blue-500 outline-none"
+                        placeholder="12850">
                 </div>
                 <div class="grid grid-cols-2 gap-3"><button onclick="exportData()"
                         class="p-4 bg-slate-700 rounded-xl flex flex-col items-center gap-2 hover:bg-slate-600"><i
