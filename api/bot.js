@@ -271,10 +271,10 @@ module.exports = async (req, res) => {
             // 6. OVOZLI XABAR LOGIKASI (WHISPER) 🎙️
             if (msg.voice) {
                 if (!openai) {
-                    await bot.sendMessage(chatId, "⚠️ Kechirasiz, ovozli xizmat ishlashi uchun OpenAI API kaliti sozlanmagan.");
+                    await bot.sendMessage(chatId, "⚠️ Kechirasiz, ovozli xizmat ishlashi uchun 100% tayyor bo'lmagan.");
                     return res.status(200).send('OK');
                 }
-                // const processingMsg = await bot.sendMessage(chatId, "🎙 <b>Ovoz tahlil qilinmoqda...</b>", { parse_mode: 'HTML' });
+                const processingMsg = await bot.sendMessage(chatId, "🧐...");
                 try {
                     // 1. Fayl havolasini olish
                     const fileId = msg.voice.file_id;
