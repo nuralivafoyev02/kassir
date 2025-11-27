@@ -274,9 +274,7 @@ module.exports = async (req, res) => {
                     await bot.sendMessage(chatId, "⚠️ Kechirasiz, ovozli xizmat ishlashi uchun OpenAI API kaliti sozlanmagan.");
                     return res.status(200).send('OK');
                 }
-
-                const processingMsg = await bot.sendMessage(chatId, "🎙 <b>Ovoz tahlil qilinmoqda...</b>", { parse_mode: 'HTML' });
-                
+                // const processingMsg = await bot.sendMessage(chatId, "🎙 <b>Ovoz tahlil qilinmoqda...</b>", { parse_mode: 'HTML' });
                 try {
                     // 1. Fayl havolasini olish
                     const fileId = msg.voice.file_id;
@@ -313,7 +311,7 @@ module.exports = async (req, res) => {
 
                     // Agar ovozdan hech narsa tushunilmasa
                     if (!transcribedText || transcribedText.trim().length === 0) {
-                         await bot.editMessageText("⚠️ Ovozdan hech narsa tushunmadim.", { chat_id: chatId, message_id: processingMsg.message_id });
+                         await bot.editMessageText("Kechirasiz, ovozli habar funksiyasi tez orada ishga tushadi.", { chat_id: chatId, message_id: processingMsg.message_id });
                          return res.status(200).send('OK');
                     }
 
@@ -336,7 +334,7 @@ module.exports = async (req, res) => {
                     console.error("Voice Error:", error);
                     // Foydalanuvchiga xatoni ko'rsatamiz (Debug uchun)
                     const errorDetails = error.response ? JSON.stringify(error.response.data) : error.message;
-                    await bot.editMessageText(`⚠️ Xatolik yuz berdi: ${errorDetails.substring(0, 100)}... Qayta urinib ko'ring.`, { chat_id: chatId, message_id: processingMsg.message_id });
+                    await bot.editMessageText(`Kechirasiz, ovozli habar funksiyasi tez orada ishga tushadi`, { chat_id: chatId, message_id: processingMsg.message_id });
                 }
                 return res.status(200).send('OK');
             }
@@ -366,7 +364,7 @@ module.exports = async (req, res) => {
                         await bot.deleteMessage(chatId, photoProcessingMsg.message_id).catch(()=>{});
                     } catch (e) { 
                         console.error("Rasm yuklash xato", e);
-                        await bot.editMessageText("⚠️ Rasmni saqlay olmadim, lekin tranzaksiya yoziladi.", {chat_id: chatId, message_id: photoProcessingMsg.message_id});
+                        await bot.editMessageText("⚠️ Rasmni saqlay olmadim, lekin tranzaksiya yoziladi. Kassa ga kirim Tarim bo'limidan rasm(check) qo'shsangiz bo'ladi.", {chat_id: chatId, message_id: photoProcessingMsg.message_id});
                     }
                 }
 
