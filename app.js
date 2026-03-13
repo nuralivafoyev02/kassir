@@ -21,8 +21,45 @@ function resolveCurrentUserId() {
 const currentUserId = resolveCurrentUserId();
 const icons = ['shopping-cart', 'zap', 'wifi', 'smartphone', 'car', 'home', 'gift', 'coffee', 'music', 'book', 'heart', 'smile', 'star', 'briefcase', 'credit-card', 'monitor', 'tool', 'truck', 'shopping-bag', 'banknote', 'pill', 'shirt', 'bus'];
 
-const logInfo = (scope, payload = {}) => console.log(`[WEBAPP:${scope}]`, payload);
-const logError = (scope, error, payload = {}) => console.error(`[WEBAPP:${scope}]`, { message: error?.message || error, ...payload, raw: error });
+async function sendClientLog(level, scope, message, payload = {}) {
+  try {
+    await fetch('/api/client-log', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        level,
+        scope,
+        message,
+        payload,
+      }),
+    });
+  } catch (_) {}
+}
+
+const logInfo = (scope, payload = {}) => {
+  console.log(`[WEBAPP:${scope}]`, payload);
+  sendClientLog('info', scope, '', payload);
+};
+
+const logError = (scope, error, payload = {}) => {
+  const message = error?.message || String(error);
+  console.error(`[WEBAPP:${scope}]`, { message, ...payload, raw: error });
+  sendClientLog('error', scope, message, {
+    ...payload,
+    stack: error?.stack || null,
+  });
+};
+window.addEventListener('error', (event) => {
+  logError('window-error', event.error || new Error(event.message), {
+    filename: event.filename,
+    lineno: event.lineno,
+    colno: event.colno,
+  });
+});
+
+window.addEventListener('unhandledrejection', (event) => {
+  logError('unhandledrejection', event.reason || new Error('Unhandled promise rejection'));
+});
 const toIsoString = (value = Date.now()) => new Date(value).toISOString();
 const toDateMs = (value) => {
     if (typeof value === 'number') return value;
@@ -75,6 +112,7 @@ function revealAppShell() {
     if (skeleton) skeleton.classList.add('hidden');
     if (dashboard) dashboard.classList.remove('hidden');
 }
+
 
 // --- INIT ---
 document.addEventListener('DOMContentLoaded', async () => {
