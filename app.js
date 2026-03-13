@@ -8,13 +8,43 @@ const supabase = SUPABASE_URL && SUPABASE_ANON_KEY && window.supabase?.createCli
 const tg = window.Telegram?.WebApp || { expand: () => {}, initDataUnsafe: {} };
 tg.expand?.();
 
+const storage = {
+    get(key, fallback = null) {
+        try {
+            const value = window.localStorage?.getItem(key);
+            return value ?? fallback;
+        } catch (error) {
+            console.warn('[WEBAPP:storage.get]', key, error);
+            return fallback;
+        }
+    },
+    set(key, value) {
+        try {
+            window.localStorage?.setItem(key, String(value));
+            return true;
+        } catch (error) {
+            console.warn('[WEBAPP:storage.set]', key, error);
+            return false;
+        }
+    },
+    remove(key) {
+        try {
+            window.localStorage?.removeItem(key);
+            return true;
+        } catch (error) {
+            console.warn('[WEBAPP:storage.remove]', key, error);
+            return false;
+        }
+    }
+};
+
 function resolveCurrentUserId() {
     const params = new URLSearchParams(window.location.search);
     const fromTelegram = Number(tg.initDataUnsafe?.user?.id || 0);
     const fromQuery = Number(params.get('user_id') || 0);
-    const fromStorage = Number(localStorage.getItem('debugUserId') || 0);
+    const fromStorage = Number(storage.get('debugUserId') || 0);
     const resolved = fromTelegram || fromQuery || fromStorage || 0;
-    if (fromQuery && fromQuery !== fromStorage) localStorage.setItem('debugUserId', String(fromQuery));
+    if (fromQuery && fromQuery !== fromStorage) storage.set('debugUserId', String(fromQuery));
     return resolved;
 }
 
@@ -53,6 +83,11 @@ const logError = (scope, error, payload = {}) => {
     console.error(`[WEBAPP:${scope}]`, { message, ...payload, raw: error });
     sendClientLog('error', scope, message, { ...payload, stack });
 };
+sendClientLog('info', 'script-evaluated', '', {
+    hasSupabaseFactory: Boolean(window.supabase?.createClient),
+    hasTelegramObject: Boolean(window.Telegram?.WebApp),
+    readyState: document.readyState,
+});
 const toIsoString = (value = Date.now()) => new Date(value).toISOString();
 const toDateMs = (value) => {
     if (typeof value === 'number') return value;
@@ -70,9 +105,9 @@ const normalizeTransactions = (rows = []) => rows.map(normalizeTransactionRecord
 // --- STATE ---
 let transactions = [];
 let allCats = { income: [], expense: [] };
-let pin = localStorage.getItem('pin');
-let bioEnabled = localStorage.getItem('bio') === 'true';
-let exchangeRate = Number(localStorage.getItem('exchangeRate') || 12850);
+let pin = storage.get('pin');
+let bioEnabled = storage.get('bio') === 'true';
+let exchangeRate = Number(storage.get('exchangeRate') || 12850);
 let activeType = 'all', activeDate = 'all', botState = 'idle', draft = { receipt: null, rawFile: null }, selId = null, selIcon = 'circle';
 let pinInput = "", pinStep = 'unlock', tempPin = "";
 let selCatIndex = null, selCatType = null;
@@ -99,12 +134,28 @@ async function detectBiometricAvailability() {
     }
 }
 
+let shellHasBeenRevealed = false;
+
 function revealAppShell() {
     const skeleton = document.getElementById('dashboard-skeleton');
     const dashboard = document.getElementById('view-dashboard');
     if (skeleton) skeleton.classList.add('hidden');
     if (dashboard) dashboard.classList.remove('hidden');
+    shellHasBeenRevealed = true;
 }
+
+function scheduleShellReveal(delay = 0) {
+    window.setTimeout(() => {
+        try {
+            revealAppShell();
+        } catch (error) {
+            console.error('[WEBAPP:revealAppShell]', error);
+        }
+    }, delay);
+}
+
+window.addEventListener('load', () => scheduleShellReveal(0));
+scheduleShellReveal(1800);
 
 // --- INIT ---
 document.addEventListener('DOMContentLoaded', async () => {
@@ -112,7 +163,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         safeCreateIcons();
         isBiometricAvailable = await detectBiometricAvailability();
         if (pin) showPinScreen('unlock');
-        if (localStorage.getItem('theme') === 'light') toggleTheme(true);
+        if (storage.get('theme') === 'light') toggleTheme(true);
         logInfo('boot', {
             hasSupabase: Boolean(supabase),
             hasTelegramUser: Boolean(currentUserId),
@@ -135,11 +186,13 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         if (!supabase) throw new Error('SUPABASE_URL yoki SUPABASE_ANON_KEY sozlanmagan. /api/config.js envlarini tekshiring.');
         if (!currentUserId) throw new Error(`Telegram user_id topilmadi. Mini appni Telegram ichida oching yoki test uchun URLga ?user_id=123 qo'shing.`);
+        revealAppShell();
         await fetchInitialData();
         logInfo('boot-ready', { currentUserId, transactions: transactions.length });
     } catch (e) {
         logError('boot-failed', e, { currentUserId, hasSupabase: Boolean(supabase) });
     } finally {
+        revealAppShell();
         setTimeout(() => {
             revealAppShell();
             try {
@@ -154,6 +207,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             } catch (error) {
                 logError('updateSettingsUI-after-boot', error);
             }
+            logInfo('shell-state', { shellHasBeenRevealed });
         }, 300);
     }
 
@@ -257,7 +311,7 @@ async function fetchInitialData() {
     if (uError) logError('fetch-user', uError, { currentUserId });
     if (userData?.exchange_rate) {
         exchangeRate = Number(userData.exchange_rate) || exchangeRate;
-        localStorage.setItem('exchangeRate', String(exchangeRate));
+        storage.set('exchangeRate', String(exchangeRate));
     }
 
     const { data: tData, error: tError } = await supabase
@@ -334,7 +388,7 @@ function switchTab(t) {
     if (t === 'bot') { if (botBtn) { botBtn.classList.add('active'); botBtn.querySelector('i').classList.remove('text-white'); botBtn.querySelector('i').classList.add('text-blue-500'); } }
     else { const activeBtn = document.getElementById(`nav-${t}`); if (activeBtn) activeBtn.classList.add('active'); }
     if (t === 'dashboard') updateUI();
-    lucide.createIcons();
+    safeCreateIcons();
 }
 
 // --- CATEGORY ACTIONS (EDIT/DELETE) ---
@@ -404,8 +458,8 @@ function checkPin() {
 async function triggerBiometric() { if (!isBiometricAvailable) return; try { const challenge = new Uint8Array(32); window.crypto.getRandomValues(challenge); await navigator.credentials.get({ publicKey: { challenge: challenge, timeout: 60000, userVerification: "required", } }); document.getElementById('pin-screen').classList.add('hidden'); } catch (e) { console.log("Biometric error", e); } }
 function startPinSetup() { if (pin) showPinScreen('setup_old'); else showPinScreen('setup_new'); }
 function cancelPinSetup() { document.getElementById('pin-screen').classList.add('hidden'); }
-function toggleBiometric(el) { bioEnabled = el.checked; localStorage.setItem('bio', bioEnabled); }
-function removePin() { if (confirm("PIN kodni olib tashlaysizmi?")) { localStorage.removeItem('pin'); pin = null; updateSettingsUI(); alert("PIN kod olib tashlandi."); closeModal('settings-modal'); } }
+function toggleBiometric(el) { bioEnabled = el.checked; storage.set('bio', bioEnabled); }
+function removePin() { if (confirm("PIN kodni olib tashlaysizmi?")) { storage.remove('pin'); pin = null; updateSettingsUI(); alert("PIN kod olib tashlandi."); closeModal('settings-modal'); } }
 
 // --- UPLOAD & RECEIPT ---
 function handleReceiptUpload(e) {
@@ -520,20 +574,55 @@ function updateTrendWidgets() {
     document.getElementById('trend-list').innerHTML = html || `<div class="col-span-2 text-center text-xs text-slate-500 py-2">Trendlar uchun ma'lumot yetarli emas</div>`;
 }
 function renderCharts(data) {
-    const ctx = document.getElementById('categoryChart').getContext('2d');
+    const canvas = document.getElementById('categoryChart');
+    const noData = document.getElementById('no-data-msg');
+    const list = document.getElementById('top-transaction-list');
+
+    if (!canvas || typeof window.Chart === 'undefined') {
+        logError('renderCharts-missing-deps', new Error(!canvas ? 'categoryChart canvas topilmadi' : 'Chart kutubxonasi yuklanmagan'));
+        if (noData) noData.classList.remove('hidden');
+        if (list) list.innerHTML = '';
+        return;
+    }
+
+    const ctx = canvas.getContext?.('2d');
+    if (!ctx) {
+        logError('renderCharts-no-context', new Error('Canvas 2d context olinmadi'));
+        if (noData) noData.classList.remove('hidden');
+        if (list) list.innerHTML = '';
+        return;
+    }
+
     let t = activeType === 'income' ? data.filter(x => x.type === 'income') : data.filter(x => x.type === 'expense');
     if (activeType === 'all') t = data.filter(x => x.type === 'expense');
-    document.getElementById('no-data-msg').classList.toggle('hidden', t.length > 0);
-    const cats = {}; t.forEach(x => cats[x.category] = (cats[x.category] || 0) + (Number(x.amount) || 0));
+    if (noData) noData.classList.toggle('hidden', t.length > 0);
+
+    const cats = {};
+    t.forEach(x => cats[x.category] = (cats[x.category] || 0) + (Number(x.amount) || 0));
+
     if (window.myChart) window.myChart.destroy();
-    window.myChart = new Chart(ctx, { type: 'doughnut', data: { labels: Object.keys(cats), datasets: [{ data: Object.values(cats), backgroundColor: ['#10b981', '#ef4444', '#f59e0b', '#3b82f6', '#8b5cf6'], borderWidth: 0 }] }, options: { responsive: true, maintainAspectRatio: false, cutout: '70%', plugins: { legend: { display: false } } } });
-    const list = document.getElementById('top-transaction-list'); list.innerHTML = '';
-    Object.entries(cats).sort(([, a], [, b]) => b - a).slice(0, 5).forEach(([c, a]) => { list.innerHTML += `<tr><td class="py-2.5 text-slate-300 capitalize pl-2">${c}</td><td class="text-right font-bold pr-2 ${activeType === 'income' ? 'text-emerald-400' : 'text-rose-400'}">${formatNumber(a)}</td></tr>`; });
+    window.myChart = new Chart(ctx, {
+        type: 'doughnut',
+        data: {
+            labels: Object.keys(cats),
+            datasets: [{ data: Object.values(cats), backgroundColor: ['#10b981', '#ef4444', '#f59e0b', '#3b82f6', '#8b5cf6'], borderWidth: 0 }]
+        },
+        options: { responsive: true, maintainAspectRatio: false, cutout: '70%', plugins: { legend: { display: false } } }
+    });
+
+    if (!list) return;
+    list.innerHTML = '';
+    Object.entries(cats).sort(([, a], [, b]) => b - a).slice(0, 5).forEach(([c, a]) => {
+        list.innerHTML += `<tr><td class="py-2.5 text-slate-300 capitalize pl-2">${c}</td><td class="text-right font-bold pr-2 ${activeType === 'income' ? 'text-emerald-400' : 'text-rose-400'}">${formatNumber(a)}</td></tr>`;
+    });
 }
 function renderHistory() {
     const list = document.getElementById('history-list');
+    const emptyState = document.getElementById('empty-history');
+    if (!list) return;
+
     list.innerHTML = '';
-    document.getElementById('empty-history').classList.toggle('hidden', transactions.length > 0);
+    if (emptyState) emptyState.classList.toggle('hidden', transactions.length > 0);
 
     transactions
         .slice()
@@ -544,7 +633,7 @@ function renderHistory() {
             const receiptBadge = hasReceipt ? `<span class="ml-2 text-[10px] px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-400 border border-blue-500/30 flex items-center gap-0.5"><i data-lucide="paperclip" class="w-2 h-2"></i> Chek</span>` : '';
             list.innerHTML += `<div onclick="openActionSheet(event, ${t.id})" class="glass-panel p-4 rounded-2xl flex justify-between items-center cursor-pointer active:scale-95 transition-transform hover:bg-slate-800/50"><div class="flex items-center gap-4"><div class="p-3 rounded-full ${isInc ? 'bg-emerald-500/10 text-emerald-400' : 'bg-rose-500/10 text-rose-400'}"><i data-lucide="${isInc ? 'arrow-down-left' : 'arrow-up-right'}" class="w-5 h-5"></i></div><div><div class="font-bold text-sm text-white capitalize flex items-center">${t.category} ${receiptBadge}</div><div class="text-xs text-slate-400 mt-0.5">${new Date(t.dateMs).toLocaleDateString()} • ${new Date(t.dateMs).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div></div></div><div class="font-bold ${isInc ? 'text-emerald-400' : 'text-rose-400'} text-base">${isInc ? '+' : '-'}${formatNumber(t.amount)}</div></div>`;
         });
-    lucide.createIcons();
+    safeCreateIcons();
 }
 // --- BOT ---
 function startBotFlow(type) { draft = { type, category: '', amount: 0, receipt: null, rawFile: null }; clearReceipt(); document.getElementById('bot-start-actions').classList.add('hidden'); document.getElementById('category-selector').classList.remove('hidden'); renderBotCats(type); }
@@ -560,7 +649,7 @@ function renderBotCats(type) {
         btn.ontouchend = handleCatPressEnd;
         grid.appendChild(btn);
     });
-    lucide.createIcons();
+    safeCreateIcons();
 }
 
 // --- CURRENCY LOGIC ---
@@ -646,7 +735,7 @@ async function submitBotInput() {
 
 function cancelBotFlow() { document.getElementById('bot-input-container').classList.add('hidden'); document.getElementById('category-selector').classList.add('hidden'); document.getElementById('bot-start-actions').classList.remove('hidden'); clearReceipt(); }
 // --- HELPER FUNCTIONS ---
-function toggleTheme(f) { const l = f || document.body.classList.toggle('light-mode'); localStorage.setItem('theme', l ? 'light' : 'dark'); lucide.createIcons(); }
+function toggleTheme(forceValue) { const isLight = typeof forceValue === 'boolean' ? forceValue : document.body.classList.toggle('light-mode'); document.body.classList.toggle('light-mode', isLight); storage.set('theme', isLight ? 'light' : 'dark'); safeCreateIcons(); }
 function openAddCategoryModal() { document.getElementById('add-cat-modal').classList.remove('hidden'); }
 async function saveNewCategory() {
     const n = document.getElementById('new-cat-name').value.trim();
@@ -728,8 +817,8 @@ async function importData(e) {
     reader.onload = async (event) => {
         try {
             const backup = JSON.parse(event.target.result);
-            if (backup.pin) localStorage.setItem('pin', backup.pin);
-            if (backup.bio !== undefined) localStorage.setItem('bio', backup.bio);
+            if (backup.pin) storage.set('pin', backup.pin);
+            if (backup.bio !== undefined) storage.set('bio', backup.bio);
 
             if (backup.transactions && Array.isArray(backup.transactions) && backup.transactions.length > 0) {
                 const newTrans = backup.transactions.map(t => {
@@ -770,7 +859,7 @@ function openActionSheet(e, id) {
     const hasReceipt = t.receipt_url || t.receipt;
     if (hasReceipt) { c.innerHTML += `<button onclick="viewCurrentReceipt()" class="w-full flex items-center gap-3 p-3.5 bg-slate-900/50 rounded-xl hover:bg-slate-900 text-emerald-400 font-medium"><i data-lucide="file-text" class="w-5 h-5"></i> Chekni ko'rish</button>`; }
     c.innerHTML += `<button onclick="handleEdit()" class="w-full flex items-center gap-3 p-3.5 bg-slate-900/50 rounded-xl hover:bg-slate-900 text-blue-400 font-medium"><i data-lucide="edit-3" class="w-5 h-5"></i> Tahrirlash</button><button onclick="handleDeleteConfirm()" class="w-full flex items-center gap-3 p-3.5 bg-slate-900/50 rounded-xl hover:bg-slate-900 text-rose-400 font-medium"><i data-lucide="trash-2" class="w-5 h-5"></i> O'chirish</button>`;
-    document.getElementById('action-sheet').classList.remove('hidden'); lucide.createIcons();
+    document.getElementById('action-sheet').classList.remove('hidden'); safeCreateIcons();
 }
 function viewCurrentReceipt() { const t = transactions.find(x => x.id === selId); if (t) { const src = t.receipt_url || t.receipt; viewReceipt(src); } closeActionSheet(null); }
 function closeActionSheet(e) { if (e && !e.target.closest('.bg-slate-800') && e.target.id !== 'action-sheet') return; document.getElementById('action-sheet').classList.add('hidden'); }
@@ -823,7 +912,7 @@ async function generatePDF() {
 async function saveExchangeRate(val) {
     if (val && val > 0) {
         exchangeRate = Number(val);
-        localStorage.setItem('exchangeRate', String(exchangeRate));
+        storage.set('exchangeRate', String(exchangeRate));
         vibrate('light');
 
         const { error } = await supabase
