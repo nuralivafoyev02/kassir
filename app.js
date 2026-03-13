@@ -1,19 +1,48 @@
 // --- CONFIG ---
-const SUPABASE_URL = "https://mekrjdwfrmvhizdfcwok.supabase.co";
-const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1la3JqZHdmcm12aGl6ZGZjd29rIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2NjQ4NzQzNiwiZXhwIjoyMDgyMDYzNDM2fQ.ykyTG8Alw1D8QgvK9IC-75UIV_87KgVg-Mh90bzqQi8";
-const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-const tg = window.Telegram.WebApp;
-tg.expand();
-const currentUserId = tg.initDataUnsafe?.user?.id || 123456;
-const icons = ['shopping-cart', 'zap', 'wifi', 'smartphone', 'car', 'home', 'gift', 'coffee', 'music', 'book', 'heart', 'smile', 'star', 'briefcase', 'credit-card', 'monitor', 'tool', 'truck', 'shopping-bag', 'banknote', 'pill', 'shirt'];
+const APP_CONFIG = window.__APP_CONFIG__ || {};
+const SUPABASE_URL = APP_CONFIG.SUPABASE_URL || '';
+const SUPABASE_ANON_KEY = APP_CONFIG.SUPABASE_ANON_KEY || '';
+const supabase = SUPABASE_URL && SUPABASE_ANON_KEY && window.supabase?.createClient
+    ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
+    : null;
+const tg = window.Telegram?.WebApp || { expand: () => {}, initDataUnsafe: {} };
+tg.expand?.();
+
+function resolveCurrentUserId() {
+    const params = new URLSearchParams(window.location.search);
+    const fromTelegram = Number(tg.initDataUnsafe?.user?.id || 0);
+    const fromQuery = Number(params.get('user_id') || 0);
+    const fromStorage = Number(localStorage.getItem('debugUserId') || 0);
+    const resolved = fromTelegram || fromQuery || fromStorage || 0;
+    if (fromQuery && fromQuery !== fromStorage) localStorage.setItem('debugUserId', String(fromQuery));
+    return resolved;
+}
+
+const currentUserId = resolveCurrentUserId();
+const icons = ['shopping-cart', 'zap', 'wifi', 'smartphone', 'car', 'home', 'gift', 'coffee', 'music', 'book', 'heart', 'smile', 'star', 'briefcase', 'credit-card', 'monitor', 'tool', 'truck', 'shopping-bag', 'banknote', 'pill', 'shirt', 'bus'];
+
+const logInfo = (scope, payload = {}) => console.log(`[WEBAPP:${scope}]`, payload);
+const logError = (scope, error, payload = {}) => console.error(`[WEBAPP:${scope}]`, { message: error?.message || error, ...payload, raw: error });
+const toIsoString = (value = Date.now()) => new Date(value).toISOString();
+const toDateMs = (value) => {
+    if (typeof value === 'number') return value;
+    const parsed = new Date(value).getTime();
+    return Number.isFinite(parsed) ? parsed : Date.now();
+};
+const normalizeTransactionRecord = (record) => ({
+    ...record,
+    amount: Number(record.amount) || 0,
+    dateMs: toDateMs(record.date),
+    receipt_url: record.receipt_url || null,
+});
+const normalizeTransactions = (rows = []) => rows.map(normalizeTransactionRecord);
 
 // --- STATE ---
 let transactions = [];
 let allCats = { income: [], expense: [] };
 let pin = localStorage.getItem('pin');
 let bioEnabled = localStorage.getItem('bio') === 'true';
-// O'ZGARISH: exchangeRate shu yerda e'lon qilindi
-let exchangeRate = localStorage.getItem('exchangeRate') || 12850; 
+let exchangeRate = Number(localStorage.getItem('exchangeRate') || 12850);
 let activeType = 'all', activeDate = 'all', botState = 'idle', draft = { receipt: null, rawFile: null }, selId = null, selIcon = 'circle';
 let pinInput = "", pinStep = 'unlock', tempPin = "";
 let selCatIndex = null, selCatType = null;
@@ -41,6 +70,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     window.addEventListener('click', () => { const menu = document.getElementById('cat-context-menu'); if (menu) menu.classList.add('hidden'); });
     // Skeleton va Yuklash
     try {
+        if (!supabase) throw new Error('SUPABASE_URL yoki SUPABASE_ANON_KEY sozlanmagan. /api/config.js envlarini tekshiring.');
+        if (!currentUserId) throw new Error(`Telegram user_id topilmadi. Mini appni Telegram ichida oching yoki test uchun URLga ?user_id=123 qo'shing.`);
         await fetchInitialData();
     } catch (e) {
         console.error("Xato:", e);
@@ -133,44 +164,96 @@ function setDashboardCurrency(curr) {
 }
 
 // --- BACKEND ---
+async function ensureUserProfile() {
+    const baseProfile = {
+        user_id: currentUserId,
+        full_name: [tg.initDataUnsafe?.user?.first_name, tg.initDataUnsafe?.user?.last_name].filter(Boolean).join(' ').trim() || `User ${currentUserId}`,
+        exchange_rate: Number(exchangeRate) || 12850,
+    };
+
+    const { error } = await supabase
+        .from('users')
+        .upsert(baseProfile, { onConflict: 'user_id' });
+
+    if (error) throw error;
+}
+
 async function fetchInitialData() {
+    await ensureUserProfile();
+
     const { data: userData, error: uError } = await supabase
         .from('users')
         .select('exchange_rate')
         .eq('user_id', currentUserId)
-        .single();
-    
-    if (userData && userData.exchange_rate) {
-        exchangeRate = userData.exchange_rate;
-        // Lokal xotirani ham yangilab qo'yamiz (zaxira uchun)
-        localStorage.setItem('exchangeRate', exchangeRate); 
-    }
-    
-    // ... Qolgan ma'lumotlarni yuklash ...
-    const { data: tData, error: tError } = await supabase.from('transactions').select('*').eq('user_id', currentUserId).order('date', { ascending: false });
-    if (!tError && tData) transactions = tData;
+        .maybeSingle();
 
-    const { data: cData, error: cError } = await supabase.from('categories').select('*').eq('user_id', currentUserId);
-    if (!cData || cData.length === 0) await initDefaultCategories();
-    else {
+    if (uError) logError('fetch-user', uError, { currentUserId });
+    if (userData?.exchange_rate) {
+        exchangeRate = Number(userData.exchange_rate) || exchangeRate;
+        localStorage.setItem('exchangeRate', String(exchangeRate));
+    }
+
+    const { data: tData, error: tError } = await supabase
+        .from('transactions')
+        .select('*')
+        .eq('user_id', currentUserId)
+        .order('date', { ascending: false });
+
+    if (tError) throw tError;
+    transactions = normalizeTransactions(tData || []);
+
+    const { data: cData, error: cError } = await supabase
+        .from('categories')
+        .select('*')
+        .eq('user_id', currentUserId)
+        .order('name', { ascending: true });
+
+    if (cError) throw cError;
+
+    if (!cData || cData.length === 0) {
+        await initDefaultCategories();
+    } else {
         allCats.income = cData.filter(c => c.type === 'income');
         allCats.expense = cData.filter(c => c.type === 'expense');
     }
+
+    logInfo('fetchInitialData', {
+        currentUserId,
+        transactions: transactions.length,
+        incomeCategories: allCats.income.length,
+        expenseCategories: allCats.expense.length,
+        exchangeRate,
+    });
 }
 
 async function initDefaultCategories() {
-    const default_income = [
-        { name: "Oylik", icon: "banknote", type: "income" }, 
-        { name: "Bonus", icon: "gift", type: "income" }, 
-        { name: "Sotuv", icon: "shopping-bag", type: "income" }];
-    const default_expense = [
-        { name: "Oziq-ovqat", icon: "shopping-cart", type: "expense" }, 
-        { name: "Transport", icon: "bus", type: "expense" }, 
-        { name: "Kafe", icon: "coffee", type: "expense" }];
-    const all = [...default_income, ...default_expense].map(c => ({ ...c, user_id: currentUserId }));
-    const { error } = await supabase.from('categories').insert(all);
-    if (!error) { allCats.income = default_income; allCats.expense = default_expense; }
+    const defaultIncome = [
+        { name: 'Oylik', icon: 'banknote', type: 'income' },
+        { name: 'Bonus', icon: 'gift', type: 'income' },
+        { name: 'Sotuv', icon: 'shopping-bag', type: 'income' },
+    ];
+    const defaultExpense = [
+        { name: 'Oziq-ovqat', icon: 'shopping-cart', type: 'expense' },
+        { name: 'Transport', icon: 'bus', type: 'expense' },
+        { name: 'Kafe', icon: 'coffee', type: 'expense' },
+    ];
+
+    const payload = [...defaultIncome, ...defaultExpense].map(category => ({
+        ...category,
+        user_id: currentUserId,
+    }));
+
+    const { data, error } = await supabase
+        .from('categories')
+        .insert(payload)
+        .select();
+
+    if (error) throw error;
+
+    allCats.income = (data || []).filter(c => c.type === 'income');
+    allCats.expense = (data || []).filter(c => c.type === 'expense');
 }
+
 
 // --- NAVIGATION ---
 function switchTab(t) {
@@ -204,20 +287,35 @@ function editCatFromMenu() {
     document.getElementById('edit-cat-modal').classList.remove('hidden'); document.getElementById('cat-context-menu').classList.add('hidden');
 }
 async function confirmEditCat() {
-    const newName = document.getElementById('edit-cat-name-input').value;
-    if (newName) {
-        const cat = allCats[selCatType][selCatIndex]; const oldName = cat.name;
-        allCats[selCatType][selCatIndex].name = newName; renderBotCats(selCatType); closeModal('edit-cat-modal');
-        await supabase.from('categories').update({ name: newName }).eq('user_id', currentUserId).eq('name', oldName).eq('type', selCatType);
-    }
+    const newName = document.getElementById('edit-cat-name-input').value.trim();
+    if (!newName) return;
+
+    const cat = allCats[selCatType]?.[selCatIndex];
+    if (!cat) return;
+
+    allCats[selCatType][selCatIndex] = { ...cat, name: newName };
+    renderBotCats(selCatType);
+    closeModal('edit-cat-modal');
+
+    const query = supabase.from('categories').update({ name: newName }).eq('user_id', currentUserId);
+    const { error } = cat.id ? await query.eq('id', cat.id) : await query.eq('name', cat.name).eq('type', selCatType);
+    if (error) logError('confirmEditCat', error, { currentUserId, catId: cat.id, oldName: cat.name, newName });
 }
 async function deleteCatFromMenu() {
-    if (confirm("Bu kategoriyani o'chirasizmi?")) {
-        const catToDelete = allCats[selCatType][selCatIndex];
-        allCats[selCatType].splice(selCatIndex, 1); renderBotCats(selCatType); document.getElementById('cat-context-menu').classList.add('hidden');
-        await supabase.from('categories').delete().eq('user_id', currentUserId).eq('name', catToDelete.name).eq('type', selCatType);
-    }
+    if (!confirm("Bu kategoriyani o'chirasizmi?")) return;
+
+    const catToDelete = allCats[selCatType]?.[selCatIndex];
+    if (!catToDelete) return;
+
+    allCats[selCatType].splice(selCatIndex, 1);
+    renderBotCats(selCatType);
+    document.getElementById('cat-context-menu').classList.add('hidden');
+
+    const query = supabase.from('categories').delete().eq('user_id', currentUserId);
+    const { error } = catToDelete.id ? await query.eq('id', catToDelete.id) : await query.eq('name', catToDelete.name).eq('type', selCatType);
+    if (error) logError('deleteCatFromMenu', error, { currentUserId, catId: catToDelete.id, name: catToDelete.name });
 }
+
 
 // --- PIN SYSTEM ---
 function showPinScreen(step) {
@@ -261,12 +359,21 @@ function handleReceiptUpload(e) {
     }; reader.readAsDataURL(file);
 }
 async function uploadReceipt(file) {
-    const fileName = `${currentUserId}/${Date.now()}.jpg`;
-    const { data, error } = await supabase.storage.from('receipts').upload(fileName, file);
-    if (error) { console.error("Rasm xatolik:", error); throw error; }
+    const fileName = `${currentUserId}/${Date.now()}-${file.name || 'receipt'}.jpg`;
+    const { error } = await supabase.storage
+        .from('receipts')
+        .upload(fileName, file, { upsert: false, contentType: file.type || 'image/jpeg' });
+
+    if (error) {
+        logError('uploadReceipt', error, { currentUserId, fileName });
+        throw error;
+    }
+
     const { data: { publicUrl } } = supabase.storage.from('receipts').getPublicUrl(fileName);
+    logInfo('uploadReceipt', { currentUserId, fileName, publicUrl });
     return publicUrl;
 }
+
 function clearReceipt() { draft.receipt = null; draft.rawFile = null; document.getElementById('file-upload').value = ''; document.getElementById('receipt-preview-area').classList.add('hidden'); }
 function viewReceipt(src) { document.getElementById('full-receipt-image').src = src; document.getElementById('receipt-modal').classList.remove('hidden'); }
 function closeReceiptModal() { document.getElementById('receipt-modal').classList.add('hidden'); }
@@ -274,72 +381,76 @@ function closeReceiptModal() { document.getElementById('receipt-modal').classLis
 // --- CORE UI ---
 function updateUI() {
     const { s, e } = getDateRange();
-    transactions.sort((a, b) => b.date - a.date);
-    const f = transactions.filter(t => t.date >= s && t.date <= e);
+    transactions = normalizeTransactions(transactions).sort((a, b) => b.dateMs - a.dateMs);
 
-    // Asosiy hisob (Doim UZS da hisoblanadi)
-    const incBase = f.filter(t => t.type === 'income').reduce((a, b) => a + (Number(b.amount) || 0), 0);
-    const expBase = f.filter(t => t.type === 'expense').reduce((a, b) => a + (Number(b.amount) || 0), 0);
+    const dateFiltered = transactions.filter(t => t.dateMs >= s && t.dateMs <= e);
+    const filtered = activeType === 'all' ? dateFiltered : dateFiltered.filter(t => t.type === activeType);
+
+    const incBase = filtered.filter(t => t.type === 'income').reduce((a, b) => a + (Number(b.amount) || 0), 0);
+    const expBase = filtered.filter(t => t.type === 'expense').reduce((a, b) => a + (Number(b.amount) || 0), 0);
     const balBase = incBase - expBase;
 
-    // Ko'rsatish uchun konvertatsiya (VIEW LAYER)
-    let displayBal, displayInc, displayExp, suffix;
-
     if (dashboardCurrency === 'USD' && exchangeRate > 0) {
-        // Dollarga o'girib ko'rsatish
-        displayBal = (balBase / exchangeRate).toFixed(2);
-        displayInc = (incBase / exchangeRate).toFixed(2);
-        displayExp = (expBase / exchangeRate).toFixed(2);
-        suffix = "$";
+        const displayBal = balBase / exchangeRate;
+        const displayInc = incBase / exchangeRate;
+        const displayExp = expBase / exchangeRate;
 
-        // UI elementlarini yangilash
         document.getElementById('total-balance').innerText = `$ ${formatNumber(displayBal)}`;
         document.getElementById('total-income').innerText = `+$ ${formatNumber(displayInc)}`;
         document.getElementById('total-expense').innerText = `-$ ${formatNumber(displayExp)}`;
-        document.getElementById('currency-badge').innerText = "USD";
-        document.getElementById('currency-badge').className = "text-[10px] bg-blue-500 px-1.5 py-0.5 rounded text-white font-mono";
+        document.getElementById('currency-badge').innerText = 'USD';
+        document.getElementById('currency-badge').className = 'text-[10px] bg-blue-500 px-1.5 py-0.5 rounded text-white font-mono';
     } else {
-        // So'mda ko'rsatish (Default)
         document.getElementById('total-balance').innerText = `${formatNumber(balBase)} so'm`;
         document.getElementById('total-income').innerText = `+${formatNumber(incBase)}`;
         document.getElementById('total-expense').innerText = `-${formatNumber(expBase)}`;
-        document.getElementById('currency-badge').innerText = "UZS";
-        document.getElementById('currency-badge').className = "text-[10px] bg-white/10 px-1.5 py-0.5 rounded text-white font-mono";
+        document.getElementById('currency-badge').innerText = 'UZS';
+        document.getElementById('currency-badge').className = 'text-[10px] bg-white/10 px-1.5 py-0.5 rounded text-white font-mono';
     }
 
-    // Trendlar va Diagrammalar (Bular foizda bo'lgani uchun o'zgartirish shart emas, lekin diagramma UZS da qoladi)
     updateTrendWidgets();
 
     const ci = document.getElementById('card-income'), ce = document.getElementById('card-expense');
     ci.className = `glass-panel p-3 rounded-2xl flex items-center gap-3 cursor-pointer transition-all ${activeType === 'income' ? 'bg-emerald-500/20 border-emerald-500' : 'hover:bg-emerald-500/10'}`;
     ce.className = `glass-panel p-3 rounded-2xl flex items-center gap-3 cursor-pointer transition-all ${activeType === 'expense' ? 'bg-rose-500/20 border-rose-500' : 'hover:bg-rose-500/10'}`;
 
-    renderCharts(f);
-    renderHistory(); // Tarix o'zgarishsiz qoladi (Siz so'ragandek)
+    renderCharts(filtered);
+    renderHistory();
 }
 
 function updateTrendWidgets() {
-    const now = new Date(); const thisMonthStart = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
-    const lastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1).getTime(); const lastMonthEnd = thisMonthStart - 1;
-    const thisMonthTrans = transactions.filter(t => t.date >= thisMonthStart && t.type === 'expense');
-    const lastMonthTrans = transactions.filter(t => t.date >= lastMonthStart && t.date <= lastMonthEnd && t.type === 'expense');
+    const now = new Date();
+    const thisMonthStart = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+    const lastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1).getTime();
+    const lastMonthEnd = thisMonthStart - 1;
+    const thisMonthTrans = transactions.filter(t => t.dateMs >= thisMonthStart && t.type === 'expense');
+    const lastMonthTrans = transactions.filter(t => t.dateMs >= lastMonthStart && t.dateMs <= lastMonthEnd && t.type === 'expense');
     const group = (arr) => arr.reduce((acc, t) => { acc[t.category] = (acc[t.category] || 0) + (Number(t.amount) || 0); return acc; }, {});
-    const curr = group(thisMonthTrans); const prev = group(lastMonthTrans);
-    let html = ''; const cats = [...new Set([...Object.keys(curr), ...Object.keys(prev)])];
+    const curr = group(thisMonthTrans);
+    const prev = group(lastMonthTrans);
+    let html = '';
+    const cats = [...new Set([...Object.keys(curr), ...Object.keys(prev)])];
+
     if (cats.length > 0) {
         document.getElementById('trend-container').classList.remove('hidden');
         cats.forEach(c => {
-            const cVal = curr[c] || 0; const pVal = prev[c] || 0;
+            const cVal = curr[c] || 0;
+            const pVal = prev[c] || 0;
             if (pVal > 0 && cVal > 0) {
                 const pct = ((cVal - pVal) / pVal) * 100;
                 if (Math.abs(pct) > 5) {
-                    const isBad = pct > 0; const color = isBad ? 'text-rose-400' : 'text-emerald-400'; const icon = isBad ? 'trending-up' : 'trending-down';
+                    const isBad = pct > 0;
+                    const color = isBad ? 'text-rose-400' : 'text-emerald-400';
+                    const icon = isBad ? 'trending-up' : 'trending-down';
                     html += `<div class="glass-panel p-3 rounded-xl flex justify-between items-center"><div><div class="text-xs text-slate-400">${c}</div><div class="font-bold text-sm text-white">${formatNumber(cVal)}</div></div><div class="text-right"><div class="${color} font-bold text-xs flex items-center gap-1 justify-end"><i data-lucide="${icon}" class="w-3 h-3"></i> ${Math.round(Math.abs(pct))}%</div><div class="text-xs text-slate-500">o'tgan oy</div></div></div>`;
                 }
             }
         });
+    } else {
+        document.getElementById('trend-container').classList.add('hidden');
     }
-    document.getElementById('trend-list').innerHTML = html || '<div class="col-span-2 text-center text-xs text-slate-500 py-2">Trendlar uchun ma\'lumot yetarli emas</div>';
+
+    document.getElementById('trend-list').innerHTML = html || `<div class="col-span-2 text-center text-xs text-slate-500 py-2">Trendlar uchun ma'lumot yetarli emas</div>`;
 }
 function renderCharts(data) {
     const ctx = document.getElementById('categoryChart').getContext('2d');
@@ -353,14 +464,19 @@ function renderCharts(data) {
     Object.entries(cats).sort(([, a], [, b]) => b - a).slice(0, 5).forEach(([c, a]) => { list.innerHTML += `<tr><td class="py-2.5 text-slate-300 capitalize pl-2">${c}</td><td class="text-right font-bold pr-2 ${activeType === 'income' ? 'text-emerald-400' : 'text-rose-400'}">${formatNumber(a)}</td></tr>`; });
 }
 function renderHistory() {
-    const list = document.getElementById('history-list'); list.innerHTML = '';
+    const list = document.getElementById('history-list');
+    list.innerHTML = '';
     document.getElementById('empty-history').classList.toggle('hidden', transactions.length > 0);
-    transactions.forEach(t => {
-        const isInc = t.type === 'income';
-        const hasReceipt = t.receipt || t.receipt_url;
-        const receiptBadge = hasReceipt ? `<span class="ml-2 text-[10px] px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-400 border border-blue-500/30 flex items-center gap-0.5"><i data-lucide="paperclip" class="w-2 h-2"></i> Chek</span>` : '';
-        list.innerHTML += `<div onclick="openActionSheet(event, ${t.id})" class="glass-panel p-4 rounded-2xl flex justify-between items-center cursor-pointer active:scale-95 transition-transform hover:bg-slate-800/50"><div class="flex items-center gap-4"><div class="p-3 rounded-full ${isInc ? 'bg-emerald-500/10 text-emerald-400' : 'bg-rose-500/10 text-rose-400'}"><i data-lucide="${isInc ? 'arrow-down-left' : 'arrow-up-right'}" class="w-5 h-5"></i></div><div><div class="font-bold text-sm text-white capitalize flex items-center">${t.category} ${receiptBadge}</div><div class="text-xs text-slate-400 mt-0.5">${new Date(t.date).toLocaleDateString()} • ${new Date(t.date).toLocaleTimeString().slice(0, 5)}</div></div></div><div class="font-bold ${isInc ? 'text-emerald-400' : 'text-rose-400'} text-base">${isInc ? '+' : '-'}${formatNumber(t.amount)}</div></div>`;
-    });
+
+    transactions
+        .slice()
+        .sort((a, b) => b.dateMs - a.dateMs)
+        .forEach(t => {
+            const isInc = t.type === 'income';
+            const hasReceipt = t.receipt || t.receipt_url;
+            const receiptBadge = hasReceipt ? `<span class="ml-2 text-[10px] px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-400 border border-blue-500/30 flex items-center gap-0.5"><i data-lucide="paperclip" class="w-2 h-2"></i> Chek</span>` : '';
+            list.innerHTML += `<div onclick="openActionSheet(event, ${t.id})" class="glass-panel p-4 rounded-2xl flex justify-between items-center cursor-pointer active:scale-95 transition-transform hover:bg-slate-800/50"><div class="flex items-center gap-4"><div class="p-3 rounded-full ${isInc ? 'bg-emerald-500/10 text-emerald-400' : 'bg-rose-500/10 text-rose-400'}"><i data-lucide="${isInc ? 'arrow-down-left' : 'arrow-up-right'}" class="w-5 h-5"></i></div><div><div class="font-bold text-sm text-white capitalize flex items-center">${t.category} ${receiptBadge}</div><div class="text-xs text-slate-400 mt-0.5">${new Date(t.dateMs).toLocaleDateString()} • ${new Date(t.dateMs).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div></div></div><div class="font-bold ${isInc ? 'text-emerald-400' : 'text-rose-400'} text-base">${isInc ? '+' : '-'}${formatNumber(t.amount)}</div></div>`;
+        });
     lucide.createIcons();
 }
 // --- BOT ---
@@ -401,52 +517,64 @@ function toggleInputCurrency() {
 
 async function submitBotInput() {
     vibrate('heavy');
-    let rawVal = document.getElementById('bot-input').value;
-    // Faqat raqamlarni ajratib olish
-    let val = parseFloat(rawVal.replace(/[^0-9.]/g, ''));
-    
+    const rawVal = document.getElementById('bot-input').value;
+    const val = parseFloat(rawVal.replace(/[^0-9.]/g, ''));
     if (!val) return;
 
-    // AGAR VALYUTA USD BO'LSA:
     let finalAmount = val;
-    let note = "";
-    
+    let note = '';
     if (inputCurrency === 'USD') {
         finalAmount = Math.round(val * exchangeRate);
-        note = ` ($${val})`; // Izohga dollar qiymatini qo'shib qo'yamiz
+        note = ` ($${val})`;
     }
 
     let finalReceiptUrl = null;
-    if (draft.rawFile) { try { finalReceiptUrl = await uploadReceipt(draft.rawFile); } catch (e) { alert("Rasm yuklanmadi, lekin tranzaksiya saqlanadi."); } }
-    
-    const newTrans = { 
-        user_id: currentUserId, 
-        amount: finalAmount, 
-        category: draft.category + note, 
-        type: draft.type, 
-        date: Date.now(), 
-        receipt_url: finalReceiptUrl 
+    if (draft.rawFile) {
+        try {
+            finalReceiptUrl = await uploadReceipt(draft.rawFile);
+        } catch (error) {
+            alert("Rasm yuklanmadi, lekin tranzaksiya saqlanadi.");
+        }
+    }
+
+    const createdAtIso = toIsoString();
+    const newTrans = {
+        user_id: currentUserId,
+        amount: Math.round(finalAmount),
+        category: `${draft.category}${note}`,
+        type: draft.type,
+        date: createdAtIso,
+        receipt_url: finalReceiptUrl,
     };
-    
+
     const tempId = Date.now();
-    transactions.unshift({ ...newTrans, id: tempId, receipt: draft.receipt });
+    transactions.unshift(normalizeTransactionRecord({ ...newTrans, id: tempId, receipt: draft.receipt }));
     updateUI();
-    document.getElementById('bot-input').value = ''; 
-    
-    // Reset Currency to UZS after submit
-    if(inputCurrency === 'USD') toggleInputCurrency();
-    
+    document.getElementById('bot-input').value = '';
+
+    if (inputCurrency === 'USD') toggleInputCurrency();
+
     cancelBotFlow();
-    
+
     const icon = draft.receipt ? '📎' : '';
     const chat = document.getElementById('chat-messages');
     chat.innerHTML += `<div class="msg-wrapper ai fade-in"><div class="msg-bubble ai border-l-4 ${draft.type === 'income' ? 'border-l-emerald-500' : 'border-l-rose-500'}">Saqlandi: <b>${formatNumber(finalAmount)} so'm</b> ${icon} <br><span class="text-xs opacity-70">${draft.category}${note}</span></div></div>`;
     setTimeout(() => chat.scrollTop = chat.scrollHeight, 100);
-    
+
     draft = { receipt: null, rawFile: null };
-    const { data, error } = await supabase.from('transactions').insert([newTrans]).select();
-    if (error) console.error("Save error:", error);
-    else { const idx = transactions.findIndex(t => t.id === tempId); if (idx !== -1) transactions[idx].id = data[0].id; }
+
+    const { data, error } = await supabase.from('transactions').insert([newTrans]).select().single();
+    if (error) {
+        transactions = transactions.filter(t => t.id !== tempId);
+        updateUI();
+        logError('submitBotInput', error, { currentUserId, category: newTrans.category, amount: newTrans.amount });
+        alert("Saqlashda xatolik bo'ldi. Loglarni tekshiring.");
+        return;
+    }
+
+    const idx = transactions.findIndex(t => t.id === tempId);
+    if (idx !== -1) transactions[idx] = normalizeTransactionRecord({ ...transactions[idx], ...data, receipt: draft.receipt });
+    logInfo('submitBotInput', { currentUserId, transactionId: data.id, amount: newTrans.amount, type: newTrans.type });
 }
 
 function cancelBotFlow() { document.getElementById('bot-input-container').classList.add('hidden'); document.getElementById('category-selector').classList.add('hidden'); document.getElementById('bot-start-actions').classList.remove('hidden'); clearReceipt(); }
@@ -454,11 +582,21 @@ function cancelBotFlow() { document.getElementById('bot-input-container').classL
 function toggleTheme(f) { const l = f || document.body.classList.toggle('light-mode'); localStorage.setItem('theme', l ? 'light' : 'dark'); lucide.createIcons(); }
 function openAddCategoryModal() { document.getElementById('add-cat-modal').classList.remove('hidden'); }
 async function saveNewCategory() {
-    const n = document.getElementById('new-cat-name').value;
+    const n = document.getElementById('new-cat-name').value.trim();
     if (n && draft.type) {
-        const newCat = { user_id: currentUserId, name: n, icon: selIcon, type: draft.type };
-        allCats[draft.type].push(newCat); renderBotCats(draft.type); closeModal('add-cat-modal');
-        await supabase.from('categories').insert([newCat]);
+        const payload = { user_id: currentUserId, name: n, icon: selIcon, type: draft.type };
+        const { data, error } = await supabase.from('categories').insert([payload]).select().single();
+        if (error) {
+            logError('saveNewCategory', error, { currentUserId, payload });
+            alert("Kategoriyani saqlab bo'lmadi. Balki shu nom allaqachon mavjuddir.");
+            return;
+        }
+        allCats[draft.type].push(data);
+        allCats[draft.type].sort((a, b) => a.name.localeCompare(b.name));
+        renderBotCats(draft.type);
+        closeModal('add-cat-modal');
+        document.getElementById('new-cat-name').value = '';
+        selIcon = 'circle';
     }
 }
 function openSettings() { updateSettingsUI(); document.getElementById('settings-modal').classList.remove('hidden'); }
@@ -475,9 +613,20 @@ function updateSettingsUI() {
 }
 
 function closeModal(id) { document.getElementById(id).classList.add('hidden'); }
-function formatNumber(n) { return n.toString().replace(/\B(?=(\d{3})+(?!\d))/g, " "); }
+function formatNumber(n) {
+    const numeric = Number(n);
+    if (!Number.isFinite(numeric)) return '0';
+    return new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 2 }).format(numeric);
+}
 function toggleTypeFilter(t) { vibrate('soft'); activeType = activeType === t ? 'all' : t; updateUI(); }
-function setDateFilter(f) { vibrate('soft'); activeDate = f; document.querySelectorAll('.date-filter-btn').forEach(b => b.classList.remove('filter-active')); document.querySelector(`[data-filter="${f}"]`).classList.add('filter-active'); updateUI(); }
+function setDateFilter(f) {
+    vibrate('soft');
+    activeDate = f;
+    document.querySelectorAll('.date-filter-btn').forEach(b => b.classList.remove('filter-active'));
+    const activeButton = document.querySelector(`[data-filter="${f}"]`);
+    if (activeButton) activeButton.classList.add('filter-active');
+    updateUI();
+}
 function getDateRange() {
     const now = new Date();
     let s = 0; let e = new Date().setHours(23, 59, 59, 999);
@@ -505,21 +654,46 @@ function exportData() {
     const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `backup_kassa_${new Date().toISOString().slice(0, 10)}.json`; document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
 }
 async function importData(e) {
-    const file = e.target.files[0]; if (!file) return;
+    const file = e.target.files[0];
+    if (!file) return;
+
     const reader = new FileReader();
     reader.onload = async (event) => {
         try {
             const backup = JSON.parse(event.target.result);
             if (backup.pin) localStorage.setItem('pin', backup.pin);
             if (backup.bio !== undefined) localStorage.setItem('bio', backup.bio);
+
             if (backup.transactions && Array.isArray(backup.transactions) && backup.transactions.length > 0) {
-                const newTrans = backup.transactions.map(t => { const { id, ...rest } = t; return { ...rest, user_id: currentUserId }; });
+                const newTrans = backup.transactions.map(t => {
+                    const { id, dateMs, receipt, ...rest } = t;
+                    return {
+                        ...rest,
+                        user_id: currentUserId,
+                        date: toIsoString(rest.date || dateMs || Date.now()),
+                    };
+                });
                 const { error } = await supabase.from('transactions').insert(newTrans);
                 if (error) throw error;
             }
-            alert("Muvaffaqiyatli! Dastur qayta yuklanmoqda..."); location.reload();
-        } catch (err) { alert("Xatolik!"); }
-    }; reader.readAsText(file); e.target.value = '';
+
+            if (backup.allCats) {
+                const allImportedCategories = [...(backup.allCats.income || []), ...(backup.allCats.expense || [])]
+                    .map(({ id, created_at, ...rest }) => ({ ...rest, user_id: currentUserId }));
+                if (allImportedCategories.length > 0) {
+                    await supabase.from('categories').upsert(allImportedCategories, { onConflict: 'user_id,name,type' });
+                }
+            }
+
+            alert("Muvaffaqiyatli! Dastur qayta yuklanmoqda...");
+            location.reload();
+        } catch (err) {
+            logError('importData', err, { currentUserId });
+            alert("Importda xatolik yuz berdi.");
+        }
+    };
+    reader.readAsText(file);
+    e.target.value = '';
 }
 function confirmResetData() { if (confirm("DIQQAT! Barcha ma'lumotlar BAZADAN o'chib ketadi. Davom etasizmi?")) { transactions = []; updateUI(); closeModal('settings-modal'); supabase.from('transactions').delete().eq('user_id', currentUserId).then(() => alert("Tozalandi!")); } }
 // --- MODALS ACTIONS (Tahrirlash va O'chirish qaytarildi) ---
@@ -534,13 +708,13 @@ function openActionSheet(e, id) {
 function viewCurrentReceipt() { const t = transactions.find(x => x.id === selId); if (t) { const src = t.receipt_url || t.receipt; viewReceipt(src); } closeActionSheet(null); }
 function closeActionSheet(e) { if (e && !e.target.closest('.bg-slate-800') && e.target.id !== 'action-sheet') return; document.getElementById('action-sheet').classList.add('hidden'); }
 function handleDeleteConfirm() { closeActionSheet(null); document.getElementById('delete-modal').classList.remove('hidden'); }
-async function confirmDelete() { const idToDelete = selId; transactions = transactions.filter(t => t.id !== idToDelete); updateUI(); closeModal('delete-modal'); await supabase.from('transactions').delete().eq('id', idToDelete).eq('user_id', currentUserId); }
+async function confirmDelete() { const idToDelete = selId; transactions = transactions.filter(t => t.id !== idToDelete); updateUI(); closeModal('delete-modal'); const { error } = await supabase.from('transactions').delete().eq('id', idToDelete).eq('user_id', currentUserId); if (error) logError('confirmDelete', error, { currentUserId, idToDelete }); }
 function handleEdit() { closeActionSheet(null); const t = transactions.find(x => x.id === selId); if (!t) return; document.getElementById('edit-category').value = t.category; document.getElementById('edit-amount').value = t.amount; document.getElementById('edit-type').value = t.type; document.getElementById('edit-modal').classList.remove('hidden'); }
 async function saveEdit() {
-    const c = document.getElementById('edit-category').value, a = parseInt(document.getElementById('edit-amount').value), tp = document.getElementById('edit-type').value;
+    const c = document.getElementById('edit-category').value, a = Number(document.getElementById('edit-amount').value), tp = document.getElementById('edit-type').value;
     if (c && a) {
         const i = transactions.findIndex(x => x.id === selId);
-        if (i !== -1) { transactions[i].category = c; transactions[i].amount = a; transactions[i].type = tp; updateUI(); await supabase.from('transactions').update({ category: c, amount: a, type: tp }).eq('id', selId).eq('user_id', currentUserId); }
+        if (i !== -1) { transactions[i].category = c; transactions[i].amount = a; transactions[i].type = tp; updateUI(); const { error } = await supabase.from('transactions').update({ category: c, amount: a, type: tp }).eq('id', selId).eq('user_id', currentUserId); if (error) logError('saveEdit', error, { currentUserId, selId }); }
     } closeModal('edit-modal');
 }
 // --- PDF ---
@@ -552,27 +726,27 @@ function openExportModal() {
 }
 function updateExportPreview() {
     const s = new Date(document.getElementById('export-start-date').value).getTime(); const e = new Date(document.getElementById('export-end-date').value).getTime() + 86400000;
-    const data = transactions.filter(t => t.date >= s && t.date < e); const receipts = data.filter(t => t.receipt || t.receipt_url).length;
+    const data = transactions.filter(t => t.dateMs >= s && t.dateMs < e); const receipts = data.filter(t => t.receipt || t.receipt_url).length;
     document.getElementById('export-count').innerText = data.length + " ta operatsiya"; document.getElementById('export-receipts').innerText = receipts + " ta rasm";
 }
 async function generatePDF() {
     const { jsPDF } = window.jspdf; if (!jsPDF) { alert("PDF kutubxonalari yuklanmagan!"); return; }
     const sStr = document.getElementById('export-start-date').value; const eStr = document.getElementById('export-end-date').value;
     const s = new Date(sStr).getTime(); const e = new Date(eStr).getTime() + 86400000;
-    const data = transactions.filter(t => t.date >= s && t.date < e).sort((a, b) => a.date - b.date);
+    const data = transactions.filter(t => t.dateMs >= s && t.dateMs < e).sort((a, b) => a.dateMs - b.dateMs);
     if (data.length === 0) { alert("Tanlangan davrda ma'lumot yo'q."); return; }
     const doc = new jsPDF(); const pageWidth = doc.internal.pageSize.width;
     doc.setFillColor(30, 41, 59); doc.rect(0, 0, pageWidth, 40, 'F'); doc.setTextColor(255, 255, 255); doc.setFontSize(22); doc.text("Mening Kassam", 14, 18); doc.setFontSize(10); doc.setTextColor(200, 200, 200); doc.text("Moliyaviy hisobot", 14, 26); doc.text(`${sStr} dan ${eStr} gacha`, pageWidth - 14, 26, { align: 'right' });
     const inc = data.filter(t => t.type === 'income').reduce((a, b) => a + (Number(b.amount) || 0), 0); const exp = data.filter(t => t.type === 'expense').reduce((a, b) => a + (Number(b.amount) || 0), 0); const bal = inc - exp;
     let yPos = 50; doc.setTextColor(0); doc.setFontSize(10); doc.text("Jami Kirim:", 14, yPos); doc.setTextColor(16, 185, 129); doc.setFont("helvetica", "bold"); doc.text(`+${formatNumber(inc)} so'm`, 40, yPos); doc.setTextColor(0); doc.setFont("helvetica", "normal"); doc.text("Jami Chiqim:", 80, yPos); doc.setTextColor(239, 68, 68); doc.setFont("helvetica", "bold"); doc.text(`-${formatNumber(exp)} so'm`, 110, yPos); doc.setTextColor(0); doc.setFont("helvetica", "normal"); doc.text("Sof Qoldiq:", 150, yPos); doc.setTextColor(59, 130, 246); doc.setFont("helvetica", "bold"); doc.text(`${formatNumber(bal)} so'm`, 175, yPos);
-    const tableData = data.map(t => [new Date(t.date).toLocaleDateString(), t.category, t.type === 'income' ? 'Kirim' : 'Chiqim', (t.type === 'income' ? '+' : '-') + formatNumber(t.amount),]);
+    const tableData = data.map(t => [new Date(t.dateMs).toLocaleDateString(), t.category, t.type === 'income' ? 'Kirim' : 'Chiqim', (t.type === 'income' ? '+' : '-') + formatNumber(t.amount),]);
     doc.autoTable({ startY: yPos + 10, head: [['Sana', 'Kategoriya', 'Tur', 'Summa']], body: tableData, theme: 'striped', headStyles: { fillColor: [30, 41, 59] }, styles: { fontSize: 9 }, columnStyles: { 3: { halign: 'right', fontStyle: 'bold' } }, didParseCell: function (data) { if (data.section === 'body' && data.column.index === 3) { const raw = tableData[data.row.index][3]; data.cell.styles.textColor = raw.startsWith('+') ? [16, 185, 129] : [239, 68, 68]; } } });
     const receipts = data.filter(t => t.receipt || t.receipt_url);
     if (receipts.length > 0) {
         doc.addPage(); let rY = 20; doc.setFontSize(16); doc.setTextColor(0); doc.setFont("helvetica", "bold"); doc.text("Biriktirilgan Cheklar", 14, rY); rY += 15; doc.setDrawColor(200); doc.line(14, rY - 5, pageWidth - 14, rY - 5);
         receipts.forEach(t => {
             if (rY > 250) { doc.addPage(); rY = 20; }
-            doc.setFontSize(10); doc.setTextColor(50); doc.text(`${new Date(t.date).toLocaleDateString()} - ${t.category}: ${formatNumber(t.amount)}`, 14, rY);
+            doc.setFontSize(10); doc.setTextColor(50); doc.text(`${new Date(t.dateMs).toLocaleDateString()} - ${t.category}: ${formatNumber(t.amount)}`, 14, rY);
             if (t.receipt) { try { doc.addImage(t.receipt, 'JPEG', 14, rY + 5, 40, 50, undefined, 'FAST'); rY += 60; } catch (e) { } } else if (t.receipt_url) { doc.setTextColor(59, 130, 246); doc.textWithLink("Chekni ko'rish (Browser)", 14, rY + 10, { url: t.receipt_url }); rY += 20; }
         });
     }
@@ -580,18 +754,16 @@ async function generatePDF() {
 }
 
 async function saveExchangeRate(val) {
-    if(val && val > 0) {
-        exchangeRate = val;
-        // 1. Lokal saqlash (tezkor ishlash uchun)
-        localStorage.setItem('exchangeRate', val);
+    if (val && val > 0) {
+        exchangeRate = Number(val);
+        localStorage.setItem('exchangeRate', String(exchangeRate));
         vibrate('light');
 
-        // 2. Backendga (Supabase) saqlash
         const { error } = await supabase
             .from('users')
-            .update({ exchange_rate: val })
-            .eq('user_id', currentUserId);
-            
-        if (error) console.error("Kursni saqlashda xatolik:", error);
+            .upsert({ user_id: currentUserId, exchange_rate: exchangeRate }, { onConflict: 'user_id' });
+
+        if (error) logError('saveExchangeRate', error, { currentUserId, exchangeRate });
+        else logInfo('saveExchangeRate', { currentUserId, exchangeRate });
     }
 }
