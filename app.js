@@ -1,6 +1,6 @@
 // --- CONFIG ---
-const SUPABASE_URL = "https://maahdpuwvaugqjfnihbu.supabase.co";
-const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1hYWhkcHV3dmF1Z3FqZm5paGJ1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjM4ODM4NTEsImV4cCI6MjA3OTQ1OTg1MX0.ILp0bW01IMLydAuXcYXQSM6NORGG5yjJt367JsFyDm4";
+const SUPABASE_URL = "https://mekrjdwfrmvhizdfcwok.supabase.co";
+const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1la3JqZHdmcm12aGl6ZGZjd29rIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2NjQ4NzQzNiwiZXhwIjoyMDgyMDYzNDM2fQ.ykyTG8Alw1D8QgvK9IC-75UIV_87KgVg-Mh90bzqQi8";
 const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const tg = window.Telegram.WebApp;
 tg.expand();
