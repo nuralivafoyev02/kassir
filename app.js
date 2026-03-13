@@ -50,44 +50,81 @@ let isBiometricAvailable = false;
 let dashboardCurrency = 'UZS';
 let inputCurrency = 'UZS'; // Bot uchun
 
+function safeCreateIcons() {
+    try {
+        window.lucide?.createIcons?.();
+    } catch (error) {
+        logError('lucide.createIcons', error);
+    }
+}
+
+async function detectBiometricAvailability() {
+    try {
+        if (!window.isSecureContext) return false;
+        if (!window.PublicKeyCredential?.isUserVerifyingPlatformAuthenticatorAvailable) return false;
+        return await window.PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
+    } catch (error) {
+        logError('detectBiometricAvailability', error);
+        return false;
+    }
+}
+
+function revealAppShell() {
+    const skeleton = document.getElementById('dashboard-skeleton');
+    const dashboard = document.getElementById('view-dashboard');
+    if (skeleton) skeleton.classList.add('hidden');
+    if (dashboard) dashboard.classList.remove('hidden');
+}
+
 // --- INIT ---
 document.addEventListener('DOMContentLoaded', async () => {
-    lucide.createIcons();
-    isBiometricAvailable = window.PublicKeyCredential && await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
-    if (pin) showPinScreen('unlock');
-    if (localStorage.getItem('theme') === 'light') toggleTheme(true);
-    console.log("Ma'lumotlar yuklanmoqda...");
-    const ic = document.getElementById('icon-selector');
-    if (ic) {
-        icons.forEach(i => {
-            const d = document.createElement('div');
-            d.className = "p-2 rounded-lg bg-slate-700 flex items-center justify-center cursor-pointer icon-opt transition-all";
-            d.innerHTML = `<i data-lucide="${i}" class="w-5 h-5 text-slate-300 pointer-events-none"></i>`;
-            d.onclick = () => { document.querySelectorAll('.icon-opt').forEach(e => e.classList.remove('selected')); d.classList.add('selected'); selIcon = i; };
-            ic.appendChild(d);
-        });
-    }
-    window.addEventListener('click', () => { const menu = document.getElementById('cat-context-menu'); if (menu) menu.classList.add('hidden'); });
-    // Skeleton va Yuklash
     try {
+        safeCreateIcons();
+        isBiometricAvailable = await detectBiometricAvailability();
+        if (pin) showPinScreen('unlock');
+        if (localStorage.getItem('theme') === 'light') toggleTheme(true);
+        logInfo('boot', {
+            hasSupabase: Boolean(supabase),
+            hasTelegramUser: Boolean(currentUserId),
+            currentUserId,
+            path: window.location.pathname,
+            isSecureContext: window.isSecureContext,
+        });
+        const ic = document.getElementById('icon-selector');
+        if (ic) {
+            icons.forEach(i => {
+                const d = document.createElement('div');
+                d.className = "p-2 rounded-lg bg-slate-700 flex items-center justify-center cursor-pointer icon-opt transition-all";
+                d.innerHTML = `<i data-lucide="${i}" class="w-5 h-5 text-slate-300 pointer-events-none"></i>`;
+                d.onclick = () => { document.querySelectorAll('.icon-opt').forEach(e => e.classList.remove('selected')); d.classList.add('selected'); selIcon = i; };
+                ic.appendChild(d);
+            });
+            safeCreateIcons();
+        }
+        window.addEventListener('click', () => { const menu = document.getElementById('cat-context-menu'); if (menu) menu.classList.add('hidden'); });
+
         if (!supabase) throw new Error('SUPABASE_URL yoki SUPABASE_ANON_KEY sozlanmagan. /api/config.js envlarini tekshiring.');
         if (!currentUserId) throw new Error(`Telegram user_id topilmadi. Mini appni Telegram ichida oching yoki test uchun URLga ?user_id=123 qo'shing.`);
         await fetchInitialData();
+        logInfo('boot-ready', { currentUserId, transactions: transactions.length });
     } catch (e) {
-        console.error("Xato:", e);
+        logError('boot-failed', e, { currentUserId, hasSupabase: Boolean(supabase) });
     } finally {
         setTimeout(() => {
-            const skeleton = document.getElementById('dashboard-skeleton');
-            const dashboard = document.getElementById('view-dashboard');
-            if (skeleton) skeleton.classList.add('hidden');
-            if (dashboard) {
-                dashboard.classList.remove('hidden');
+            revealAppShell();
+            try {
                 updateUI();
-                const navDash = document.getElementById('nav-dashboard');
-                if (navDash) navDash.classList.add('active');
+            } catch (error) {
+                logError('updateUI-after-boot', error);
             }
-            updateSettingsUI();
-        }, 500);
+            const navDash = document.getElementById('nav-dashboard');
+            if (navDash) navDash.classList.add('active');
+            try {
+                updateSettingsUI();
+            } catch (error) {
+                logError('updateSettingsUI-after-boot', error);
+            }
+        }, 300);
     }
 
     // --- SWIPE LOGIC (O'ZGARTIRILDI: MOUSE EVENTS QO'SHILDI) ---
@@ -767,3 +804,12 @@ async function saveExchangeRate(val) {
         else logInfo('saveExchangeRate', { currentUserId, exchangeRate });
     }
 }
+
+
+window.addEventListener('error', (event) => {
+    logError('window-error', event.error || event.message, { filename: event.filename, lineno: event.lineno, colno: event.colno });
+});
+
+window.addEventListener('unhandledrejection', (event) => {
+    logError('unhandledrejection', event.reason);
+});
