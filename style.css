@@ -11,12 +11,9 @@ body {
     display: flex;
     align-items: center;
     justify-content: center;
-
-    background: linear-gradient(135deg, #0f2027, #203a43, #2c5364);
-
+    background: linear-gradient(135deg, #270f0f, #432520, #642c2c);
     color: white;
     text-align: center;
-
 }
 
 .wrapper {
@@ -26,7 +23,6 @@ body {
     justify-content: center;
     gap: 20px;
     animation: fade 1.5s ease;
-
 }
 
 h1 {
@@ -37,51 +33,17 @@ h1 {
 }
 
 .subtitle {
-
     opacity: .8;
     margin-bottom: 40px;
-
-}
-
-.loader {
-
-    width: 60px;
-    height: 60px;
-
-    border: 6px solid rgba(255, 255, 255, 0.2);
-    border-top: 6px solid white;
-
-    border-radius: 50%;
-
-    animation: spin 1s linear infinite;
-
-    margin: auto;
-
-}
-
-.subtitle {
-
+    font-size: 20px;
     opacity: 0;
     transform: translateY(-30px);
     transition: all .6s ease;
-
 }
 
 .subtitle.show {
     opacity: 1;
     transform: translateY(0);
-
-}
-
-@keyframes spin {
-
-    0% {
-        transform: rotate(0)
-    }
-
-    100% {
-        transform: rotate(360deg)
-    }
 
 }
 
