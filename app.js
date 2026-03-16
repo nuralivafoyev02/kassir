@@ -15,14 +15,14 @@ if (tg) { tg.expand(); tg.setHeaderColor?.('#0a0a0f'); }
 // ─── STORAGE ────────────────────────────────────────────
 const store = {
   get: (k, fb = null) => { try { return localStorage.getItem(k) ?? fb; } catch { return fb; } },
-  set: (k, v) => { try { localStorage.setItem(k, String(v)); } catch {} },
-  del: (k)    => { try { localStorage.removeItem(k);         } catch {} },
+  set: (k, v) => { try { localStorage.setItem(k, String(v)); } catch { } },
+  del: (k) => { try { localStorage.removeItem(k); } catch { } },
 };
 
 // ─── USER ID ────────────────────────────────────────────
 function getUserId() {
-  const tgId   = Number(tg?.initDataUnsafe?.user?.id || 0);
-  const qId    = Number(new URLSearchParams(location.search).get('user_id') || 0);
+  const tgId = Number(tg?.initDataUnsafe?.user?.id || 0);
+  const qId = Number(new URLSearchParams(location.search).get('user_id') || 0);
   const cached = Number(store.get('uid') || 0);
   const id = tgId || qId || cached || 0;
   if (qId && qId !== cached) store.set('uid', qId);
@@ -32,37 +32,37 @@ const UID = getUserId();
 
 // ─── ICONS LIST ─────────────────────────────────────────
 const ICON_NAMES = [
-  'shopping-cart','coffee','car','home','smartphone','bus','music','book',
-  'briefcase','credit-card','gift','heart','star','zap','tool','truck',
-  'shopping-bag','banknote','pill','shirt','wifi','monitor','smile','film',
+  'shopping-cart', 'coffee', 'car', 'home', 'smartphone', 'bus', 'music', 'book',
+  'briefcase', 'credit-card', 'gift', 'heart', 'star', 'zap', 'tool', 'truck',
+  'shopping-bag', 'banknote', 'pill', 'shirt', 'wifi', 'monitor', 'smile', 'film',
 ];
 
 // Inline SVG paths for category icons (no external lib needed)
 const SVGS = {
   'shopping-cart': '<path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/>',
-  'coffee':        '<path d="M18 8h1a4 4 0 0 1 0 8h-1"/><path d="M2 8h16v9a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V8z"/><line x1="6" y1="1" x2="6" y2="4"/><line x1="10" y1="1" x2="10" y2="4"/><line x1="14" y1="1" x2="14" y2="4"/>',
-  'car':           '<rect x="1" y="3" width="15" height="13" rx="2"/><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/>',
-  'home':          '<path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/>',
-  'smartphone':    '<rect x="5" y="2" width="14" height="20" rx="2" ry="2"/><line x1="12" y1="18" x2="12.01" y2="18"/>',
-  'bus':           '<path d="M8 6v6"/><path d="M16 6v6"/><path d="M2 12h19.6"/><path d="M18 18h3s.5-1.7.8-2.8c.1-.4.2-.8.2-1.2 0-.4-.1-.8-.2-1.2l-1.4-5C20.1 6.8 19.1 6 18 6H4a2 2 0 0 0-2 2v10h3"/><circle cx="7" cy="18" r="2"/><path d="M9 18h5"/><circle cx="16" cy="18" r="2"/>',
-  'music':         '<path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>',
-  'book':          '<path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>',
-  'briefcase':     '<rect x="2" y="7" width="20" height="14" rx="2" ry="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/>',
-  'credit-card':   '<rect x="1" y="4" width="22" height="16" rx="2" ry="2"/><line x1="1" y1="10" x2="23" y2="10"/>',
-  'gift':          '<polyline points="20 12 20 22 4 22 4 12"/><rect x="2" y="7" width="20" height="5"/><line x1="12" y1="22" x2="12" y2="7"/><path d="M12 7H7.5a2.5 2.5 0 0 1 0-5C11 2 12 7 12 7z"/><path d="M12 7h4.5a2.5 2.5 0 0 0 0-5C13 2 12 7 12 7z"/>',
-  'heart':         '<path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>',
-  'star':          '<polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>',
-  'zap':           '<polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>',
-  'tool':          '<path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>',
-  'truck':         '<rect x="1" y="3" width="15" height="13"/><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/>',
-  'shopping-bag':  '<path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/>',
-  'banknote':      '<rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="2"/><path d="M6 12h.01M18 12h.01"/>',
-  'pill':          '<path d="M10.5 20H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-6.5"/><path d="M8 11h8"/><circle cx="12" cy="16" r="3"/>',
-  'shirt':         '<path d="M20.38 3.46 16 2a4 4 0 0 1-8 0L3.62 3.46a2 2 0 0 0-1.34 2.23l.58 3.57a1 1 0 0 0 .99.84H6v10c0 1.1.9 2 2 2h8a2 2 0 0 0 2-2V10h2.15a1 1 0 0 0 .99-.84l.58-3.57a2 2 0 0 0-1.34-2.23z"/>',
-  'wifi':          '<path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M1.42 9a16 16 0 0 1 21.16 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><line x1="12" y1="20" x2="12.01" y2="20"/>',
-  'monitor':       '<rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/>',
-  'smile':         '<circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/>',
-  'film':          '<rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18"/><line x1="7" y1="2" x2="7" y2="22"/><line x1="17" y1="2" x2="17" y2="22"/><line x1="2" y1="12" x2="22" y2="12"/><line x1="2" y1="7" x2="7" y2="7"/><line x1="2" y1="17" x2="7" y2="17"/><line x1="17" y1="17" x2="22" y2="17"/><line x1="17" y1="7" x2="22" y2="7"/>',
+  'coffee': '<path d="M18 8h1a4 4 0 0 1 0 8h-1"/><path d="M2 8h16v9a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V8z"/><line x1="6" y1="1" x2="6" y2="4"/><line x1="10" y1="1" x2="10" y2="4"/><line x1="14" y1="1" x2="14" y2="4"/>',
+  'car': '<rect x="1" y="3" width="15" height="13" rx="2"/><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/>',
+  'home': '<path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/>',
+  'smartphone': '<rect x="5" y="2" width="14" height="20" rx="2" ry="2"/><line x1="12" y1="18" x2="12.01" y2="18"/>',
+  'bus': '<path d="M8 6v6"/><path d="M16 6v6"/><path d="M2 12h19.6"/><path d="M18 18h3s.5-1.7.8-2.8c.1-.4.2-.8.2-1.2 0-.4-.1-.8-.2-1.2l-1.4-5C20.1 6.8 19.1 6 18 6H4a2 2 0 0 0-2 2v10h3"/><circle cx="7" cy="18" r="2"/><path d="M9 18h5"/><circle cx="16" cy="18" r="2"/>',
+  'music': '<path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>',
+  'book': '<path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>',
+  'briefcase': '<rect x="2" y="7" width="20" height="14" rx="2" ry="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/>',
+  'credit-card': '<rect x="1" y="4" width="22" height="16" rx="2" ry="2"/><line x1="1" y1="10" x2="23" y2="10"/>',
+  'gift': '<polyline points="20 12 20 22 4 22 4 12"/><rect x="2" y="7" width="20" height="5"/><line x1="12" y1="22" x2="12" y2="7"/><path d="M12 7H7.5a2.5 2.5 0 0 1 0-5C11 2 12 7 12 7z"/><path d="M12 7h4.5a2.5 2.5 0 0 0 0-5C13 2 12 7 12 7z"/>',
+  'heart': '<path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>',
+  'star': '<polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>',
+  'zap': '<polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>',
+  'tool': '<path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>',
+  'truck': '<rect x="1" y="3" width="15" height="13"/><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/>',
+  'shopping-bag': '<path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/>',
+  'banknote': '<rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="2"/><path d="M6 12h.01M18 12h.01"/>',
+  'pill': '<path d="M10.5 20H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-6.5"/><path d="M8 11h8"/><circle cx="12" cy="16" r="3"/>',
+  'shirt': '<path d="M20.38 3.46 16 2a4 4 0 0 1-8 0L3.62 3.46a2 2 0 0 0-1.34 2.23l.58 3.57a1 1 0 0 0 .99.84H6v10c0 1.1.9 2 2 2h8a2 2 0 0 0 2-2V10h2.15a1 1 0 0 0 .99-.84l.58-3.57a2 2 0 0 0-1.34-2.23z"/>',
+  'wifi': '<path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M1.42 9a16 16 0 0 1 21.16 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><line x1="12" y1="20" x2="12.01" y2="20"/>',
+  'monitor': '<rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/>',
+  'smile': '<circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/>',
+  'film': '<rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18"/><line x1="7" y1="2" x2="7" y2="22"/><line x1="17" y1="2" x2="17" y2="22"/><line x1="2" y1="12" x2="22" y2="12"/><line x1="2" y1="7" x2="7" y2="7"/><line x1="2" y1="17" x2="7" y2="17"/><line x1="17" y1="17" x2="22" y2="17"/><line x1="17" y1="7" x2="22" y2="7"/>',
 };
 function svgIcon(name, cls = '') {
   const p = SVGS[name] || SVGS['star'];
@@ -70,26 +70,26 @@ function svgIcon(name, cls = '') {
 }
 
 // ─── STATE ───────────────────────────────────────────────
-let db         = null;          // supabase client (null = offline)
-let txList     = [];            // all transactions
-let cats       = { income: [], expense: [] };
-let pin        = store.get('pin');
-let bioOn      = store.get('bio') === 'true';
-let rate       = Number(store.get('rate') || 12850);
-let currency   = 'UZS';
-let typeFilt   = 'all';
-let dateFilt   = 'all';
-let selTxId    = null;
-let selCatIdx  = null;
+let db = null;          // supabase client (null = offline)
+let txList = [];            // all transactions
+let cats = { income: [], expense: [] };
+let pin = store.get('pin');
+let bioOn = store.get('bio') === 'true';
+let rate = Number(store.get('rate') || 12850);
+let currency = 'UZS';
+let typeFilt = 'all';
+let dateFilt = 'all';
+let selTxId = null;
+let selCatIdx = null;
 let selCatType = null;
-let selIcon    = 'star';
-let draft      = {};            // current transaction being built
-let inputCur   = 'UZS';
-let pinMode    = 'unlock';      // unlock | setup_new | setup_confirm | change_old
-let pinBuf     = '';
-let pinTemp    = '';
-let bioAvail   = false;
-let myChart    = null;
+let selIcon = 'star';
+let draft = {};            // current transaction being built
+let inputCur = 'UZS';
+let pinMode = 'unlock';      // unlock | setup_new | setup_confirm | change_old
+let pinBuf = '';
+let pinTemp = '';
+let bioAvail = false;
+let myChart = null;
 
 // ─── HELPERS ────────────────────────────────────────────
 const fmt = n => {
@@ -231,7 +231,7 @@ async function loadData() {
 
   if (!cd || cd.length === 0) await seedCats();
   else {
-    cats.income  = cd.filter(c => c.type === 'income');
+    cats.income = cd.filter(c => c.type === 'income');
     cats.expense = cd.filter(c => c.type === 'expense');
   }
 }
@@ -239,16 +239,16 @@ async function loadData() {
 async function seedCats() {
   const defs = [
     { name: 'Oylik', icon: 'banknote', type: 'income' },
-    { name: 'Bonus', icon: 'gift',     type: 'income' },
+    { name: 'Bonus', icon: 'gift', type: 'income' },
     { name: 'Sotuv', icon: 'shopping-bag', type: 'income' },
     { name: 'Ovqat', icon: 'shopping-cart', type: 'expense' },
-    { name: 'Transport', icon: 'bus',  type: 'expense' },
-    { name: 'Kafe',  icon: 'coffee',   type: 'expense' },
+    { name: 'Transport', icon: 'bus', type: 'expense' },
+    { name: 'Kafe', icon: 'coffee', type: 'expense' },
   ].map(c => ({ ...c, user_id: UID }));
 
   const { data, error } = await db.from('categories').insert(defs).select();
   if (error) throw error;
-  cats.income  = (data || []).filter(c => c.type === 'income');
+  cats.income = (data || []).filter(c => c.type === 'income');
   cats.expense = (data || []).filter(c => c.type === 'expense');
 }
 
@@ -268,32 +268,32 @@ function renderAll() {
   const { s, e } = getRange();
   const sorted = [...txList].sort((a, b) => b.ms - a.ms);
   const ranged = sorted.filter(t => t.ms >= s && t.ms <= e);
-  const shown  = typeFilt === 'all' ? ranged : ranged.filter(t => t.type === typeFilt);
+  const shown = typeFilt === 'all' ? ranged : ranged.filter(t => t.type === typeFilt);
 
-  const inc = shown.filter(t => t.type === 'income' ).reduce((a, b) => a + b.amount, 0);
+  const inc = shown.filter(t => t.type === 'income').reduce((a, b) => a + b.amount, 0);
   const exp = shown.filter(t => t.type === 'expense').reduce((a, b) => a + b.amount, 0);
   const bal = inc - exp;
 
-  const balEl  = $('total-bal');
-  const incEl  = $('total-inc');
-  const expEl  = $('total-exp');
+  const balEl = $('total-bal');
+  const incEl = $('total-inc');
+  const expEl = $('total-exp');
 
   if (balEl) {
     balEl.classList.remove('loading');
     if (currency === 'USD' && rate > 0) {
-      balEl.textContent  = `$${fmt(bal / rate)}`;
-      incEl.textContent  = `+$${fmt(inc / rate)}`;
-      expEl.textContent  = `-$${fmt(exp / rate)}`;
+      balEl.textContent = `$${fmt(bal / rate)}`;
+      incEl.textContent = `+$${fmt(inc / rate)}`;
+      expEl.textContent = `-$${fmt(exp / rate)}`;
     } else {
-      balEl.textContent  = `${fmt(bal)} so'm`;
-      incEl.textContent  = `+${fmt(inc)}`;
-      expEl.textContent  = `-${fmt(exp)}`;
+      balEl.textContent = `${fmt(bal)} so'm`;
+      incEl.textContent = `+${fmt(inc)}`;
+      expEl.textContent = `-${fmt(exp)}`;
     }
   }
 
   // type filter card highlights
   const tci = $('tc-i'), tce = $('tc-e');
-  if (tci) { tci.classList.toggle('on-i', typeFilt === 'income');  }
+  if (tci) { tci.classList.toggle('on-i', typeFilt === 'income'); }
   if (tce) { tce.classList.toggle('on-e', typeFilt === 'expense'); }
 
   renderChart(shown);
@@ -304,7 +304,7 @@ function renderAll() {
 function renderChart(data) {
   const canvas = $('myChart');
   const noData = $('no-data');
-  const table  = $('cat-table');
+  const table = $('cat-table');
   if (!canvas) return;
 
   const src = typeFilt === 'income'
@@ -325,12 +325,16 @@ function renderChart(data) {
       type: 'doughnut',
       data: {
         labels: entries.map(([k]) => k),
-        datasets: [{ data: entries.map(([, v]) => v),
-          backgroundColor: ['#10b981','#ef4444','#f59e0b','#7c3aed','#3b82f6','#ec4899','#06b6d4','#84cc16'],
-          borderWidth: 0, hoverOffset: 4 }],
+        datasets: [{
+          data: entries.map(([, v]) => v),
+          backgroundColor: ['#10b981', '#ef4444', '#f59e0b', '#7c3aed', '#3b82f6', '#ec4899', '#06b6d4', '#84cc16'],
+          borderWidth: 0, hoverOffset: 4
+        }],
       },
-      options: { responsive: true, maintainAspectRatio: false, cutout: '65%',
-        plugins: { legend: { display: false } } },
+      options: {
+        responsive: true, maintainAspectRatio: false, cutout: '65%',
+        plugins: { legend: { display: false } }
+      },
     });
   }
 
@@ -343,14 +347,14 @@ function renderChart(data) {
 }
 
 function renderTrends() {
-  const sec  = $('trend-sec');
+  const sec = $('trend-sec');
   const grid = $('trend-grid');
   if (!sec || !grid) return;
 
   const now = new Date();
   const thisStart = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
   const lastStart = new Date(now.getFullYear(), now.getMonth() - 1, 1).getTime();
-  const lastEnd   = thisStart - 1;
+  const lastEnd = thisStart - 1;
 
   const grp = arr => arr.reduce((acc, t) => {
     acc[t.category] = (acc[t.category] || 0) + t.amount; return acc;
@@ -379,7 +383,7 @@ function renderTrends() {
 }
 
 function renderHistory() {
-  const list  = $('tx-list');
+  const list = $('tx-list');
   const empty = $('empty-s');
   if (!list) return;
 
@@ -388,7 +392,7 @@ function renderHistory() {
 
   list.innerHTML = sorted.map(t => {
     const isI = t.type === 'income';
-    const dt  = new Date(t.ms);
+    const dt = new Date(t.ms);
     const dateStr = dt.toLocaleDateString() + ' · ' + dt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     const chek = (t.receipt || t.receipt_url) ? `<span class="chek-b">📎 Chek</span>` : '';
     const arrow = isI
@@ -411,11 +415,11 @@ function renderHistory() {
 function getRange() {
   const now = new Date();
   let s = 0, e = new Date().setHours(23, 59, 59, 999);
-  if (dateFilt === 'week')   s = Date.now() - 7 * 86400000;
-  else if (dateFilt === 'month')  s = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+  if (dateFilt === 'week') s = Date.now() - 7 * 86400000;
+  else if (dateFilt === 'month') s = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
   else if (dateFilt === 'custom') {
     s = new Date($('d-from')?.value || 0).getTime();
-    e = new Date($('d-to')?.value   || Date.now()).getTime() + 86400000;
+    e = new Date($('d-to')?.value || Date.now()).getTime() + 86400000;
   }
   return { s, e };
 }
@@ -434,7 +438,7 @@ function toggleType(t) {
 }
 
 function openDateMod() { dateFilt = 'custom'; showOv('ov-date'); }
-function applyDate()   { closeOv('ov-date'); document.querySelector('.fp[data-f="custom"]')?.classList.add('on'); renderAll(); }
+function applyDate() { closeOv('ov-date'); document.querySelector('.fp[data-f="custom"]')?.classList.add('on'); renderAll(); }
 
 // ─── CURRENCY ────────────────────────────────────────────
 function setCur(c) {
@@ -455,10 +459,10 @@ function initSwipe() {
   const card = $('bc');
   if (!card) return;
   let sx = 0;
-  card.addEventListener('touchstart',  e => { sx = e.changedTouches[0].screenX; }, { passive: true });
-  card.addEventListener('touchend',    e => { const dx = sx - e.changedTouches[0].screenX; if (Math.abs(dx) > 50) setCur(dx > 0 ? 'USD' : 'UZS'); }, { passive: true });
-  card.addEventListener('mousedown',   e => { sx = e.clientX; });
-  card.addEventListener('mouseup',     e => { const dx = sx - e.clientX; if (Math.abs(dx) > 50) setCur(dx > 0 ? 'USD' : 'UZS'); });
+  card.addEventListener('touchstart', e => { sx = e.changedTouches[0].screenX; }, { passive: true });
+  card.addEventListener('touchend', e => { const dx = sx - e.changedTouches[0].screenX; if (Math.abs(dx) > 50) setCur(dx > 0 ? 'USD' : 'UZS'); }, { passive: true });
+  card.addEventListener('mousedown', e => { sx = e.clientX; });
+  card.addEventListener('mouseup', e => { const dx = sx - e.clientX; if (Math.abs(dx) > 50) setCur(dx > 0 ? 'USD' : 'UZS'); });
 }
 
 // ─── BOT FLOW ────────────────────────────────────────────
@@ -489,14 +493,14 @@ function buildCatGrid(type) {
     btn.oncontextmenu = e => { e.preventDefault(); showCtxMenu(e, idx, type); };
     let lpt;
     btn.ontouchstart = e => { lpt = setTimeout(() => showCtxMenu(e.touches[0], idx, type), 500); };
-    btn.ontouchend   = () => clearTimeout(lpt);
+    btn.ontouchend = () => clearTimeout(lpt);
     grid.appendChild(btn);
   });
 }
 
 function cancelFlow() {
   $('flow-start').style.display = 'grid';
-  $('flow-cats').style.display  = 'none';
+  $('flow-cats').style.display = 'none';
   $('flow-input').style.display = 'none';
   clearRec();
 }
@@ -545,7 +549,7 @@ async function submitFlow() {
   if (!raw || !draft.category) return;
 
   let amount = Math.round(raw);
-  let note   = '';
+  let note = '';
   if (inputCur === 'USD') { amount = Math.round(raw * rate); note = ` ($${raw})`; }
 
   let recUrl = null;
@@ -635,8 +639,8 @@ function showCtxMenu(pos, idx, type) {
   selCatIdx = idx; selCatType = type;
   const m = $('ctx-menu');
   if (!m) return;
-  m.style.left = Math.min((pos.clientX || 0), innerWidth  - 160) + 'px';
-  m.style.top  = Math.min((pos.clientY || 0), innerHeight - 100) + 'px';
+  m.style.left = Math.min((pos.clientX || 0), innerWidth - 160) + 'px';
+  m.style.top = Math.min((pos.clientY || 0), innerHeight - 100) + 'px';
   m.style.display = 'block';
 }
 document.addEventListener('click', () => { const m = $('ctx-menu'); if (m) m.style.display = 'none'; });
@@ -704,8 +708,8 @@ function openAction(id) {
 function openEdit() {
   const t = txList.find(x => x.id === selTxId);
   if (!t) return;
-  $('ed-cat').value  = t.category;
-  $('ed-amt').value  = t.amount;
+  $('ed-cat').value = t.category;
+  $('ed-amt').value = t.amount;
   $('ed-type').value = t.type;
   showOv('ov-edit');
 }
@@ -750,10 +754,10 @@ function showPin(mode) {
   const t = $('pin-ttl'), s = $('pin-sub'), c = $('pin-cancel-b'), bio = $('pin-bio-b');
 
   const msgs = {
-    unlock:         ['PIN Kod', 'Kirish uchun 4 xonali kod'],
-    setup_new:      ['Yangi PIN', '4 raqam kiriting'],
-    setup_confirm:  ['Tasdiqlash', 'PIN ni qayta kiriting'],
-    change_old:     ['Eski PIN', 'Avvalgi PIN ni kiriting'],
+    unlock: ['PIN Kod', 'Kirish uchun 4 xonali kod'],
+    setup_new: ['Yangi PIN', '4 raqam kiriting'],
+    setup_confirm: ['Tasdiqlash', 'PIN ni qayta kiriting'],
+    change_old: ['Eski PIN', 'Avvalgi PIN ni kiriting'],
   };
   const [tt, ss] = msgs[mode] || msgs.unlock;
   if (t) t.textContent = tt;
@@ -843,11 +847,11 @@ function openSettings() { updateSettingsUI(); showOv('ov-settings'); }
 function updateSettingsUI() {
   const ps = $('pin-status'), rb = $('pin-rm-b'), ri = $('rate-in');
   const br = $('bio-row'), bt = $('bio-tgl');
-  if (ps)  ps.textContent = pin ? 'Faol ✅' : 'O\'rnatilmagan';
-  if (rb)  rb.style.display = pin ? 'block' : 'none';
-  if (ri)  ri.value = rate;
-  if (br)  br.style.display = bioAvail ? 'flex' : 'none';
-  if (bt)  bt.classList.toggle('on', bioOn);
+  if (ps) ps.textContent = pin ? 'Faol ✅' : 'O\'rnatilmagan';
+  if (rb) rb.style.display = pin ? 'block' : 'none';
+  if (ri) ri.value = rate;
+  if (br) br.style.display = bioAvail ? 'flex' : 'none';
+  if (bt) bt.classList.toggle('on', bioOn);
 }
 
 async function saveRate(v) {
@@ -866,10 +870,10 @@ function toggleTheme() {
 function openExport() {
   const now = new Date(), first = new Date(now.getFullYear(), now.getMonth(), 1);
   $('ex-from').valueAsDate = first;
-  $('ex-to').valueAsDate   = now;
+  $('ex-to').valueAsDate = now;
   updateExportPreview();
   $('ex-from').onchange = updateExportPreview;
-  $('ex-to').onchange   = updateExportPreview;
+  $('ex-to').onchange = updateExportPreview;
   showOv('ov-export');
 }
 
@@ -897,16 +901,16 @@ async function makePDF() {
   doc.setTextColor(255, 255, 255); doc.setFontSize(20); doc.text('Kassa — Moliyaviy Hisobot', 14, 17);
   doc.setFontSize(10); doc.setTextColor(160, 160, 180); doc.text(`${sStr} — ${eStr}`, 14, 28);
 
-  const inc = data.filter(t => t.type === 'income' ).reduce((a, b) => a + b.amount, 0);
+  const inc = data.filter(t => t.type === 'income').reduce((a, b) => a + b.amount, 0);
   const exp = data.filter(t => t.type === 'expense').reduce((a, b) => a + b.amount, 0);
   let y = 48;
   doc.setTextColor(0); doc.setFontSize(10);
-  doc.text('Kirim:',   14, y); doc.setTextColor(16,185,129); doc.setFont('helvetica','bold'); doc.text(`+${fmt(inc)} so'm`, 36, y);
-  doc.setTextColor(0); doc.setFont('helvetica','normal');
-  doc.text('Chiqim:', 80, y); doc.setTextColor(239,68,68); doc.setFont('helvetica','bold'); doc.text(`-${fmt(exp)} so'm`, 103, y);
-  doc.setTextColor(0); doc.setFont('helvetica','normal');
-  doc.text('Qoldiq:', 148, y); doc.setTextColor(124,58,237); doc.setFont('helvetica','bold'); doc.text(`${fmt(inc-exp)} so'm`, 168, y);
-  doc.setFont('helvetica','normal');
+  doc.text('Kirim:', 14, y); doc.setTextColor(16, 185, 129); doc.setFont('helvetica', 'bold'); doc.text(`+${fmt(inc)} so'm`, 36, y);
+  doc.setTextColor(0); doc.setFont('helvetica', 'normal');
+  doc.text('Chiqim:', 80, y); doc.setTextColor(239, 68, 68); doc.setFont('helvetica', 'bold'); doc.text(`-${fmt(exp)} so'm`, 103, y);
+  doc.setTextColor(0); doc.setFont('helvetica', 'normal');
+  doc.text('Qoldiq:', 148, y); doc.setTextColor(124, 58, 237); doc.setFont('helvetica', 'bold'); doc.text(`${fmt(inc - exp)} so'm`, 168, y);
+  doc.setFont('helvetica', 'normal');
 
   doc.autoTable({
     startY: y + 12,
@@ -922,7 +926,7 @@ async function makePDF() {
     columnStyles: { 3: { halign: 'right', fontStyle: 'bold' } },
     didParseCell(d) {
       if (d.section === 'body' && d.column.index === 3) {
-        d.cell.styles.textColor = d.cell.raw.startsWith('+') ? [16,185,129] : [239,68,68];
+        d.cell.styles.textColor = d.cell.raw.startsWith('+') ? [16, 185, 129] : [239, 68, 68];
       }
     },
   });
@@ -933,7 +937,7 @@ async function makePDF() {
 
 function doExport() {
   const blob = new Blob([JSON.stringify({ txList, cats, pin, bio: bioOn }, null, 2)], { type: 'application/json' });
-  const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: `kassa_${isoNow().slice(0,10)}.json` });
+  const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: `kassa_${isoNow().slice(0, 10)}.json` });
   document.body.appendChild(a); a.click(); document.body.removeChild(a);
 }
 

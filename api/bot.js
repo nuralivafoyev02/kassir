@@ -1,9 +1,4 @@
 'use strict';
-/**
- * api/bot.js — Telegram Bot Webhook Handler
- * Vercel serverless / Express handler sifatida ishlaydi
- */
-
 const TelegramBot = require('node-telegram-bot-api');
 const { createClient } = require('@supabase/supabase-js');
 const fs   = require('fs');
@@ -87,12 +82,12 @@ function parseText(raw) {
   if (!isFinite(amount)) return null;
   const suffix = (m[2] || '').toLowerCase();
   if (['k', 'ming'].includes(suffix))               amount *= 1000;
-  else if (['mln', 'million', 'm'].includes(suffix)) amount *= 1_000_000;
-  else if (['mlrd', 'milliard'].includes(suffix))    amount *= 1_000_000_000;
+  else if (['mln', 'million', 'm'].includes(suffix)) amount *= 1000000;
+  else if (['mlrd', 'milliard'].includes(suffix))    amount *= 1000000000;
 
   // Determine type
-  const incWords = ['kirim','tushdi','keldi','avans','oylik','bonus','qaytdi','foyda','daromad','sotdim','tushum','oldim'];
-  const expWords = ['chiqim','ketdi','berdim','sarfladim','xarajat','sotib','uchun','tolandi',"to'landi",'taksi','ovqat'];
+  const incWords = ['kirim','tushdi','keldi','avans','oylik','bonus','qaytdi','foyda','daromad','sotdim','tushum','oldim', 'dan'];
+  const expWords = ['chiqim','ketdi','berdim','sarfladim','xarajat','sotib','uchun','tolandi',"to'landi",'taksi','ovqat', 'ga'];
 
   let type = 'expense';
   if (/^\s*\+/.test(lower) || incWords.some(w => lower.includes(w))) type = 'income';
