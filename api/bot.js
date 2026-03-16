@@ -91,7 +91,7 @@ function parseText(text) {
   else if (['m', 'mln', 'million'].includes(suffix)) amount *= 1000000;
   else if (['mlrd', 'milliard'].includes(suffix)) amount *= 1000000000;
 
-  const incomeKeywords = ['kirim', 'tushdi', 'keldi', 'avans', 'oylik', 'bonus', 'qaytdi', 'foyda', 'daromad', 'sotdim', 'tushum'];
+  const incomeKeywords = ['kirim', 'tushdi', 'keldi', 'avans', 'oylik', 'bonus', 'qaytdi', 'foyda', 'daromad', 'sotdim', 'tushum', 'dan'];
   const expenseKeywords = ['chiqim', 'ketdi', "to'landi", 'tolandi', 'xarajat', 'berdim', 'sotib', 'oldim', 'uchun', 'sarfladim', 'taksi', 'ovqat'];
 
   let type = 'expense';
