@@ -1,10 +1,16 @@
 {
   "name": "kassa-bot",
   "version": "1.0.0",
+  "description": "Telegram Mini App — shaxsiy moliya hisoblagich",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev":   "node server.js"
+  },
   "dependencies": {
     "@supabase/supabase-js": "^2.84.0",
-    "axios": "^1.13.2",
+    "axios":                 "^1.13.2",
     "node-telegram-bot-api": "^0.61.0",
-    "openai": "^6.9.1"
+    "openai":                "^6.9.1"
   }
 }

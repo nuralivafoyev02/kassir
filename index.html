@@ -1,78 +1,562 @@
 <!DOCTYPE html>
 <html lang="uz">
-
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Mening Kassam</title>
-    <link rel="stylesheet" href="style.css">
-    <link rel="stylesheet" href="loader.css">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <title>Mening Kassam</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="style.css">
 </head>
+<body class="bg-slate-950 text-white select-none">
 
-<body>
-    <div class="wrapper">
-        <h1>Tez kunda!</h1>
-        <p class="subtitle">
-            Mini app ustida ishlayapmiz.<br>Tez orada ishga tushadi.
-        </p>
-        <div class="gearbox">
-            <div class="overlay"></div>
-            <div class="gear one">
-                <div class="gear-inner">
-                    <div class="bar"></div>
-                    <div class="bar"></div>
-                    <div class="bar"></div>
-                </div>
-            </div>
-            <div class="gear two">
-                <div class="gear-inner">
-                    <div class="bar"></div>
-                    <div class="bar"></div>
-                    <div class="bar"></div>
-                </div>
-            </div>
-            <div class="gear three">
-                <div class="gear-inner">
-                    <div class="bar"></div>
-                    <div class="bar"></div>
-                    <div class="bar"></div>
-                </div>
-            </div>
-            <div class="gear four large">
-                <div class="gear-inner">
-                    <div class="bar"></div>
-                    <div class="bar"></div>
-                    <div class="bar"></div>
-                    <div class="bar"></div>
-                    <div class="bar"></div>
-                    <div class="bar"></div>
-                </div>
-            </div>
-        </div>
+<!-- ════════════════════════════════════════
+     PIN SCREEN
+════════════════════════════════════════ -->
+<div id="pin-screen" class="hidden fixed inset-0 z-50 bg-slate-950 flex flex-col items-center justify-center gap-6 p-6">
+  <div class="text-center">
+    <div class="text-4xl mb-2">🔒</div>
+    <h2 id="pin-title" class="text-xl font-bold">PIN Kod</h2>
+    <p id="pin-subtitle" class="text-sm text-slate-400 mt-1">Kirish uchun</p>
+  </div>
+
+  <div id="pin-dots" class="flex gap-4">
+    <div class="pin-dot"></div>
+    <div class="pin-dot"></div>
+    <div class="pin-dot"></div>
+    <div class="pin-dot"></div>
+  </div>
+
+  <button id="bio-btn" class="hidden flex-col items-center gap-1 text-blue-400 text-sm" onclick="triggerBiometric()">
+    <i data-lucide="fingerprint" class="w-8 h-8"></i>
+    <span>Biometrik</span>
+  </button>
+  <div id="bio-placeholder" class="h-10"></div>
+
+  <div class="grid grid-cols-3 gap-3 w-64">
+    <button class="pin-key" onclick="handlePinInput('1')">1</button>
+    <button class="pin-key" onclick="handlePinInput('2')">2</button>
+    <button class="pin-key" onclick="handlePinInput('3')">3</button>
+    <button class="pin-key" onclick="handlePinInput('4')">4</button>
+    <button class="pin-key" onclick="handlePinInput('5')">5</button>
+    <button class="pin-key" onclick="handlePinInput('6')">6</button>
+    <button class="pin-key" onclick="handlePinInput('7')">7</button>
+    <button class="pin-key" onclick="handlePinInput('8')">8</button>
+    <button class="pin-key" onclick="handlePinInput('9')">9</button>
+    <div></div>
+    <button class="pin-key" onclick="handlePinInput('0')">0</button>
+    <button class="pin-key text-rose-400" onclick="handlePinDelete()">
+      <i data-lucide="delete" class="w-5 h-5 mx-auto pointer-events-none"></i>
+    </button>
+  </div>
+  <button id="cancel-pin-setup" class="hidden text-slate-500 text-sm underline" onclick="cancelPinSetup()">Bekor qilish</button>
+</div>
+
+
+<!-- ════════════════════════════════════════
+     MAIN APP
+════════════════════════════════════════ -->
+<div class="app-container flex flex-col h-screen max-w-lg mx-auto relative overflow-hidden">
+
+  <!-- VIEWS -->
+  <div class="flex-1 relative overflow-hidden">
+
+    <!-- Skeleton -->
+    <div id="dashboard-skeleton" class="absolute inset-0 overflow-y-auto p-4 pb-24 space-y-4">
+      <div class="skeleton-card h-40 rounded-3xl"></div>
+      <div class="grid grid-cols-2 gap-3">
+        <div class="skeleton-card h-20 rounded-2xl"></div>
+        <div class="skeleton-card h-20 rounded-2xl"></div>
+      </div>
+      <div class="skeleton-card h-56 rounded-3xl"></div>
     </div>
-    <script src="app.js"></script>
-    <script>
-        const texts = [
-            "Tez orada ishga tushadi 🚀",
-            "Mini app ustida ish davom etmoqda ⚡",
-            "Yangi imkoniyatlar tayyorlanmoqda 🔥"
-        ]
-        const subtitle = document.querySelector(".subtitle")
-        let i = 0
-        function changeText() {
-            subtitle.classList.remove("show")
-            setTimeout(() => {
-                subtitle.innerText = texts[i]
-                subtitle.classList.add("show")
-                i++
-                if (i >= texts.length) {
-                    i = 0
-                }
-            }, 300)
-        }
-        subtitle.classList.add("show")
-        setInterval(changeText, 3000)
-    </script>
-</body>
 
+    <!-- ── DASHBOARD ── -->
+    <div id="view-dashboard" class="hidden absolute inset-0 overflow-y-auto p-4 pb-24 space-y-4">
+
+      <!-- Balance Card -->
+      <div id="balance-card" class="balance-card rounded-3xl p-5 relative overflow-hidden cursor-grab active:cursor-grabbing">
+        <div class="blob blob-1"></div>
+        <div class="blob blob-2"></div>
+        <div id="balance-swiper" class="relative z-10">
+          <div class="flex items-center justify-between mb-1">
+            <span class="text-white/60 text-xs font-medium tracking-wide">UMUMIY QOLDIQ</span>
+            <span id="currency-badge" class="text-[10px] bg-white/10 px-2 py-0.5 rounded-full text-white font-mono tracking-wider">UZS</span>
+          </div>
+          <div id="total-balance" class="text-4xl font-extrabold tracking-tight mt-1 text-white">0 so'm</div>
+          <div class="flex gap-1.5 mt-2">
+            <div id="dot-uzs" class="currency-dot active"></div>
+            <div id="dot-usd" class="currency-dot"></div>
+          </div>
+          <div class="flex gap-5 mt-4 pt-4 border-t border-white/10">
+            <div class="flex items-center gap-2">
+              <div class="w-7 h-7 rounded-full bg-emerald-400/20 flex items-center justify-center flex-none">
+                <i data-lucide="arrow-down-left" class="w-4 h-4 text-emerald-400"></i>
+              </div>
+              <div>
+                <div class="text-[10px] text-white/50">Kirim</div>
+                <div id="total-income" class="text-sm font-bold text-emerald-400">+0</div>
+              </div>
+            </div>
+            <div class="flex items-center gap-2">
+              <div class="w-7 h-7 rounded-full bg-rose-400/20 flex items-center justify-center flex-none">
+                <i data-lucide="arrow-up-right" class="w-4 h-4 text-rose-400"></i>
+              </div>
+              <div>
+                <div class="text-[10px] text-white/50">Chiqim</div>
+                <div id="total-expense" class="text-sm font-bold text-rose-400">-0</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Type Filter Cards -->
+      <div class="grid grid-cols-2 gap-3">
+        <div id="card-income" onclick="toggleTypeFilter('income')"
+          class="glass-panel p-3 rounded-2xl flex items-center gap-3 cursor-pointer transition-all hover:bg-emerald-500/10">
+          <div class="p-2.5 rounded-xl bg-emerald-500/10 text-emerald-400 flex-none">
+            <i data-lucide="trending-up" class="w-5 h-5"></i>
+          </div>
+          <div>
+            <div class="text-[11px] text-slate-400">Kirimlar</div>
+            <div class="text-xs font-semibold text-emerald-400 mt-0.5">Filtrlash</div>
+          </div>
+        </div>
+        <div id="card-expense" onclick="toggleTypeFilter('expense')"
+          class="glass-panel p-3 rounded-2xl flex items-center gap-3 cursor-pointer transition-all hover:bg-rose-500/10">
+          <div class="p-2.5 rounded-xl bg-rose-500/10 text-rose-400 flex-none">
+            <i data-lucide="trending-down" class="w-5 h-5"></i>
+          </div>
+          <div>
+            <div class="text-[11px] text-slate-400">Chiqimlar</div>
+            <div class="text-xs font-semibold text-rose-400 mt-0.5">Filtrlash</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Date Filters -->
+      <div class="flex gap-2 overflow-x-auto pb-1 scrollbar-none">
+        <button class="date-filter-btn filter-active" data-filter="all" onclick="setDateFilter('all')">Hammasi</button>
+        <button class="date-filter-btn" data-filter="week" onclick="setDateFilter('week')">Hafta</button>
+        <button class="date-filter-btn" data-filter="month" onclick="setDateFilter('month')">Oy</button>
+        <button class="date-filter-btn" data-filter="custom" onclick="openDateRangeModal()">📅 Maxsus</button>
+      </div>
+
+      <!-- Chart -->
+      <div class="glass-panel rounded-3xl p-4">
+        <h3 class="text-sm font-semibold text-slate-300 mb-3">Kategoriyalar bo'yicha</h3>
+        <div class="relative" style="height:180px">
+          <canvas id="categoryChart"></canvas>
+          <div id="no-data-msg" class="hidden absolute inset-0 flex flex-col items-center justify-center text-slate-500 text-sm gap-2">
+            <i data-lucide="pie-chart" class="w-10 h-10 opacity-30"></i>
+            Ma'lumot yo'q
+          </div>
+        </div>
+        <table class="w-full mt-3 text-sm">
+          <tbody id="top-transaction-list"></tbody>
+        </table>
+      </div>
+
+      <!-- Trends -->
+      <div id="trend-container" class="hidden space-y-2">
+        <div class="text-xs font-semibold text-slate-400 uppercase tracking-wider px-1">📊 Trendlar</div>
+        <div id="trend-list" class="grid grid-cols-2 gap-2"></div>
+      </div>
+
+      <!-- Quick Actions -->
+      <div class="grid grid-cols-2 gap-3">
+        <button onclick="openSettings()"
+          class="glass-panel p-3 rounded-2xl flex items-center justify-center gap-2 text-sm text-slate-300 hover:bg-slate-800/50 active:scale-95 transition-all">
+          <i data-lucide="settings" class="w-4 h-4"></i> Sozlamalar
+        </button>
+        <button onclick="openExportModal()"
+          class="glass-panel p-3 rounded-2xl flex items-center justify-center gap-2 text-sm text-slate-300 hover:bg-slate-800/50 active:scale-95 transition-all">
+          <i data-lucide="file-down" class="w-4 h-4"></i> Hisobot PDF
+        </button>
+      </div>
+    </div><!-- /dashboard -->
+
+
+    <!-- ── BOT VIEW ── -->
+    <div id="view-bot" class="hidden absolute inset-0 flex flex-col" style="padding-bottom:72px">
+      <div class="px-4 pt-4 pb-2 flex-none">
+        <h2 class="text-lg font-bold">Kassa Yordamchisi</h2>
+        <p class="text-xs text-slate-400">Kirim yoki chiqimni tez qo'shing</p>
+      </div>
+
+      <div id="chat-messages" class="flex-1 overflow-y-auto px-4 py-2 space-y-3">
+        <div class="msg-wrapper ai fade-in">
+          <div class="msg-bubble ai">
+            👋 Assalomu alaykum! Kirim yoki chiqim qo'shish uchun pastdagi tugmalardan foydalaning.
+          </div>
+        </div>
+      </div>
+
+      <div class="flex-none px-4 pb-4 pt-2 space-y-3 border-t border-slate-800/50">
+        <!-- Start Actions -->
+        <div id="bot-start-actions" class="grid grid-cols-2 gap-3">
+          <button onclick="startBotFlow('income')"
+            class="p-4 rounded-2xl bg-emerald-500/10 border border-emerald-500/25 text-emerald-400 font-bold flex items-center justify-center gap-2 active:scale-95 transition-all hover:bg-emerald-500/20">
+            <i data-lucide="plus-circle" class="w-5 h-5"></i> Kirim
+          </button>
+          <button onclick="startBotFlow('expense')"
+            class="p-4 rounded-2xl bg-rose-500/10 border border-rose-500/25 text-rose-400 font-bold flex items-center justify-center gap-2 active:scale-95 transition-all hover:bg-rose-500/20">
+            <i data-lucide="minus-circle" class="w-5 h-5"></i> Chiqim
+          </button>
+        </div>
+
+        <!-- Category Selector -->
+        <div id="category-selector" class="hidden space-y-3">
+          <div class="flex items-center justify-between">
+            <span class="text-sm text-slate-300 font-medium">Kategoriya tanlang:</span>
+            <button onclick="openAddCategoryModal()"
+              class="text-xs text-blue-400 border border-blue-500/30 rounded-lg px-2 py-1 flex items-center gap-1 hover:bg-blue-500/10 transition-colors">
+              <i data-lucide="plus" class="w-3 h-3"></i> Yangi
+            </button>
+          </div>
+          <div id="category-grid" class="grid grid-cols-3 gap-2 max-h-44 overflow-y-auto"></div>
+          <button onclick="cancelBotFlow()" class="w-full py-2 text-slate-500 text-sm rounded-xl hover:text-slate-400 transition-colors">
+            ✕ Bekor qilish
+          </button>
+        </div>
+
+        <!-- Amount Input -->
+        <div id="bot-input-container" class="hidden space-y-3">
+          <div class="flex gap-2">
+            <button id="currency-toggle" onclick="toggleInputCurrency()"
+              class="px-3 py-2.5 rounded-xl border border-emerald-500/30 bg-emerald-500/5 text-emerald-400 text-sm font-bold transition-all hover:bg-emerald-500/15 flex-none">
+              UZS
+            </button>
+            <input id="bot-input" type="number" inputmode="decimal" placeholder="Summani kiriting..."
+              class="flex-1 bg-slate-800/80 border border-slate-700 rounded-xl px-4 py-2.5 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 transition-colors">
+          </div>
+
+          <div id="receipt-preview-area" class="hidden flex items-center gap-3 p-3 bg-slate-800/60 rounded-xl border border-slate-700/50">
+            <img id="receipt-img-preview" src="" alt="Chek" class="w-14 h-14 object-cover rounded-lg flex-none">
+            <div class="flex-1 min-w-0">
+              <div class="text-sm text-slate-300 font-medium">✅ Chek biriktirildi</div>
+              <button onclick="clearReceipt()" class="text-xs text-rose-400 mt-0.5 hover:text-rose-300">O'chirish</button>
+            </div>
+          </div>
+
+          <div class="flex gap-2">
+            <label class="flex-none w-11 h-11 rounded-xl bg-slate-800/80 border border-slate-700 cursor-pointer flex items-center justify-center hover:bg-slate-700/50 transition-colors">
+              <i data-lucide="paperclip" class="w-5 h-5 text-slate-400"></i>
+              <input id="file-upload" type="file" accept="image/*" class="hidden" onchange="handleReceiptUpload(event)">
+            </label>
+            <button onclick="submitBotInput()"
+              class="flex-1 h-11 rounded-xl bg-blue-600 hover:bg-blue-500 active:bg-blue-700 text-white font-bold transition-all active:scale-95">
+              💾 Saqlash
+            </button>
+            <button onclick="cancelBotFlow()"
+              class="flex-none w-11 h-11 rounded-xl bg-slate-800/80 border border-slate-700 flex items-center justify-center text-slate-400 hover:bg-slate-700/50 transition-colors">
+              <i data-lucide="x" class="w-5 h-5"></i>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div><!-- /bot -->
+
+
+    <!-- ── HISTORY ── -->
+    <div id="view-history" class="hidden absolute inset-0 overflow-y-auto p-4 pb-24 space-y-3">
+      <h2 class="text-lg font-bold">Operatsiyalar tarixi</h2>
+      <div id="history-list" class="space-y-2"></div>
+      <div id="empty-history" class="hidden flex flex-col items-center justify-center py-16 text-center">
+        <i data-lucide="inbox" class="w-16 h-16 text-slate-700 mb-4"></i>
+        <p class="text-slate-400 font-medium">Hali operatsiyalar yo'q</p>
+        <p class="text-sm text-slate-500 mt-1">Bot tabidan kirim yoki chiqim qo'shing</p>
+      </div>
+    </div><!-- /history -->
+
+  </div><!-- /views -->
+
+
+  <!-- BOTTOM NAV -->
+  <nav class="flex-none bg-slate-900/95 backdrop-blur-xl border-t border-slate-800/80">
+    <div class="flex">
+      <button id="nav-dashboard" class="nav-item active" onclick="switchTab('dashboard')">
+        <i data-lucide="layout-dashboard" class="w-5 h-5"></i>
+        <span>Bosh sahifa</span>
+      </button>
+      <button id="nav-bot" class="nav-item" onclick="switchTab('bot')">
+        <i data-lucide="plus-circle" class="w-6 h-6 text-white"></i>
+        <span>Qo'shish</span>
+      </button>
+      <button id="nav-history" class="nav-item" onclick="switchTab('history')">
+        <i data-lucide="clock" class="w-5 h-5"></i>
+        <span>Tarix</span>
+      </button>
+    </div>
+  </nav>
+
+</div><!-- /app-container -->
+
+
+<!-- ════════════════════════════════════════
+     MODALS
+════════════════════════════════════════ -->
+
+<!-- Category Context Menu -->
+<div id="cat-context-menu" class="hidden fixed z-50 rounded-2xl shadow-2xl overflow-hidden border border-slate-700/80"
+  style="min-width:160px;background:#1e293b">
+  <button onclick="editCatFromMenu()" class="w-full flex items-center gap-3 px-4 py-3 text-sm text-blue-400 hover:bg-slate-700/50 transition-colors">
+    <i data-lucide="edit-3" class="w-4 h-4"></i> Tahrirlash
+  </button>
+  <div class="border-t border-slate-700/50"></div>
+  <button onclick="deleteCatFromMenu()" class="w-full flex items-center gap-3 px-4 py-3 text-sm text-rose-400 hover:bg-slate-700/50 transition-colors">
+    <i data-lucide="trash-2" class="w-4 h-4"></i> O'chirish
+  </button>
+</div>
+
+<!-- Receipt Viewer -->
+<div id="receipt-modal" class="hidden modal-overlay" onclick="closeReceiptModal()">
+  <div class="flex items-center justify-center w-full h-full p-4">
+    <img id="full-receipt-image" src="" alt="Chek" class="max-w-full max-h-full object-contain rounded-2xl shadow-2xl">
+  </div>
+</div>
+
+<!-- Action Sheet -->
+<div id="action-sheet" class="hidden modal-overlay flex items-end justify-center" onclick="closeActionSheet(event)">
+  <div class="bg-slate-800 rounded-t-3xl w-full max-w-lg p-4 pb-8 space-y-2">
+    <div class="w-10 h-1 bg-slate-600 rounded-full mx-auto mb-4"></div>
+    <div id="action-sheet-content" class="space-y-2"></div>
+  </div>
+</div>
+
+<!-- Delete Confirm -->
+<div id="delete-modal" class="hidden modal-overlay flex items-center justify-center p-6">
+  <div class="glass-panel rounded-3xl p-6 w-full max-w-sm text-center space-y-4">
+    <div class="w-14 h-14 rounded-full bg-rose-500/10 flex items-center justify-center mx-auto">
+      <i data-lucide="trash-2" class="w-7 h-7 text-rose-400"></i>
+    </div>
+    <div>
+      <h3 class="font-bold text-lg">O'chirishni tasdiqlang</h3>
+      <p class="text-sm text-slate-400 mt-1">Bu operatsiya butunlay o'chirib tashlanadi.</p>
+    </div>
+    <div class="flex gap-3">
+      <button onclick="closeModal('delete-modal')" class="flex-1 py-3 rounded-2xl bg-slate-700/50 text-slate-300 font-medium">Bekor qilish</button>
+      <button onclick="confirmDelete()" class="flex-1 py-3 rounded-2xl bg-rose-500 text-white font-bold">O'chirish</button>
+    </div>
+  </div>
+</div>
+
+<!-- Edit Transaction -->
+<div id="edit-modal" class="hidden modal-overlay flex items-center justify-center p-6">
+  <div class="glass-panel rounded-3xl p-6 w-full max-w-sm space-y-4">
+    <h3 class="font-bold text-lg">Tahrirlash</h3>
+    <div class="space-y-3">
+      <div>
+        <label class="text-xs text-slate-400 mb-1 block">Kategoriya</label>
+        <input id="edit-category" type="text"
+          class="w-full bg-slate-800/80 border border-slate-700 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:border-blue-500 transition-colors">
+      </div>
+      <div>
+        <label class="text-xs text-slate-400 mb-1 block">Summa (so'm)</label>
+        <input id="edit-amount" type="number"
+          class="w-full bg-slate-800/80 border border-slate-700 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:border-blue-500 transition-colors">
+      </div>
+      <div>
+        <label class="text-xs text-slate-400 mb-1 block">Turi</label>
+        <select id="edit-type"
+          class="w-full bg-slate-800 border border-slate-700 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:border-blue-500 transition-colors">
+          <option value="income">📈 Kirim</option>
+          <option value="expense">📉 Chiqim</option>
+        </select>
+      </div>
+    </div>
+    <div class="flex gap-3 pt-1">
+      <button onclick="closeModal('edit-modal')" class="flex-1 py-3 rounded-2xl bg-slate-700/50 text-slate-300 font-medium">Bekor qilish</button>
+      <button onclick="saveEdit()" class="flex-1 py-3 rounded-2xl bg-blue-600 text-white font-bold">Saqlash</button>
+    </div>
+  </div>
+</div>
+
+<!-- Edit Category -->
+<div id="edit-cat-modal" class="hidden modal-overlay flex items-center justify-center p-6">
+  <div class="glass-panel rounded-3xl p-6 w-full max-w-sm space-y-4">
+    <h3 class="font-bold text-lg">Kategoriyani tahrirlash</h3>
+    <input id="edit-cat-name-input" type="text" placeholder="Yangi nom..."
+      class="w-full bg-slate-800/80 border border-slate-700 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:border-blue-500 transition-colors">
+    <div class="flex gap-3">
+      <button onclick="closeModal('edit-cat-modal')" class="flex-1 py-3 rounded-2xl bg-slate-700/50 text-slate-300 font-medium">Bekor qilish</button>
+      <button onclick="confirmEditCat()" class="flex-1 py-3 rounded-2xl bg-blue-600 text-white font-bold">Saqlash</button>
+    </div>
+  </div>
+</div>
+
+<!-- Add Category -->
+<div id="add-cat-modal" class="hidden modal-overlay flex items-end justify-center">
+  <div class="glass-panel rounded-t-3xl w-full max-w-lg p-6 pb-8 space-y-4 max-h-[85vh] overflow-y-auto">
+    <div class="w-10 h-1 bg-slate-600 rounded-full mx-auto"></div>
+    <h3 class="font-bold text-lg">Yangi kategoriya</h3>
+    <div>
+      <label class="text-xs text-slate-400 mb-1 block">Nom</label>
+      <input id="new-cat-name" type="text" placeholder="Kategoriya nomi..."
+        class="w-full bg-slate-800/80 border border-slate-700 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:border-blue-500 transition-colors">
+    </div>
+    <div>
+      <label class="text-xs text-slate-400 mb-2 block">Ikonka tanlang</label>
+      <div id="icon-selector" class="grid grid-cols-6 gap-2 max-h-36 overflow-y-auto"></div>
+    </div>
+    <div class="flex gap-3 pt-1">
+      <button onclick="closeModal('add-cat-modal')" class="flex-1 py-3 rounded-2xl bg-slate-700/50 text-slate-300 font-medium">Bekor qilish</button>
+      <button onclick="saveNewCategory()" class="flex-1 py-3 rounded-2xl bg-blue-600 text-white font-bold">Saqlash</button>
+    </div>
+  </div>
+</div>
+
+<!-- Date Range -->
+<div id="date-range-modal" class="hidden modal-overlay flex items-center justify-center p-6">
+  <div class="glass-panel rounded-3xl p-6 w-full max-w-sm space-y-4">
+    <h3 class="font-bold text-lg">Sana oralig'i</h3>
+    <div class="space-y-3">
+      <div>
+        <label class="text-xs text-slate-400 mb-1 block">Boshlanish</label>
+        <input id="start-date" type="date"
+          class="w-full bg-slate-800/80 border border-slate-700 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:border-blue-500 transition-colors">
+      </div>
+      <div>
+        <label class="text-xs text-slate-400 mb-1 block">Tugash</label>
+        <input id="end-date" type="date"
+          class="w-full bg-slate-800/80 border border-slate-700 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:border-blue-500 transition-colors">
+      </div>
+    </div>
+    <div class="flex gap-3">
+      <button onclick="closeModal('date-range-modal')" class="flex-1 py-3 rounded-2xl bg-slate-700/50 text-slate-300 font-medium">Bekor qilish</button>
+      <button onclick="applyDateRange()" class="flex-1 py-3 rounded-2xl bg-blue-600 text-white font-bold">Qo'llash</button>
+    </div>
+  </div>
+</div>
+
+<!-- PDF Export -->
+<div id="export-modal" class="hidden modal-overlay flex items-center justify-center p-6">
+  <div class="glass-panel rounded-3xl p-6 w-full max-w-sm space-y-4">
+    <h3 class="font-bold text-lg">📄 Hisobot yaratish</h3>
+    <div class="space-y-3">
+      <div>
+        <label class="text-xs text-slate-400 mb-1 block">Boshlanish sanasi</label>
+        <input id="export-start-date" type="date"
+          class="w-full bg-slate-800/80 border border-slate-700 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:border-blue-500 transition-colors">
+      </div>
+      <div>
+        <label class="text-xs text-slate-400 mb-1 block">Tugash sanasi</label>
+        <input id="export-end-date" type="date"
+          class="w-full bg-slate-800/80 border border-slate-700 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:border-blue-500 transition-colors">
+      </div>
+    </div>
+    <div class="glass-panel rounded-2xl p-3 space-y-1.5">
+      <div class="flex justify-between text-sm">
+        <span class="text-slate-400">Operatsiyalar:</span>
+        <span id="export-count" class="font-bold">0 ta</span>
+      </div>
+      <div class="flex justify-between text-sm">
+        <span class="text-slate-400">Cheklar:</span>
+        <span id="export-receipts" class="font-bold">0 ta</span>
+      </div>
+    </div>
+    <div class="flex gap-3">
+      <button onclick="closeModal('export-modal')" class="flex-1 py-3 rounded-2xl bg-slate-700/50 text-slate-300 font-medium">Bekor qilish</button>
+      <button onclick="generatePDF()" class="flex-1 py-3 rounded-2xl bg-blue-600 text-white font-bold">PDF Yaratish</button>
+    </div>
+  </div>
+</div>
+
+<!-- Settings -->
+<div id="settings-modal" class="hidden modal-overlay flex items-end justify-center">
+  <div class="bg-slate-900 border border-slate-800/80 rounded-t-3xl w-full max-w-lg p-6 pb-8 max-h-[90vh] overflow-y-auto space-y-1">
+    <div class="w-10 h-1 bg-slate-700 rounded-full mx-auto mb-4"></div>
+    <h3 class="font-bold text-xl mb-5">⚙️ Sozlamalar</h3>
+
+    <!-- Exchange Rate -->
+    <div class="settings-row">
+      <div>
+        <div class="text-sm font-medium">Valyuta kursi</div>
+        <div class="text-xs text-slate-400">1 USD = ? UZS</div>
+      </div>
+      <input id="exchange-rate-input" type="number" placeholder="12850"
+        class="w-28 bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white text-right text-sm focus:outline-none focus:border-blue-500 transition-colors"
+        onchange="saveExchangeRate(this.value)">
+    </div>
+
+    <!-- PIN -->
+    <div class="settings-row">
+      <div>
+        <div class="text-sm font-medium">PIN Kod</div>
+        <div id="pin-status-text" class="text-xs text-slate-400">O'rnatilmagan</div>
+      </div>
+      <button onclick="startPinSetup(); closeModal('settings-modal');"
+        class="px-4 py-2 rounded-xl bg-blue-600/20 text-blue-400 border border-blue-500/30 text-sm font-medium hover:bg-blue-600/30 transition-colors">
+        O'rnatish
+      </button>
+    </div>
+    <div class="px-1 pb-1">
+      <button id="btn-remove-pin" onclick="removePin()" class="hidden text-xs text-rose-400 hover:text-rose-300 transition-colors">
+        — PIN kodni o'chirish
+      </button>
+    </div>
+
+    <!-- Biometric -->
+    <div id="bio-row" class="settings-row hidden">
+      <div>
+        <div class="text-sm font-medium">Biometrik kirish</div>
+        <div class="text-xs text-slate-400">Touch ID / Face ID</div>
+      </div>
+      <label class="toggle-switch">
+        <input id="bio-toggle" type="checkbox" onchange="toggleBiometric(this)">
+        <span class="toggle-track"></span>
+      </label>
+    </div>
+
+    <!-- Theme -->
+    <div class="settings-row">
+      <div>
+        <div class="text-sm font-medium">Mavzu</div>
+        <div class="text-xs text-slate-400">Qoʻngʻir / Oq rejim</div>
+      </div>
+      <button onclick="toggleTheme()"
+        class="px-4 py-2 rounded-xl bg-slate-700/50 text-slate-300 border border-slate-600/50 text-sm font-medium hover:bg-slate-700 transition-colors">
+        🌙 O'zgartirish
+      </button>
+    </div>
+
+    <div class="border-t border-slate-800 my-3"></div>
+
+    <div class="space-y-2">
+      <div class="text-xs text-slate-500 uppercase tracking-wider px-1 mb-3">Ma'lumotlar</div>
+      <button onclick="exportData()" class="settings-action-btn text-slate-300">
+        <i data-lucide="download" class="w-4 h-4"></i> JSON Eksport
+      </button>
+      <label class="settings-action-btn text-slate-300 cursor-pointer">
+        <i data-lucide="upload" class="w-4 h-4"></i> JSON Import
+        <input type="file" accept=".json" class="hidden" onchange="importData(event)">
+      </label>
+      <button onclick="confirmResetData()" class="settings-action-btn text-rose-400">
+        <i data-lucide="trash" class="w-4 h-4"></i> Barcha ma'lumotlarni o'chirish
+      </button>
+    </div>
+
+    <div class="pt-4">
+      <button onclick="closeModal('settings-modal')" class="w-full py-3 rounded-2xl bg-slate-800 text-slate-300 font-medium hover:bg-slate-700 transition-colors">
+        Yopish
+      </button>
+    </div>
+  </div>
+</div>
+
+
+<!-- ════════════════════════════════════════
+     SCRIPTS (loading order matters!)
+════════════════════════════════════════ -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<script src="/api/config.js"></script>
+<script src="app.js"></script>
+</body>
 </html>
