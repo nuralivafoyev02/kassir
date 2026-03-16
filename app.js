@@ -1,1268 +1,980 @@
-// ════════════════════════════════════════
-// CONFIG
-// ════════════════════════════════════════
-const APP_CONFIG = window.__APP_CONFIG__ || {};
-const SUPABASE_URL = APP_CONFIG.SUPABASE_URL || '';
-const SUPABASE_ANON_KEY = APP_CONFIG.SUPABASE_ANON_KEY || '';
+'use strict';
+// ═══════════════════════════════════════════════════════
+//  KASSA — app.js  (noldan qayta yozilgan)
+//  Asosiy farqlar:
+//   1. UI DARHOL ko'rinadi — data kelishini kutmaydi
+//   2. Config fetch() orqali olinadi — <script> tag emas
+//   3. supabase = null bo'lsa ham UI ishlaydi (offline rejim)
+//   4. Barcha DOM ID'lar index.html bilan mos
+// ═══════════════════════════════════════════════════════
 
-const supabase = (SUPABASE_URL && SUPABASE_ANON_KEY && window.supabase?.createClient)
-    ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
-    : null;
+// ─── TELEGRAM ───────────────────────────────────────────
+const tg = window.Telegram?.WebApp;
+if (tg) { tg.expand(); tg.setHeaderColor?.('#0a0a0f'); }
 
-const tg = window.Telegram?.WebApp || { expand: () => {}, initDataUnsafe: {} };
-tg.expand?.();
-
-// ════════════════════════════════════════
-// STORAGE (localStorage wrapper)
-// ════════════════════════════════════════
-const storage = {
-    get(key, fallback = null) {
-        try { const v = localStorage.getItem(key); return v ?? fallback; }
-        catch { return fallback; }
-    },
-    set(key, value) {
-        try { localStorage.setItem(key, String(value)); return true; }
-        catch { return false; }
-    },
-    remove(key) {
-        try { localStorage.removeItem(key); return true; }
-        catch { return false; }
-    },
+// ─── STORAGE ────────────────────────────────────────────
+const store = {
+  get: (k, fb = null) => { try { return localStorage.getItem(k) ?? fb; } catch { return fb; } },
+  set: (k, v) => { try { localStorage.setItem(k, String(v)); } catch {} },
+  del: (k)    => { try { localStorage.removeItem(k);         } catch {} },
 };
 
-// ════════════════════════════════════════
-// USER ID
-// ════════════════════════════════════════
-function resolveCurrentUserId() {
-    const params = new URLSearchParams(window.location.search);
-    const fromTelegram = Number(tg.initDataUnsafe?.user?.id || 0);
-    const fromQuery    = Number(params.get('user_id') || 0);
-    const fromStorage  = Number(storage.get('debugUserId') || 0);
-    const resolved = fromTelegram || fromQuery || fromStorage || 0;
-    if (fromQuery && fromQuery !== fromStorage) storage.set('debugUserId', String(fromQuery));
-    return resolved;
+// ─── USER ID ────────────────────────────────────────────
+function getUserId() {
+  const tgId   = Number(tg?.initDataUnsafe?.user?.id || 0);
+  const qId    = Number(new URLSearchParams(location.search).get('user_id') || 0);
+  const cached = Number(store.get('uid') || 0);
+  const id = tgId || qId || cached || 0;
+  if (qId && qId !== cached) store.set('uid', qId);
+  return id;
 }
-const currentUserId = resolveCurrentUserId();
+const UID = getUserId();
 
-// ════════════════════════════════════════
-// CONSTANTS
-// ════════════════════════════════════════
-const ICONS = [
-    'shopping-cart', 'zap', 'wifi', 'smartphone', 'car', 'home', 'gift',
-    'coffee', 'music', 'book', 'heart', 'smile', 'star', 'briefcase',
-    'credit-card', 'monitor', 'tool', 'truck', 'shopping-bag', 'banknote',
-    'pill', 'shirt', 'bus',
+// ─── ICONS LIST ─────────────────────────────────────────
+const ICON_NAMES = [
+  'shopping-cart','coffee','car','home','smartphone','bus','music','book',
+  'briefcase','credit-card','gift','heart','star','zap','tool','truck',
+  'shopping-bag','banknote','pill','shirt','wifi','monitor','smile','film',
 ];
 
-// ════════════════════════════════════════
-// LOGGING
-// ════════════════════════════════════════
-async function sendClientLog(level, scope, message = '', payload = {}) {
-    try {
-        await fetch('/api/client-log', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                level, scope, message, payload, currentUserId,
-                url: window.location.href,
-                userAgent: navigator.userAgent,
-                tgUserId: tg.initDataUnsafe?.user?.id || null,
-            }),
-        });
-    } catch { /* never break the app on log failure */ }
+// Inline SVG paths for category icons (no external lib needed)
+const SVGS = {
+  'shopping-cart': '<path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/>',
+  'coffee':        '<path d="M18 8h1a4 4 0 0 1 0 8h-1"/><path d="M2 8h16v9a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V8z"/><line x1="6" y1="1" x2="6" y2="4"/><line x1="10" y1="1" x2="10" y2="4"/><line x1="14" y1="1" x2="14" y2="4"/>',
+  'car':           '<rect x="1" y="3" width="15" height="13" rx="2"/><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/>',
+  'home':          '<path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/>',
+  'smartphone':    '<rect x="5" y="2" width="14" height="20" rx="2" ry="2"/><line x1="12" y1="18" x2="12.01" y2="18"/>',
+  'bus':           '<path d="M8 6v6"/><path d="M16 6v6"/><path d="M2 12h19.6"/><path d="M18 18h3s.5-1.7.8-2.8c.1-.4.2-.8.2-1.2 0-.4-.1-.8-.2-1.2l-1.4-5C20.1 6.8 19.1 6 18 6H4a2 2 0 0 0-2 2v10h3"/><circle cx="7" cy="18" r="2"/><path d="M9 18h5"/><circle cx="16" cy="18" r="2"/>',
+  'music':         '<path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>',
+  'book':          '<path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>',
+  'briefcase':     '<rect x="2" y="7" width="20" height="14" rx="2" ry="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/>',
+  'credit-card':   '<rect x="1" y="4" width="22" height="16" rx="2" ry="2"/><line x1="1" y1="10" x2="23" y2="10"/>',
+  'gift':          '<polyline points="20 12 20 22 4 22 4 12"/><rect x="2" y="7" width="20" height="5"/><line x1="12" y1="22" x2="12" y2="7"/><path d="M12 7H7.5a2.5 2.5 0 0 1 0-5C11 2 12 7 12 7z"/><path d="M12 7h4.5a2.5 2.5 0 0 0 0-5C13 2 12 7 12 7z"/>',
+  'heart':         '<path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>',
+  'star':          '<polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>',
+  'zap':           '<polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>',
+  'tool':          '<path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>',
+  'truck':         '<rect x="1" y="3" width="15" height="13"/><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/>',
+  'shopping-bag':  '<path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/>',
+  'banknote':      '<rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="2"/><path d="M6 12h.01M18 12h.01"/>',
+  'pill':          '<path d="M10.5 20H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-6.5"/><path d="M8 11h8"/><circle cx="12" cy="16" r="3"/>',
+  'shirt':         '<path d="M20.38 3.46 16 2a4 4 0 0 1-8 0L3.62 3.46a2 2 0 0 0-1.34 2.23l.58 3.57a1 1 0 0 0 .99.84H6v10c0 1.1.9 2 2 2h8a2 2 0 0 0 2-2V10h2.15a1 1 0 0 0 .99-.84l.58-3.57a2 2 0 0 0-1.34-2.23z"/>',
+  'wifi':          '<path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M1.42 9a16 16 0 0 1 21.16 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><line x1="12" y1="20" x2="12.01" y2="20"/>',
+  'monitor':       '<rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/>',
+  'smile':         '<circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/>',
+  'film':          '<rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18"/><line x1="7" y1="2" x2="7" y2="22"/><line x1="17" y1="2" x2="17" y2="22"/><line x1="2" y1="12" x2="22" y2="12"/><line x1="2" y1="7" x2="7" y2="7"/><line x1="2" y1="17" x2="7" y2="17"/><line x1="17" y1="17" x2="22" y2="17"/><line x1="17" y1="7" x2="22" y2="7"/>',
+};
+function svgIcon(name, cls = '') {
+  const p = SVGS[name] || SVGS['star'];
+  return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="${cls}">${p}</svg>`;
 }
 
-const logInfo  = (scope, payload = {}) => { console.log(`[WEBAPP:${scope}]`, payload); sendClientLog('info', scope, '', payload); };
-const logError = (scope, error, payload = {}) => {
-    const message = error?.message || String(error);
-    console.error(`[WEBAPP:${scope}]`, { message, ...payload, raw: error });
-    sendClientLog('error', scope, message, { ...payload, stack: error?.stack || null });
+// ─── STATE ───────────────────────────────────────────────
+let db         = null;          // supabase client (null = offline)
+let txList     = [];            // all transactions
+let cats       = { income: [], expense: [] };
+let pin        = store.get('pin');
+let bioOn      = store.get('bio') === 'true';
+let rate       = Number(store.get('rate') || 12850);
+let currency   = 'UZS';
+let typeFilt   = 'all';
+let dateFilt   = 'all';
+let selTxId    = null;
+let selCatIdx  = null;
+let selCatType = null;
+let selIcon    = 'star';
+let draft      = {};            // current transaction being built
+let inputCur   = 'UZS';
+let pinMode    = 'unlock';      // unlock | setup_new | setup_confirm | change_old
+let pinBuf     = '';
+let pinTemp    = '';
+let bioAvail   = false;
+let myChart    = null;
+
+// ─── HELPERS ────────────────────────────────────────────
+const fmt = n => {
+  const v = Number(n);
+  if (!isFinite(v)) return '0';
+  return new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 2 }).format(v);
+};
+const isoNow = (ms = Date.now()) => new Date(ms).toISOString();
+const toMs = v => {
+  if (typeof v === 'number') return v;
+  const p = new Date(v).getTime();
+  return isFinite(p) ? p : Date.now();
+};
+const normTx = r => ({ ...r, amount: Number(r.amount) || 0, ms: toMs(r.date), receipt_url: r.receipt_url || null });
+const normAll = rows => (rows || []).map(normTx);
+const vib = s => tg?.HapticFeedback?.impactOccurred(s);
+const $ = id => document.getElementById(id);
+const showOv = id => { const el = $(id); if (el) { el.classList.add('on'); } };
+const closeOv = (id, e) => {
+  if (e) { const sh = e.currentTarget?.querySelector('.sheet'); if (sh && sh.contains(e.target)) return; }
+  $(id)?.classList.remove('on');
 };
 
-// ════════════════════════════════════════
-// STATE
-// ════════════════════════════════════════
-let transactions  = [];
-let allCats       = { income: [], expense: [] };
-let pin           = storage.get('pin');
-let bioEnabled    = storage.get('bio') === 'true';
-let exchangeRate  = Number(storage.get('exchangeRate') || 12850);
-let activeType    = 'all';
-let activeDate    = 'all';
-let draft         = { receipt: null, rawFile: null };
-let selId         = null;
-let selIcon       = 'circle';
-let pinInput      = '';
-let pinStep       = 'unlock';
-let tempPin       = '';
-let selCatIndex   = null;
-let selCatType    = null;
-let isBiometricAvailable = false;
-let dashboardCurrency = 'UZS';
-let inputCurrency     = 'UZS';
-
-// ════════════════════════════════════════
-// HELPERS
-// ════════════════════════════════════════
-function safeCreateIcons() {
-    try { window.lucide?.createIcons?.(); } catch (e) { logError('lucide.createIcons', e); }
+function showErr(msg, dur = 4000) {
+  const el = $('err-bar');
+  if (!el) return;
+  el.textContent = msg;
+  el.style.display = 'block';
+  setTimeout(() => { el.style.display = 'none'; }, dur);
 }
 
-const toIsoString = (value = Date.now()) => new Date(value).toISOString();
-
-const toDateMs = (value) => {
-    if (typeof value === 'number') return value;
-    const p = new Date(value).getTime();
-    return Number.isFinite(p) ? p : Date.now();
-};
-
-const normalizeTransactionRecord = (r) => ({
-    ...r,
-    amount: Number(r.amount) || 0,
-    dateMs: toDateMs(r.date),
-    receipt_url: r.receipt_url || null,
-});
-
-const normalizeTransactions = (rows = []) => rows.map(normalizeTransactionRecord);
-
-function formatNumber(n) {
-    const num = Number(n);
-    if (!Number.isFinite(num)) return '0';
-    return new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 2 }).format(num);
+function addMsg(text, isUser = false) {
+  const area = $('chat-area');
+  if (!area) return;
+  const d = document.createElement('div');
+  d.className = 'msg' + (isUser ? ' u' : '');
+  d.innerHTML = text;
+  area.appendChild(d);
+  setTimeout(() => { area.scrollTop = area.scrollHeight; }, 60);
 }
 
-function vibrate(style = 'light') {
-    window.Telegram?.WebApp?.HapticFeedback?.impactOccurred(style);
+// ─── LOADER ─────────────────────────────────────────────
+function hideLoader() {
+  const el = $('loader');
+  if (!el) return;
+  el.classList.add('out');
+  setTimeout(() => { el.style.display = 'none'; }, 500);
 }
 
-// ════════════════════════════════════════
-// SHELL REVEAL
-// ════════════════════════════════════════
-function revealAppShell() {
-    const skeleton  = document.getElementById('dashboard-skeleton');
-    const dashboard = document.getElementById('view-dashboard');
-    if (skeleton)  skeleton.classList.add('hidden');
-    if (dashboard) dashboard.classList.remove('hidden');
-}
+// ─── INIT: entry point ──────────────────────────────────
+(async () => {
+  // 1. UI immediately visible — loader starts fading at 800ms
+  setTimeout(hideLoader, 800);
 
-async function detectBiometricAvailability() {
+  // 2. Theme
+  if (store.get('theme') === 'light') document.body.classList.add('light');
+
+  // 3. Pin check
+  bioAvail = await checkBioAvail();
+  if (pin) showPin('unlock');
+
+  // 4. Build icon grid
+  buildIconGrid();
+
+  // 5. Fetch config + connect to Supabase
+  await loadConfig();
+
+  // 6. Load data
+  if (db && UID) {
     try {
-        if (!window.isSecureContext) return false;
-        if (!window.PublicKeyCredential?.isUserVerifyingPlatformAuthenticatorAvailable) return false;
-        return await window.PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
-    } catch { return false; }
-}
-
-// ════════════════════════════════════════
-// INIT
-// ════════════════════════════════════════
-document.addEventListener('DOMContentLoaded', async () => {
-    try {
-        safeCreateIcons();
-        isBiometricAvailable = await detectBiometricAvailability();
-
-        if (pin) showPinScreen('unlock');
-        if (storage.get('theme') === 'light') toggleTheme(true);
-
-        // Populate icon selector
-        const ic = document.getElementById('icon-selector');
-        if (ic) {
-            ICONS.forEach(i => {
-                const d = document.createElement('div');
-                d.className = 'p-2 rounded-lg bg-slate-700 flex items-center justify-center cursor-pointer icon-opt transition-all';
-                d.innerHTML = `<i data-lucide="${i}" class="w-5 h-5 text-slate-300 pointer-events-none"></i>`;
-                d.onclick = () => {
-                    document.querySelectorAll('.icon-opt').forEach(e => e.classList.remove('selected'));
-                    d.classList.add('selected');
-                    selIcon = i;
-                };
-                ic.appendChild(d);
-            });
-            safeCreateIcons();
-        }
-
-        window.addEventListener('click', () => {
-            document.getElementById('cat-context-menu')?.classList.add('hidden');
-        });
-
-        if (!supabase)       throw new Error('SUPABASE_URL yoki SUPABASE_ANON_KEY sozlanmagan.');
-        if (!currentUserId)  throw new Error("Telegram user_id topilmadi. URLga ?user_id=123 qo'shing.");
-
-        await fetchInitialData();
-
-        logInfo('boot-ready', { currentUserId, transactions: transactions.length });
-
+      await ensureUser();
+      await loadData();
     } catch (e) {
-        logError('boot-failed', e, { currentUserId });
-    } finally {
-        revealAppShell();
-        try { updateUI(); } catch (e) { logError('updateUI-after-boot', e); }
-        try { updateSettingsUI(); } catch (e) { logError('updateSettingsUI-after-boot', e); }
-        document.getElementById('nav-dashboard')?.classList.add('active');
-        safeCreateIcons();
+      console.error('[boot]', e);
+      showErr('Ma\'lumotlar yuklanmadi: ' + (e?.message || e));
     }
+  } else if (!UID) {
+    showErr("Telegram user_id topilmadi. URLga ?user_id=123 qo'shing.");
+  }
 
-    // ── Swipe on balance card ──
-    const card = document.getElementById('balance-card');
-    if (card) {
-        let startX = 0;
-        const onStart = x => { startX = x; };
-        const onEnd   = x => handleBalanceSwipe(startX, x);
+  // 7. Render UI with whatever data we have
+  renderAll();
+  updateSettingsUI();
+  hideLoader();
 
-        card.addEventListener('touchstart',  e => onStart(e.changedTouches[0].screenX), { passive: true });
-        card.addEventListener('touchend',    e => onEnd(e.changedTouches[0].screenX), { passive: true });
-        card.addEventListener('mousedown',   e => onStart(e.clientX));
-        card.addEventListener('mouseup',     e => onEnd(e.clientX));
-    }
-});
+  // 8. Balance card swipe
+  initSwipe();
+})();
 
-function handleBalanceSwipe(start, end) {
-    const diff = start - end;
-    if (Math.abs(diff) < 50) return;
-    if (diff > 0 && dashboardCurrency === 'UZS') setDashboardCurrency('USD');
-    if (diff < 0 && dashboardCurrency === 'USD') setDashboardCurrency('UZS');
+// ─── CONFIG LOAD ────────────────────────────────────────
+async function loadConfig() {
+  try {
+    const res = await fetch('/api/config.js', { cache: 'no-store' });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const txt = await res.text();
+    // runs: window.__APP_CONFIG__ = {...}
+    // eslint-disable-next-line no-new-func
+    new Function(txt)();
+  } catch (e) {
+    console.warn('[config] fetch failed:', e.message);
+  }
+
+  const cfg = window.__APP_CONFIG__ || {};
+  const url = cfg.SUPABASE_URL || '';
+  const key = cfg.SUPABASE_ANON_KEY || '';
+
+  if (url && key && window.supabase?.createClient) {
+    try { db = window.supabase.createClient(url, key); }
+    catch (e) { console.warn('[supabase] init failed:', e.message); }
+  }
 }
 
-function setDashboardCurrency(curr) {
-    if (curr === dashboardCurrency) return;
-    dashboardCurrency = curr;
-    vibrate('medium');
-    const swiper = document.getElementById('balance-swiper');
-    if (swiper) {
-        swiper.style.transform = curr === 'USD' ? 'translateX(-10px)' : 'translateX(10px)';
-        setTimeout(() => { swiper.style.transform = 'translateX(0)'; }, 150);
-    }
-    document.getElementById('dot-uzs')?.classList.toggle('active', curr === 'UZS');
-    document.getElementById('dot-usd')?.classList.toggle('active', curr === 'USD');
-    updateUI();
+// ─── SUPABASE CALLS ─────────────────────────────────────
+async function ensureUser() {
+  const name = [tg?.initDataUnsafe?.user?.first_name, tg?.initDataUnsafe?.user?.last_name]
+    .filter(Boolean).join(' ').trim() || `User ${UID}`;
+  const { error } = await db.from('users').upsert(
+    { user_id: UID, full_name: name, exchange_rate: rate },
+    { onConflict: 'user_id' }
+  );
+  if (error) throw error;
 }
 
-// ════════════════════════════════════════
-// BACKEND / SUPABASE
-// ════════════════════════════════════════
-async function ensureUserProfile() {
-    const { error } = await supabase.from('users').upsert({
-        user_id: currentUserId,
-        full_name: [tg.initDataUnsafe?.user?.first_name, tg.initDataUnsafe?.user?.last_name]
-            .filter(Boolean).join(' ').trim() || `User ${currentUserId}`,
-        exchange_rate: Number(exchangeRate) || 12850,
-    }, { onConflict: 'user_id' });
-    if (error) throw error;
+async function loadData() {
+  // exchange rate from DB
+  const { data: u } = await db.from('users').select('exchange_rate').eq('user_id', UID).maybeSingle();
+  if (u?.exchange_rate) { rate = Number(u.exchange_rate) || rate; store.set('rate', rate); }
+
+  // transactions
+  const { data: tx, error: te } = await db.from('transactions').select('*')
+    .eq('user_id', UID).order('date', { ascending: false });
+  if (te) throw te;
+  txList = normAll(tx);
+
+  // categories
+  const { data: cd, error: ce } = await db.from('categories').select('*')
+    .eq('user_id', UID).order('name');
+  if (ce) throw ce;
+
+  if (!cd || cd.length === 0) await seedCats();
+  else {
+    cats.income  = cd.filter(c => c.type === 'income');
+    cats.expense = cd.filter(c => c.type === 'expense');
+  }
 }
 
-async function fetchInitialData() {
-    await ensureUserProfile();
+async function seedCats() {
+  const defs = [
+    { name: 'Oylik', icon: 'banknote', type: 'income' },
+    { name: 'Bonus', icon: 'gift',     type: 'income' },
+    { name: 'Sotuv', icon: 'shopping-bag', type: 'income' },
+    { name: 'Ovqat', icon: 'shopping-cart', type: 'expense' },
+    { name: 'Transport', icon: 'bus',  type: 'expense' },
+    { name: 'Kafe',  icon: 'coffee',   type: 'expense' },
+  ].map(c => ({ ...c, user_id: UID }));
 
-    // Fetch exchange rate from DB
-    const { data: userData, error: uError } = await supabase
-        .from('users').select('exchange_rate').eq('user_id', currentUserId).maybeSingle();
-    if (uError) logError('fetch-user', uError, { currentUserId });
-    if (userData?.exchange_rate) {
-        exchangeRate = Number(userData.exchange_rate) || exchangeRate;
-        storage.set('exchangeRate', String(exchangeRate));
-    }
+  const { data, error } = await db.from('categories').insert(defs).select();
+  if (error) throw error;
+  cats.income  = (data || []).filter(c => c.type === 'income');
+  cats.expense = (data || []).filter(c => c.type === 'expense');
+}
 
-    // Fetch transactions
-    const { data: tData, error: tError } = await supabase
-        .from('transactions').select('*').eq('user_id', currentUserId).order('date', { ascending: false });
-    if (tError) throw tError;
-    transactions = normalizeTransactions(tData || []);
+// ─── NAVIGATION ─────────────────────────────────────────
+function goTab(tab) {
+  vib('light');
+  document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+  document.querySelectorAll('.nb').forEach(b => b.classList.remove('active'));
+  $('view-' + tab)?.classList.add('active');
+  $('nb-' + tab)?.classList.add('active');
+  if (tab === 'dash') renderAll();
+  if (tab === 'hist') renderHistory();
+}
 
-    // Fetch categories
-    const { data: cData, error: cError } = await supabase
-        .from('categories').select('*').eq('user_id', currentUserId).order('name', { ascending: true });
-    if (cError) throw cError;
+// ─── RENDER ALL ─────────────────────────────────────────
+function renderAll() {
+  const { s, e } = getRange();
+  const sorted = [...txList].sort((a, b) => b.ms - a.ms);
+  const ranged = sorted.filter(t => t.ms >= s && t.ms <= e);
+  const shown  = typeFilt === 'all' ? ranged : ranged.filter(t => t.type === typeFilt);
 
-    if (!cData || cData.length === 0) {
-        await initDefaultCategories();
+  const inc = shown.filter(t => t.type === 'income' ).reduce((a, b) => a + b.amount, 0);
+  const exp = shown.filter(t => t.type === 'expense').reduce((a, b) => a + b.amount, 0);
+  const bal = inc - exp;
+
+  const balEl  = $('total-bal');
+  const incEl  = $('total-inc');
+  const expEl  = $('total-exp');
+
+  if (balEl) {
+    balEl.classList.remove('loading');
+    if (currency === 'USD' && rate > 0) {
+      balEl.textContent  = `$${fmt(bal / rate)}`;
+      incEl.textContent  = `+$${fmt(inc / rate)}`;
+      expEl.textContent  = `-$${fmt(exp / rate)}`;
     } else {
-        allCats.income  = cData.filter(c => c.type === 'income');
-        allCats.expense = cData.filter(c => c.type === 'expense');
+      balEl.textContent  = `${fmt(bal)} so'm`;
+      incEl.textContent  = `+${fmt(inc)}`;
+      expEl.textContent  = `-${fmt(exp)}`;
     }
+  }
 
-    logInfo('fetchInitialData', {
-        currentUserId,
-        transactions: transactions.length,
-        incomeCategories:  allCats.income.length,
-        expenseCategories: allCats.expense.length,
-        exchangeRate,
-    });
+  // type filter card highlights
+  const tci = $('tc-i'), tce = $('tc-e');
+  if (tci) { tci.classList.toggle('on-i', typeFilt === 'income');  }
+  if (tce) { tce.classList.toggle('on-e', typeFilt === 'expense'); }
+
+  renderChart(shown);
+  renderTrends();
+  renderHistory();
 }
 
-async function initDefaultCategories() {
-    const defaults = [
-        { name: 'Oylik',      icon: 'banknote',      type: 'income'  },
-        { name: 'Bonus',      icon: 'gift',           type: 'income'  },
-        { name: 'Sotuv',      icon: 'shopping-bag',   type: 'income'  },
-        { name: 'Oziq-ovqat', icon: 'shopping-cart',  type: 'expense' },
-        { name: 'Transport',  icon: 'bus',             type: 'expense' },
-        { name: 'Kafe',       icon: 'coffee',          type: 'expense' },
-    ].map(c => ({ ...c, user_id: currentUserId }));
+function renderChart(data) {
+  const canvas = $('myChart');
+  const noData = $('no-data');
+  const table  = $('cat-table');
+  if (!canvas) return;
 
-    const { data, error } = await supabase.from('categories').insert(defaults).select();
-    if (error) throw error;
-    allCats.income  = (data || []).filter(c => c.type === 'income');
-    allCats.expense = (data || []).filter(c => c.type === 'expense');
-}
+  const src = typeFilt === 'income'
+    ? data.filter(x => x.type === 'income')
+    : data.filter(x => x.type === 'expense');
 
-// ════════════════════════════════════════
-// NAVIGATION
-// ════════════════════════════════════════
-function switchTab(t) {
-    vibrate('light');
-    ['dashboard', 'bot', 'history'].forEach(v => {
-        document.getElementById(`view-${v}`)?.classList.add('hidden');
-    });
-    document.getElementById(`view-${t}`)?.classList.remove('hidden');
+  if (noData) noData.style.display = src.length === 0 ? 'flex' : 'none';
 
-    document.querySelectorAll('.nav-item').forEach(b => b.classList.remove('active'));
+  const grouped = {};
+  src.forEach(t => { grouped[t.category] = (grouped[t.category] || 0) + t.amount; });
+  const entries = Object.entries(grouped).sort((a, b) => b[1] - a[1]);
 
-    const botBtn = document.getElementById('nav-bot');
-    if (botBtn) {
-        botBtn.classList.remove('active');
-        const icon = botBtn.querySelector('i');
-        if (icon) { icon.classList.remove('text-blue-500'); icon.classList.add('text-white'); }
-    }
+  if (myChart) { myChart.destroy(); myChart = null; }
 
-    if (t === 'bot') {
-        botBtn?.classList.add('active');
-        const icon = botBtn?.querySelector('i');
-        if (icon) { icon.classList.remove('text-white'); icon.classList.add('text-blue-500'); }
-    } else {
-        document.getElementById(`nav-${t}`)?.classList.add('active');
-    }
-
-    if (t === 'dashboard') updateUI();
-    safeCreateIcons();
-}
-
-// ════════════════════════════════════════
-// CATEGORIES
-// ════════════════════════════════════════
-let longPressTimer;
-function handleCatPressStart(e, idx, type) { longPressTimer = setTimeout(() => showCatOptions(e, idx, type), 500); }
-function handleCatPressEnd() { clearTimeout(longPressTimer); }
-
-function showCatOptions(e, idx, type) {
-    e.preventDefault();
-    selCatIndex = idx; selCatType = type;
-    const menu = document.getElementById('cat-context-menu');
-    if (!menu) return;
-    const x = e.clientX || e.touches?.[0]?.clientX || 0;
-    const y = e.clientY || e.touches?.[0]?.clientY || 0;
-    menu.style.left = `${Math.min(x, window.innerWidth  - 170)}px`;
-    menu.style.top  = `${Math.min(y, window.innerHeight - 100)}px`;
-    menu.classList.remove('hidden');
-}
-
-function editCatFromMenu() {
-    const cat = allCats[selCatType]?.[selCatIndex];
-    if (!cat) return;
-    const inp = document.getElementById('edit-cat-name-input');
-    if (inp) inp.value = cat.name;
-    document.getElementById('edit-cat-modal')?.classList.remove('hidden');
-    document.getElementById('cat-context-menu')?.classList.add('hidden');
-}
-
-async function confirmEditCat() {
-    const newName = document.getElementById('edit-cat-name-input')?.value.trim();
-    if (!newName) return;
-    const cat = allCats[selCatType]?.[selCatIndex];
-    if (!cat) return;
-
-    allCats[selCatType][selCatIndex] = { ...cat, name: newName };
-    renderBotCats(selCatType);
-    closeModal('edit-cat-modal');
-
-    const q = supabase.from('categories').update({ name: newName }).eq('user_id', currentUserId);
-    const { error } = cat.id ? await q.eq('id', cat.id) : await q.eq('name', cat.name).eq('type', selCatType);
-    if (error) logError('confirmEditCat', error);
-}
-
-async function deleteCatFromMenu() {
-    if (!confirm("Bu kategoriyani o'chirasizmi?")) return;
-    const cat = allCats[selCatType]?.[selCatIndex];
-    if (!cat) return;
-
-    allCats[selCatType].splice(selCatIndex, 1);
-    renderBotCats(selCatType);
-    document.getElementById('cat-context-menu')?.classList.add('hidden');
-
-    const q = supabase.from('categories').delete().eq('user_id', currentUserId);
-    const { error } = cat.id ? await q.eq('id', cat.id) : await q.eq('name', cat.name).eq('type', selCatType);
-    if (error) logError('deleteCatFromMenu', error);
-}
-
-// ════════════════════════════════════════
-// PIN SYSTEM
-// ════════════════════════════════════════
-function showPinScreen(step) {
-    pinStep  = step;
-    pinInput = '';
-    updatePinDots();
-    document.getElementById('pin-screen')?.classList.remove('hidden');
-
-    const t        = document.getElementById('pin-title');
-    const s        = document.getElementById('pin-subtitle');
-    const cancel   = document.getElementById('cancel-pin-setup');
-    const bioBtn   = document.getElementById('bio-btn');
-    const bioPlace = document.getElementById('bio-placeholder');
-
-    if (step === 'unlock') {
-        if (t) t.innerText = 'PIN Kod';
-        if (s) s.innerText = 'Kirish uchun';
-        cancel?.classList.add('hidden');
-        if (bioEnabled && isBiometricAvailable) {
-            bioBtn?.classList.remove('hidden');
-            bioPlace?.classList.add('hidden');
-            setTimeout(triggerBiometric, 300);
-        } else {
-            bioBtn?.classList.add('hidden');
-            bioPlace?.classList.remove('hidden');
-        }
-    } else if (step === 'setup_old') {
-        if (t) t.innerText = 'Eski PIN';
-        if (s) s.innerText = 'Tasdiqlash uchun';
-        cancel?.classList.remove('hidden');
-        bioBtn?.classList.add('hidden');
-        bioPlace?.classList.remove('hidden');
-    } else if (step === 'setup_new') {
-        if (t) t.innerText = 'Yangi PIN';
-        if (s) s.innerText = "4 xonali kod o'rnating";
-        cancel?.classList.remove('hidden');
-        bioBtn?.classList.add('hidden');
-        bioPlace?.classList.remove('hidden');
-    } else if (step === 'setup_confirm') {
-        if (t) t.innerText = 'Qayta kiritish';
-        if (s) s.innerText = 'Yangi PINni tasdiqlang';
-        cancel?.classList.remove('hidden');
-    }
-}
-
-function handlePinInput(n) {
-    vibrate('medium');
-    if (pinInput.length < 4) {
-        pinInput += n;
-        updatePinDots();
-        if (pinInput.length === 4) setTimeout(checkPin, 200);
-    }
-}
-
-function handlePinDelete() {
-    pinInput = pinInput.slice(0, -1);
-    updatePinDots();
-}
-
-function updatePinDots() {
-    document.querySelectorAll('.pin-dot').forEach((d, i) => {
-        if (i < pinInput.length) {
-            d.classList.add('bg-blue-500', 'active', 'scale-110');
-        } else {
-            d.classList.remove('bg-blue-500', 'active', 'scale-110');
-        }
-    });
-}
-
-function checkPin() {
-    const dots = document.getElementById('pin-dots');
-    const shake = () => {
-        dots?.classList.add('shake');
-        setTimeout(() => { dots?.classList.remove('shake'); pinInput = ''; updatePinDots(); }, 450);
-    };
-
-    if (pinStep === 'unlock') {
-        if (pinInput === pin) document.getElementById('pin-screen')?.classList.add('hidden');
-        else shake();
-    } else if (pinStep === 'setup_old') {
-        if (pinInput === pin) showPinScreen('setup_new');
-        else shake();
-    } else if (pinStep === 'setup_new') {
-        tempPin = pinInput;
-        showPinScreen('setup_confirm');
-    } else if (pinStep === 'setup_confirm') {
-        if (pinInput === tempPin) {
-            pin = tempPin;
-            localStorage.setItem('pin', pin);
-            document.getElementById('pin-screen')?.classList.add('hidden');
-            updateSettingsUI();
-            alert("PIN o'zgartirildi! ✅");
-            closeModal('settings-modal');
-        } else {
-            alert('Mos kelmadi!');
-            showPinScreen('setup_new');
-        }
-    }
-}
-
-async function triggerBiometric() {
-    if (!isBiometricAvailable) return;
-    try {
-        const challenge = new Uint8Array(32);
-        crypto.getRandomValues(challenge);
-        await navigator.credentials.get({ publicKey: { challenge, timeout: 60000, userVerification: 'required' } });
-        document.getElementById('pin-screen')?.classList.add('hidden');
-    } catch { /* user cancelled */ }
-}
-
-function startPinSetup() { pin ? showPinScreen('setup_old') : showPinScreen('setup_new'); }
-function cancelPinSetup() { document.getElementById('pin-screen')?.classList.add('hidden'); }
-function toggleBiometric(el) { bioEnabled = el.checked; storage.set('bio', bioEnabled); }
-
-function removePin() {
-    if (!confirm("PIN kodni olib tashlaysizmi?")) return;
-    storage.remove('pin');
-    pin = null;
-    updateSettingsUI();
-    alert('PIN kod olib tashlandi.');
-    closeModal('settings-modal');
-}
-
-// ════════════════════════════════════════
-// RECEIPT UPLOAD
-// ════════════════════════════════════════
-function handleReceiptUpload(e) {
-    const file = e.target.files[0];
-    if (!file) return;
-    draft.rawFile = file;
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-        const img = new Image();
-        img.src = ev.target.result;
-        img.onload = () => {
-            const canvas = document.createElement('canvas');
-            const ctx    = canvas.getContext('2d');
-            const maxW   = 800;
-            const scale  = Math.min(1, maxW / img.width);
-            canvas.width  = img.width  * scale;
-            canvas.height = img.height * scale;
-            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-            draft.receipt = canvas.toDataURL('image/jpeg', 0.7);
-            const prev = document.getElementById('receipt-img-preview');
-            const area = document.getElementById('receipt-preview-area');
-            if (prev) prev.src = draft.receipt;
-            area?.classList.remove('hidden');
-        };
-    };
-    reader.readAsDataURL(file);
-}
-
-async function uploadReceipt(file) {
-    const fileName = `${currentUserId}/${Date.now()}-${file.name || 'receipt'}.jpg`;
-    const { error } = await supabase.storage
-        .from('receipts').upload(fileName, file, { upsert: false, contentType: file.type || 'image/jpeg' });
-    if (error) throw error;
-    const { data: { publicUrl } } = supabase.storage.from('receipts').getPublicUrl(fileName);
-    return publicUrl;
-}
-
-function clearReceipt() {
-    draft.receipt = null;
-    draft.rawFile = null;
-    const fu = document.getElementById('file-upload');
-    if (fu) fu.value = '';
-    document.getElementById('receipt-preview-area')?.classList.add('hidden');
-}
-
-function viewReceipt(src) {
-    const img = document.getElementById('full-receipt-image');
-    if (img) img.src = src;
-    document.getElementById('receipt-modal')?.classList.remove('hidden');
-}
-
-function closeReceiptModal() {
-    document.getElementById('receipt-modal')?.classList.add('hidden');
-}
-
-// ════════════════════════════════════════
-// CORE UI
-// ════════════════════════════════════════
-function updateUI() {
-    const { s, e } = getDateRange();
-    transactions = normalizeTransactions(transactions).sort((a, b) => b.dateMs - a.dateMs);
-
-    const dateFiltered = transactions.filter(t => t.dateMs >= s && t.dateMs <= e);
-    const filtered     = activeType === 'all' ? dateFiltered : dateFiltered.filter(t => t.type === activeType);
-
-    const incBase = filtered.filter(t => t.type === 'income' ).reduce((a, b) => a + b.amount, 0);
-    const expBase = filtered.filter(t => t.type === 'expense').reduce((a, b) => a + b.amount, 0);
-    const balBase = incBase - expBase;
-
-    if (dashboardCurrency === 'USD' && exchangeRate > 0) {
-        document.getElementById('total-balance').innerText = `$ ${formatNumber(balBase / exchangeRate)}`;
-        document.getElementById('total-income' ).innerText = `+$ ${formatNumber(incBase / exchangeRate)}`;
-        document.getElementById('total-expense').innerText = `-$ ${formatNumber(expBase / exchangeRate)}`;
-        const badge = document.getElementById('currency-badge');
-        if (badge) { badge.innerText = 'USD'; badge.className = 'text-[10px] bg-blue-500 px-2 py-0.5 rounded-full text-white font-mono tracking-wider'; }
-    } else {
-        document.getElementById('total-balance').innerText = `${formatNumber(balBase)} so'm`;
-        document.getElementById('total-income' ).innerText = `+${formatNumber(incBase)}`;
-        document.getElementById('total-expense').innerText = `-${formatNumber(expBase)}`;
-        const badge = document.getElementById('currency-badge');
-        if (badge) { badge.innerText = 'UZS'; badge.className = 'text-[10px] bg-white/10 px-2 py-0.5 rounded-full text-white font-mono tracking-wider'; }
-    }
-
-    // Type filter card highlight
-    document.getElementById('card-income').className  =
-        `glass-panel p-3 rounded-2xl flex items-center gap-3 cursor-pointer transition-all ${activeType === 'income' ? 'bg-emerald-500/20 border-emerald-500' : 'hover:bg-emerald-500/10'}`;
-    document.getElementById('card-expense').className =
-        `glass-panel p-3 rounded-2xl flex items-center gap-3 cursor-pointer transition-all ${activeType === 'expense' ? 'bg-rose-500/20 border-rose-500' : 'hover:bg-rose-500/10'}`;
-
-    updateTrendWidgets();
-    renderCharts(filtered);
-    renderHistory();
-}
-
-function updateTrendWidgets() {
-    const now = new Date();
-    const thisMonthStart = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
-    const lastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1).getTime();
-    const lastMonthEnd   = thisMonthStart - 1;
-
-    const group = arr => arr.reduce((acc, t) => {
-        acc[t.category] = (acc[t.category] || 0) + t.amount;
-        return acc;
-    }, {});
-
-    const curr = group(transactions.filter(t => t.dateMs >= thisMonthStart && t.type === 'expense'));
-    const prev = group(transactions.filter(t => t.dateMs >= lastMonthStart && t.dateMs <= lastMonthEnd && t.type === 'expense'));
-
-    const cats = [...new Set([...Object.keys(curr), ...Object.keys(prev)])];
-    const container = document.getElementById('trend-container');
-    const list      = document.getElementById('trend-list');
-    if (!list) return;
-
-    let html = '';
-    cats.forEach(c => {
-        const cVal = curr[c] || 0;
-        const pVal = prev[c] || 0;
-        if (pVal > 0 && cVal > 0) {
-            const pct = ((cVal - pVal) / pVal) * 100;
-            if (Math.abs(pct) > 5) {
-                const isBad  = pct > 0;
-                const color  = isBad ? 'text-rose-400' : 'text-emerald-400';
-                const icon   = isBad ? 'trending-up' : 'trending-down';
-                html += `<div class="glass-panel p-3 rounded-xl flex justify-between items-center">
-                    <div>
-                        <div class="text-xs text-slate-400">${c}</div>
-                        <div class="font-bold text-sm text-white">${formatNumber(cVal)}</div>
-                    </div>
-                    <div class="text-right">
-                        <div class="${color} font-bold text-xs flex items-center gap-1 justify-end">
-                            <i data-lucide="${icon}" class="w-3 h-3"></i> ${Math.round(Math.abs(pct))}%
-                        </div>
-                        <div class="text-xs text-slate-500">o'tgan oy</div>
-                    </div>
-                </div>`;
-            }
-        }
-    });
-
-    container?.classList.toggle('hidden', !html);
-    list.innerHTML = html || `<div class="col-span-2 text-center text-xs text-slate-500 py-2">Trendlar uchun ma'lumot yetarli emas</div>`;
-    if (html) safeCreateIcons();
-}
-
-function renderCharts(data) {
-    const canvas  = document.getElementById('categoryChart');
-    const noData  = document.getElementById('no-data-msg');
-    const list    = document.getElementById('top-transaction-list');
-
-    if (!canvas || typeof window.Chart === 'undefined') {
-        noData?.classList.remove('hidden');
-        if (list) list.innerHTML = '';
-        return;
-    }
-
+  if (src.length > 0 && window.Chart) {
     const ctx = canvas.getContext('2d');
-    if (!ctx) { noData?.classList.remove('hidden'); return; }
-
-    const source = activeType === 'income'
-        ? data.filter(x => x.type === 'income')
-        : data.filter(x => x.type === 'expense');
-
-    noData?.classList.toggle('hidden', source.length > 0);
-
-    const cats = {};
-    source.forEach(x => { cats[x.category] = (cats[x.category] || 0) + x.amount; });
-
-    if (window.myChart) { window.myChart.destroy(); window.myChart = null; }
-
-    if (source.length === 0) { if (list) list.innerHTML = ''; return; }
-
-    window.myChart = new Chart(ctx, {
-        type: 'doughnut',
-        data: {
-            labels: Object.keys(cats),
-            datasets: [{
-                data: Object.values(cats),
-                backgroundColor: ['#10b981', '#ef4444', '#f59e0b', '#3b82f6', '#8b5cf6', '#ec4899', '#06b6d4'],
-                borderWidth: 0,
-                hoverOffset: 4,
-            }],
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            cutout: '68%',
-            plugins: { legend: { display: false } },
-        },
+    myChart = new Chart(ctx, {
+      type: 'doughnut',
+      data: {
+        labels: entries.map(([k]) => k),
+        datasets: [{ data: entries.map(([, v]) => v),
+          backgroundColor: ['#10b981','#ef4444','#f59e0b','#7c3aed','#3b82f6','#ec4899','#06b6d4','#84cc16'],
+          borderWidth: 0, hoverOffset: 4 }],
+      },
+      options: { responsive: true, maintainAspectRatio: false, cutout: '65%',
+        plugins: { legend: { display: false } } },
     });
+  }
 
-    if (!list) return;
-    list.innerHTML = Object.entries(cats)
-        .sort(([, a], [, b]) => b - a)
-        .slice(0, 5)
-        .map(([c, a]) => `
-            <tr>
-                <td class="py-2 text-slate-300 capitalize pl-1 text-sm">${c}</td>
-                <td class="text-right font-bold pr-1 text-sm ${activeType === 'income' ? 'text-emerald-400' : 'text-rose-400'}">${formatNumber(a)}</td>
-            </tr>`)
-        .join('');
+  if (table) {
+    const color = typeFilt === 'income' ? 'var(--green)' : 'var(--red)';
+    table.innerHTML = entries.slice(0, 5).map(([k, v]) =>
+      `<div class="ctr"><span class="ctr-n">${k}</span><span class="ctr-v" style="color:${color}">${fmt(v)}</span></div>`
+    ).join('');
+  }
+}
+
+function renderTrends() {
+  const sec  = $('trend-sec');
+  const grid = $('trend-grid');
+  if (!sec || !grid) return;
+
+  const now = new Date();
+  const thisStart = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+  const lastStart = new Date(now.getFullYear(), now.getMonth() - 1, 1).getTime();
+  const lastEnd   = thisStart - 1;
+
+  const grp = arr => arr.reduce((acc, t) => {
+    acc[t.category] = (acc[t.category] || 0) + t.amount; return acc;
+  }, {});
+
+  const curr = grp(txList.filter(t => t.ms >= thisStart && t.type === 'expense'));
+  const prev = grp(txList.filter(t => t.ms >= lastStart && t.ms <= lastEnd && t.type === 'expense'));
+
+  let html = '';
+  [...new Set([...Object.keys(curr), ...Object.keys(prev)])].forEach(c => {
+    const cv = curr[c] || 0, pv = prev[c] || 0;
+    if (cv > 0 && pv > 0) {
+      const pct = ((cv - pv) / pv) * 100;
+      if (Math.abs(pct) > 5) {
+        const up = pct > 0;
+        html += `<div class="tcard">
+          <div><div class="tc-cat">${c}</div><div class="tc-val">${fmt(cv)}</div></div>
+          <div class="tc-pct ${up ? 'up' : 'dn'}">${up ? '▲' : '▼'} ${Math.round(Math.abs(pct))}%</div>
+        </div>`;
+      }
+    }
+  });
+
+  grid.innerHTML = html;
+  sec.style.display = html ? 'flex' : 'none';
 }
 
 function renderHistory() {
-    const list       = document.getElementById('history-list');
-    const emptyState = document.getElementById('empty-history');
-    if (!list) return;
+  const list  = $('tx-list');
+  const empty = $('empty-s');
+  if (!list) return;
 
-    list.innerHTML = '';
-    emptyState?.classList.toggle('hidden', transactions.length > 0);
+  const sorted = [...txList].sort((a, b) => b.ms - a.ms);
+  empty.style.display = sorted.length === 0 ? 'flex' : 'none';
 
-    transactions.forEach(t => {
-        const isInc      = t.type === 'income';
-        const hasReceipt = t.receipt || t.receipt_url;
-        const badge      = hasReceipt
-            ? `<span class="ml-1.5 text-[10px] px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-400 border border-blue-500/30 inline-flex items-center gap-0.5">
-                   <i data-lucide="paperclip" class="w-2 h-2"></i> Chek
-               </span>`
-            : '';
-        list.innerHTML += `
-            <div onclick="openActionSheet(event,${t.id})"
-                class="glass-panel p-4 rounded-2xl flex justify-between items-center cursor-pointer active:scale-95 transition-transform hover:bg-slate-800/50">
-                <div class="flex items-center gap-3">
-                    <div class="p-2.5 rounded-full flex-none ${isInc ? 'bg-emerald-500/10 text-emerald-400' : 'bg-rose-500/10 text-rose-400'}">
-                        <i data-lucide="${isInc ? 'arrow-down-left' : 'arrow-up-right'}" class="w-5 h-5"></i>
-                    </div>
-                    <div>
-                        <div class="font-semibold text-sm text-white capitalize flex items-center flex-wrap gap-1">
-                            ${t.category}${badge}
-                        </div>
-                        <div class="text-xs text-slate-400 mt-0.5">
-                            ${new Date(t.dateMs).toLocaleDateString()} &bull;
-                            ${new Date(t.dateMs).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                        </div>
-                    </div>
-                </div>
-                <div class="font-bold ${isInc ? 'text-emerald-400' : 'text-rose-400'} text-base flex-none">
-                    ${isInc ? '+' : '-'}${formatNumber(t.amount)}
-                </div>
-            </div>`;
-    });
-    safeCreateIcons();
+  list.innerHTML = sorted.map(t => {
+    const isI = t.type === 'income';
+    const dt  = new Date(t.ms);
+    const dateStr = dt.toLocaleDateString() + ' · ' + dt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const chek = (t.receipt || t.receipt_url) ? `<span class="chek-b">📎 Chek</span>` : '';
+    const arrow = isI
+      ? `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>`
+      : `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 18 13.5 8.5 8.5 13.5 1 6"/><polyline points="17 18 23 18 23 12"/></svg>`;
+    return `<div class="txi" onclick="openAction(${t.id})">
+      <div class="txi-l">
+        <div class="txi-ico ${isI ? 'i' : 'e'}">${arrow}</div>
+        <div>
+          <div class="txi-cat">${t.category} ${chek}</div>
+          <div class="txi-dt">${dateStr}</div>
+        </div>
+      </div>
+      <div class="txi-amt ${isI ? 'i' : 'e'}">${isI ? '+' : '-'}${fmt(t.amount)}</div>
+    </div>`;
+  }).join('');
 }
 
-// ════════════════════════════════════════
-// BOT FLOW
-// ════════════════════════════════════════
-function startBotFlow(type) {
-    draft = { type, category: '', amount: 0, receipt: null, rawFile: null };
-    clearReceipt();
-    document.getElementById('bot-start-actions')?.classList.add('hidden');
-    document.getElementById('category-selector')?.classList.remove('hidden');
-    renderBotCats(type);
+// ─── DATE RANGE ─────────────────────────────────────────
+function getRange() {
+  const now = new Date();
+  let s = 0, e = new Date().setHours(23, 59, 59, 999);
+  if (dateFilt === 'week')   s = Date.now() - 7 * 86400000;
+  else if (dateFilt === 'month')  s = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+  else if (dateFilt === 'custom') {
+    s = new Date($('d-from')?.value || 0).getTime();
+    e = new Date($('d-to')?.value   || Date.now()).getTime() + 86400000;
+  }
+  return { s, e };
 }
 
-function renderBotCats(type) {
-    const grid = document.getElementById('category-grid');
-    if (!grid) return;
-    grid.innerHTML = '';
-    allCats[type].forEach((c, idx) => {
-        const btn = document.createElement('button');
-        btn.className = 'cat-btn flex flex-col items-center justify-center p-3 rounded-2xl bg-slate-800 border border-slate-700 hover:border-blue-500 transition-all active:scale-95';
-        btn.innerHTML = `
-            <i data-lucide="${c.icon}" class="w-6 h-6 mb-1 ${type === 'income' ? 'text-emerald-400' : 'text-rose-400'} pointer-events-none"></i>
-            <span class="text-[10px] text-slate-300 truncate w-full text-center pointer-events-none">${c.name}</span>`;
-        btn.onclick = () => {
-            vibrate('light');
-            draft.category = c.name;
-            document.getElementById('category-selector')?.classList.add('hidden');
-            document.getElementById('bot-input-container')?.classList.remove('hidden');
-            document.getElementById('bot-input')?.focus();
-        };
-        btn.oncontextmenu = e => { e.preventDefault(); showCatOptions(e, idx, type); };
-        btn.ontouchstart  = e => handleCatPressStart(e, idx, type);
-        btn.ontouchend    = () => handleCatPressEnd();
-        grid.appendChild(btn);
-    });
-    safeCreateIcons();
+function setDate(f) {
+  vib('soft');
+  dateFilt = f;
+  document.querySelectorAll('.fp').forEach(b => b.classList.toggle('on', b.dataset.f === f));
+  renderAll();
 }
 
-// ════════════════════════════════════════
-// CURRENCY TOGGLE (BOT INPUT)
-// ════════════════════════════════════════
-function toggleInputCurrency() {
-    vibrate('light');
-    const btn = document.getElementById('currency-toggle');
-    const inp = document.getElementById('bot-input');
-    if (inputCurrency === 'UZS') {
-        inputCurrency = 'USD';
-        if (btn) { btn.innerText = 'USD'; btn.classList.replace('text-emerald-400', 'text-blue-400'); btn.classList.replace('border-emerald-500/30', 'border-blue-500/30'); }
-        if (inp) inp.placeholder = 'Necha dollar?';
-    } else {
-        inputCurrency = 'UZS';
-        if (btn) { btn.innerText = 'UZS'; btn.classList.replace('text-blue-400', 'text-emerald-400'); btn.classList.replace('border-blue-500/30', 'border-emerald-500/30'); }
-        if (inp) inp.placeholder = 'Summani kiriting...';
-    }
+function toggleType(t) {
+  vib('soft');
+  typeFilt = typeFilt === t ? 'all' : t;
+  renderAll();
 }
 
-// ════════════════════════════════════════
-// SUBMIT TRANSACTION
-// ════════════════════════════════════════
-async function submitBotInput() {
-    vibrate('heavy');
-    const raw = document.getElementById('bot-input')?.value || '';
-    const val = parseFloat(raw.replace(/[^0-9.]/g, ''));
-    if (!val) return;
+function openDateMod() { dateFilt = 'custom'; showOv('ov-date'); }
+function applyDate()   { closeOv('ov-date'); document.querySelector('.fp[data-f="custom"]')?.classList.add('on'); renderAll(); }
 
-    let finalAmount = val;
-    let note = '';
-    if (inputCurrency === 'USD') {
-        finalAmount = Math.round(val * exchangeRate);
-        note = ` ($${val})`;
-    }
+// ─── CURRENCY ────────────────────────────────────────────
+function setCur(c) {
+  currency = c;
+  $('pill-uzs')?.classList.toggle('on', c === 'UZS');
+  $('pill-usd')?.classList.toggle('on', c === 'USD');
+  vib('medium');
 
-    let finalReceiptUrl = null;
-    if (draft.rawFile) {
-        try { finalReceiptUrl = await uploadReceipt(draft.rawFile); }
-        catch { alert('Rasm yuklanmadi, lekin tranzaksiya saqlanadi.'); }
-    }
+  const bc = $('bc');
+  if (bc) {
+    bc.style.transform = c === 'USD' ? 'translateX(-6px)' : 'translateX(6px)';
+    setTimeout(() => { bc.style.transform = ''; }, 150);
+  }
+  renderAll();
+}
 
-    const newTrans = {
-        user_id:     currentUserId,
-        amount:      Math.round(finalAmount),
-        category:    `${draft.category}${note}`,
-        type:        draft.type,
-        date:        toIsoString(),
-        receipt_url: finalReceiptUrl,
+function initSwipe() {
+  const card = $('bc');
+  if (!card) return;
+  let sx = 0;
+  card.addEventListener('touchstart',  e => { sx = e.changedTouches[0].screenX; }, { passive: true });
+  card.addEventListener('touchend',    e => { const dx = sx - e.changedTouches[0].screenX; if (Math.abs(dx) > 50) setCur(dx > 0 ? 'USD' : 'UZS'); }, { passive: true });
+  card.addEventListener('mousedown',   e => { sx = e.clientX; });
+  card.addEventListener('mouseup',     e => { const dx = sx - e.clientX; if (Math.abs(dx) > 50) setCur(dx > 0 ? 'USD' : 'UZS'); });
+}
+
+// ─── BOT FLOW ────────────────────────────────────────────
+function startFlow(type) {
+  draft = { type, category: '', receipt: null, rawFile: null };
+  $('flow-start').style.display = 'none';
+  $('flow-cats').style.display = 'flex';
+  $('flow-input').style.display = 'none';
+  buildCatGrid(type);
+  vib('light');
+}
+
+function buildCatGrid(type) {
+  const grid = $('cat-grid');
+  if (!grid) return;
+  grid.innerHTML = '';
+  (cats[type] || []).forEach((c, idx) => {
+    const btn = document.createElement('div');
+    btn.className = `ci ci-${type === 'income' ? 'i' : 'e'}`;
+    btn.innerHTML = svgIcon(c.icon) + `<span>${c.name}</span>`;
+    btn.onclick = () => {
+      draft.category = c.name;
+      $('flow-cats').style.display = 'none';
+      $('flow-input').style.display = 'flex';
+      $('amt-in')?.focus();
+      vib('light');
     };
+    btn.oncontextmenu = e => { e.preventDefault(); showCtxMenu(e, idx, type); };
+    let lpt;
+    btn.ontouchstart = e => { lpt = setTimeout(() => showCtxMenu(e.touches[0], idx, type), 500); };
+    btn.ontouchend   = () => clearTimeout(lpt);
+    grid.appendChild(btn);
+  });
+}
 
-    const tempId = Date.now();
-    transactions.unshift(normalizeTransactionRecord({ ...newTrans, id: tempId, receipt: draft.receipt }));
-    updateUI();
+function cancelFlow() {
+  $('flow-start').style.display = 'grid';
+  $('flow-cats').style.display  = 'none';
+  $('flow-input').style.display = 'none';
+  clearRec();
+}
 
-    const botInput = document.getElementById('bot-input');
-    if (botInput) botInput.value = '';
-    if (inputCurrency === 'USD') toggleInputCurrency();
-    cancelBotFlow();
+function toggleCur() {
+  inputCur = inputCur === 'UZS' ? 'USD' : 'UZS';
+  const btn = $('cur-btn');
+  if (!btn) return;
+  btn.textContent = inputCur;
+  btn.className = 'cur-btn' + (inputCur === 'USD' ? ' usd' : '');
+  $('amt-in').placeholder = inputCur === 'USD' ? 'Necha dollar?' : 'Summani kiriting...';
+  vib('light');
+}
 
-    const chat = document.getElementById('chat-messages');
-    if (chat) {
-        chat.innerHTML += `
-            <div class="msg-wrapper ai fade-in">
-                <div class="msg-bubble ai border-l-4 ${draft.type === 'income' ? 'border-l-emerald-500' : 'border-l-rose-500'}">
-                    ✅ Saqlandi: <b>${formatNumber(finalAmount)} so'm</b>${draft.receipt ? ' 📎' : ''}<br>
-                    <span class="text-xs opacity-60">${draft.category}${note}</span>
-                </div>
-            </div>`;
-        setTimeout(() => { chat.scrollTop = chat.scrollHeight; }, 100);
-    }
+function handleFile(e) {
+  const file = e.target.files?.[0];
+  if (!file) return;
+  draft.rawFile = file;
+  const reader = new FileReader();
+  reader.onload = ev => {
+    const img = new Image();
+    img.src = ev.target.result;
+    img.onload = () => {
+      const c = document.createElement('canvas');
+      const s = Math.min(1, 800 / img.width);
+      c.width = img.width * s; c.height = img.height * s;
+      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+      draft.receipt = c.toDataURL('image/jpeg', 0.7);
+      const ra = $('rec-area'), th = $('rec-thumb');
+      if (ra) ra.style.display = 'flex';
+      if (th) th.src = draft.receipt;
+    };
+  };
+  reader.readAsDataURL(file);
+}
 
-    const localReceipt = draft.receipt;
-    draft = { receipt: null, rawFile: null };
+function clearRec() {
+  draft.receipt = null; draft.rawFile = null;
+  const ra = $('rec-area');
+  if (ra) ra.style.display = 'none';
+}
 
-    const { data, error } = await supabase.from('transactions').insert([newTrans]).select().single();
+async function submitFlow() {
+  vib('heavy');
+  const raw = parseFloat(($('amt-in')?.value || '').replace(/[^0-9.]/g, ''));
+  if (!raw || !draft.category) return;
+
+  let amount = Math.round(raw);
+  let note   = '';
+  if (inputCur === 'USD') { amount = Math.round(raw * rate); note = ` ($${raw})`; }
+
+  let recUrl = null;
+  if (draft.rawFile && db) {
+    try { recUrl = await uploadReceipt(draft.rawFile); }
+    catch { /* continue without receipt */ }
+  }
+
+  const newTx = {
+    user_id: UID, amount, category: draft.category + note,
+    type: draft.type, date: isoNow(), receipt_url: recUrl,
+  };
+
+  const tempId = Date.now();
+  txList.unshift(normTx({ ...newTx, id: tempId, receipt: draft.receipt }));
+  renderAll();
+
+  const amtStr = inputCur === 'USD' ? `$${raw} → ${fmt(amount)} so'm` : `${fmt(amount)} so'm`;
+  addMsg(`✅ <b>Saqlandi:</b> ${amtStr}<br><small style="opacity:.6">${draft.category}${note}</small>`);
+
+  $('amt-in').value = '';
+  if (inputCur === 'USD') toggleCur();
+  const localReceipt = draft.receipt;
+  cancelFlow();
+
+  if (db) {
+    const { data, error } = await db.from('transactions').insert([newTx]).select().single();
     if (error) {
-        transactions = transactions.filter(t => t.id !== tempId);
-        updateUI();
-        logError('submitBotInput', error, { currentUserId, amount: newTrans.amount });
-        alert("Saqlashda xatolik bo'ldi.");
-        return;
+      txList = txList.filter(t => t.id !== tempId);
+      renderAll();
+      showErr('Saqlashda xatolik: ' + error.message);
+      return;
     }
-
-    const idx = transactions.findIndex(t => t.id === tempId);
-    if (idx !== -1) transactions[idx] = normalizeTransactionRecord({ ...transactions[idx], ...data, receipt: localReceipt });
-    logInfo('submitBotInput', { currentUserId, transactionId: data.id, amount: data.amount });
+    const i = txList.findIndex(t => t.id === tempId);
+    if (i !== -1) txList[i] = normTx({ ...txList[i], ...data, receipt: localReceipt });
+  }
 }
 
-function cancelBotFlow() {
-    document.getElementById('bot-input-container')?.classList.add('hidden');
-    document.getElementById('category-selector')?.classList.add('hidden');
-    document.getElementById('bot-start-actions')?.classList.remove('hidden');
-    clearReceipt();
+async function uploadReceipt(file) {
+  const name = `${UID}/${Date.now()}.jpg`;
+  const { error } = await db.storage.from('receipts').upload(name, file, { contentType: 'image/jpeg' });
+  if (error) throw error;
+  const { data: { publicUrl } } = db.storage.from('receipts').getPublicUrl(name);
+  return publicUrl;
 }
 
-// ════════════════════════════════════════
-// FILTERS
-// ════════════════════════════════════════
-function toggleTypeFilter(t) {
-    vibrate('soft');
-    activeType = activeType === t ? 'all' : t;
-    updateUI();
+// ─── CATEGORIES ─────────────────────────────────────────
+function buildIconGrid() {
+  const grid = $('icon-grid');
+  if (!grid) return;
+  grid.innerHTML = '';
+  ICON_NAMES.forEach(name => {
+    const d = document.createElement('div');
+    d.className = 'io';
+    d.innerHTML = svgIcon(name);
+    d.onclick = () => {
+      document.querySelectorAll('.io').forEach(x => x.classList.remove('on'));
+      d.classList.add('on');
+      selIcon = name;
+    };
+    grid.appendChild(d);
+  });
 }
 
-function setDateFilter(f) {
-    vibrate('soft');
-    activeDate = f;
-    document.querySelectorAll('.date-filter-btn').forEach(b => b.classList.remove('filter-active'));
-    document.querySelector(`[data-filter="${f}"]`)?.classList.add('filter-active');
-    updateUI();
+function openAddCat() { $('nc-name').value = ''; selIcon = 'star'; showOv('ov-addcat'); }
+
+async function saveNewCat() {
+  const name = $('nc-name')?.value.trim();
+  if (!name || !draft.type) return;
+  const payload = { user_id: UID, name, icon: selIcon, type: draft.type };
+
+  if (db) {
+    const { data, error } = await db.from('categories').insert([payload]).select().single();
+    if (error) { showErr('Kategoriya saqlashda xatolik'); return; }
+    cats[draft.type].push(data);
+  } else {
+    cats[draft.type].push({ ...payload, id: Date.now() });
+  }
+  cats[draft.type].sort((a, b) => a.name.localeCompare(b.name));
+  buildCatGrid(draft.type);
+  closeOv('ov-addcat');
 }
 
-function getDateRange() {
-    const now = new Date();
-    let s = 0;
-    let e = new Date().setHours(23, 59, 59, 999);
-    if (activeDate === 'week')  s = now.getTime() - 7 * 86400000;
-    else if (activeDate === 'month') s = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
-    else if (activeDate === 'custom') {
-        s = new Date(document.getElementById('start-date')?.value || 0).getTime();
-        e = new Date(document.getElementById('end-date')?.value  || Date.now()).getTime() + 86400000;
-    }
-    return { s, e };
+// Cat context menu
+let ctxTimer;
+function showCtxMenu(pos, idx, type) {
+  selCatIdx = idx; selCatType = type;
+  const m = $('ctx-menu');
+  if (!m) return;
+  m.style.left = Math.min((pos.clientX || 0), innerWidth  - 160) + 'px';
+  m.style.top  = Math.min((pos.clientY || 0), innerHeight - 100) + 'px';
+  m.style.display = 'block';
+}
+document.addEventListener('click', () => { const m = $('ctx-menu'); if (m) m.style.display = 'none'; });
+
+function ctxEdit() {
+  const cat = cats[selCatType]?.[selCatIdx];
+  if (!cat) return;
+  $('ec-name').value = cat.name;
+  showOv('ov-editcat');
+}
+async function saveEditCat() {
+  const n = $('ec-name')?.value.trim();
+  if (!n) return;
+  const cat = cats[selCatType]?.[selCatIdx];
+  if (!cat) return;
+  cats[selCatType][selCatIdx] = { ...cat, name: n };
+  buildCatGrid(selCatType);
+  closeOv('ov-editcat');
+  if (db && cat.id) {
+    const { error } = await db.from('categories').update({ name: n }).eq('id', cat.id).eq('user_id', UID);
+    if (error) showErr('Yangilashda xatolik');
+  }
+}
+async function ctxDel() {
+  if (!confirm("Bu kategoriyani o'chirasizmi?")) return;
+  const cat = cats[selCatType]?.[selCatIdx];
+  if (!cat) return;
+  cats[selCatType].splice(selCatIdx, 1);
+  buildCatGrid(selCatType);
+  if (db && cat.id) await db.from('categories').delete().eq('id', cat.id).eq('user_id', UID);
 }
 
-function openDateRangeModal() { activeDate = 'custom'; document.getElementById('date-range-modal')?.classList.remove('hidden'); }
-function applyDateRange() { updateUI(); closeModal('date-range-modal'); }
+// ─── TRANSACTION ACTIONS ─────────────────────────────────
+function openAction(id) {
+  selTxId = id;
+  const t = txList.find(x => x.id === id);
+  if (!t) return;
+  const btns = $('action-btns');
+  if (!btns) return;
+  btns.innerHTML = '';
 
-// ════════════════════════════════════════
-// MODALS
-// ════════════════════════════════════════
-function closeModal(id) { document.getElementById(id)?.classList.add('hidden'); }
+  if (t.receipt || t.receipt_url) {
+    const b = document.createElement('button');
+    b.className = 'as-b green';
+    b.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" style="width:18px;height:18px"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>Chekni ko'rish`;
+    b.onclick = () => { const src = t.receipt_url || t.receipt; $('rec-img').src = src; $('rec-view').classList.add('on'); closeOv('ov-action'); };
+    btns.appendChild(b);
+  }
 
-function openActionSheet(e, id) {
-    if (e) e.stopPropagation();
-    selId = id;
-    const t = transactions.find(x => x.id === id);
-    if (!t) return;
-    const c = document.getElementById('action-sheet-content');
-    if (!c) return;
-    c.innerHTML = '';
-    if (t.receipt_url || t.receipt) {
-        c.innerHTML += `<button onclick="viewCurrentReceipt()" class="w-full flex items-center gap-3 p-3.5 bg-slate-900/50 rounded-xl hover:bg-slate-900 text-emerald-400 font-medium">
-            <i data-lucide="file-text" class="w-5 h-5"></i> Chekni ko'rish</button>`;
-    }
-    c.innerHTML += `
-        <button onclick="handleEdit()" class="w-full flex items-center gap-3 p-3.5 bg-slate-900/50 rounded-xl hover:bg-slate-900 text-blue-400 font-medium">
-            <i data-lucide="edit-3" class="w-5 h-5"></i> Tahrirlash</button>
-        <button onclick="handleDeleteConfirm()" class="w-full flex items-center gap-3 p-3.5 bg-slate-900/50 rounded-xl hover:bg-slate-900 text-rose-400 font-medium">
-            <i data-lucide="trash-2" class="w-5 h-5"></i> O'chirish</button>`;
-    document.getElementById('action-sheet')?.classList.remove('hidden');
-    safeCreateIcons();
+  const editB = document.createElement('button');
+  editB.className = 'as-b blue';
+  editB.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" style="width:18px;height:18px"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>Tahrirlash`;
+  editB.onclick = () => { openEdit(); closeOv('ov-action'); };
+  btns.appendChild(editB);
+
+  const delB = document.createElement('button');
+  delB.className = 'as-b red';
+  delB.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" style="width:18px;height:18px"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>O'chirish`;
+  delB.onclick = () => { closeOv('ov-action'); showOv('ov-delete'); };
+  btns.appendChild(delB);
+
+  showOv('ov-action');
 }
 
-function viewCurrentReceipt() {
-    const t = transactions.find(x => x.id === selId);
-    if (t) viewReceipt(t.receipt_url || t.receipt);
-    closeActionSheet(null);
-}
-
-function closeActionSheet(e) {
-    if (e && !e.target.closest('.bg-slate-800') && e.target.id !== 'action-sheet') return;
-    document.getElementById('action-sheet')?.classList.add('hidden');
-}
-
-function handleDeleteConfirm() { closeActionSheet(null); document.getElementById('delete-modal')?.classList.remove('hidden'); }
-
-async function confirmDelete() {
-    const id = selId;
-    transactions = transactions.filter(t => t.id !== id);
-    updateUI();
-    closeModal('delete-modal');
-    const { error } = await supabase.from('transactions').delete().eq('id', id).eq('user_id', currentUserId);
-    if (error) logError('confirmDelete', error, { currentUserId, id });
-}
-
-function handleEdit() {
-    closeActionSheet(null);
-    const t = transactions.find(x => x.id === selId);
-    if (!t) return;
-    const cat = document.getElementById('edit-category');
-    const amt = document.getElementById('edit-amount');
-    const typ = document.getElementById('edit-type');
-    if (cat) cat.value = t.category;
-    if (amt) amt.value = t.amount;
-    if (typ) typ.value = t.type;
-    document.getElementById('edit-modal')?.classList.remove('hidden');
+function openEdit() {
+  const t = txList.find(x => x.id === selTxId);
+  if (!t) return;
+  $('ed-cat').value  = t.category;
+  $('ed-amt').value  = t.amount;
+  $('ed-type').value = t.type;
+  showOv('ov-edit');
 }
 
 async function saveEdit() {
-    const c  = document.getElementById('edit-category')?.value;
-    const a  = Number(document.getElementById('edit-amount')?.value);
-    const tp = document.getElementById('edit-type')?.value;
-    if (c && a) {
-        const i = transactions.findIndex(x => x.id === selId);
-        if (i !== -1) {
-            transactions[i] = { ...transactions[i], category: c, amount: a, type: tp };
-            updateUI();
-            const { error } = await supabase.from('transactions')
-                .update({ category: c, amount: a, type: tp })
-                .eq('id', selId).eq('user_id', currentUserId);
-            if (error) logError('saveEdit', error, { currentUserId, selId });
-        }
-    }
-    closeModal('edit-modal');
+  const cat = $('ed-cat')?.value.trim();
+  const amt = Number($('ed-amt')?.value);
+  const typ = $('ed-type')?.value;
+  if (!cat || !amt) return;
+
+  const i = txList.findIndex(x => x.id === selTxId);
+  if (i !== -1) txList[i] = { ...txList[i], category: cat, amount: amt, type: typ };
+  closeOv('ov-edit');
+  renderAll();
+
+  if (db) {
+    const { error } = await db.from('transactions').update({ category: cat, amount: amt, type: typ })
+      .eq('id', selTxId).eq('user_id', UID);
+    if (error) showErr('Yangilashda xatolik');
+  }
 }
 
-// ════════════════════════════════════════
-// SETTINGS
-// ════════════════════════════════════════
-function openSettings() { updateSettingsUI(); document.getElementById('settings-modal')?.classList.remove('hidden'); }
+async function confirmDel() {
+  txList = txList.filter(t => t.id !== selTxId);
+  closeOv('ov-delete');
+  renderAll();
+  if (db) await db.from('transactions').delete().eq('id', selTxId).eq('user_id', UID);
+}
+
+// ─── PIN ─────────────────────────────────────────────────
+async function checkBioAvail() {
+  try {
+    if (!isSecureContext) return false;
+    return !!(await PublicKeyCredential?.isUserVerifyingPlatformAuthenticatorAvailable?.());
+  } catch { return false; }
+}
+
+function showPin(mode) {
+  pinMode = mode; pinBuf = '';
+  updatePinDots();
+  $('pin-screen')?.classList.add('on');
+  const t = $('pin-ttl'), s = $('pin-sub'), c = $('pin-cancel-b'), bio = $('pin-bio-b');
+
+  const msgs = {
+    unlock:         ['PIN Kod', 'Kirish uchun 4 xonali kod'],
+    setup_new:      ['Yangi PIN', '4 raqam kiriting'],
+    setup_confirm:  ['Tasdiqlash', 'PIN ni qayta kiriting'],
+    change_old:     ['Eski PIN', 'Avvalgi PIN ni kiriting'],
+  };
+  const [tt, ss] = msgs[mode] || msgs.unlock;
+  if (t) t.textContent = tt;
+  if (s) s.textContent = ss;
+  if (c) c.style.display = mode !== 'unlock' ? 'block' : 'none';
+  if (bio) bio.style.display = (mode === 'unlock' && bioOn && bioAvail) ? 'flex' : 'none';
+  if (mode === 'unlock' && bioOn && bioAvail) setTimeout(triggerBio, 300);
+}
+
+function pp(n) {
+  vib('medium');
+  if (pinBuf.length >= 4) return;
+  pinBuf += n;
+  updatePinDots();
+  if (pinBuf.length === 4) setTimeout(checkPin, 200);
+}
+function pd() { pinBuf = pinBuf.slice(0, -1); updatePinDots(); }
+
+function updatePinDots() {
+  for (let i = 0; i < 4; i++) {
+    $('pd' + i)?.classList.toggle('on', i < pinBuf.length);
+  }
+}
+
+function checkPin() {
+  const shake = () => {
+    $('pin-dots')?.classList.add('shk');
+    setTimeout(() => { $('pin-dots')?.classList.remove('shk'); pinBuf = ''; updatePinDots(); }, 420);
+  };
+
+  if (pinMode === 'unlock') {
+    if (pinBuf === pin) $('pin-screen')?.classList.remove('on');
+    else shake();
+  } else if (pinMode === 'change_old') {
+    if (pinBuf === pin) showPin('setup_new');
+    else shake();
+  } else if (pinMode === 'setup_new') {
+    pinTemp = pinBuf;
+    showPin('setup_confirm');
+  } else if (pinMode === 'setup_confirm') {
+    if (pinBuf === pinTemp) {
+      pin = pinTemp;
+      store.set('pin', pin);
+      $('pin-screen')?.classList.remove('on');
+      updateSettingsUI();
+      alert('PIN o\'rnatildi ✅');
+    } else {
+      shake();
+      setTimeout(() => showPin('setup_new'), 500);
+    }
+  }
+}
+
+async function triggerBio() {
+  if (!bioAvail) return;
+  try {
+    const ch = new Uint8Array(32);
+    crypto.getRandomValues(ch);
+    await navigator.credentials.get({ publicKey: { challenge: ch, timeout: 60000, userVerification: 'required' } });
+    $('pin-screen')?.classList.remove('on');
+  } catch { /* user cancelled */ }
+}
+
+function cancelPin() { $('pin-screen')?.classList.remove('on'); }
+
+function setupPin() {
+  closeOv('ov-settings');
+  pin ? showPin('change_old') : showPin('setup_new');
+}
+
+function removePin() {
+  if (!confirm('PIN kodni o\'chirasizmi?')) return;
+  store.del('pin');
+  pin = null;
+  updateSettingsUI();
+}
+
+function toggleBio() {
+  bioOn = !bioOn;
+  store.set('bio', bioOn);
+  $('bio-tgl')?.classList.toggle('on', bioOn);
+}
+
+// ─── SETTINGS ────────────────────────────────────────────
+function openSettings() { updateSettingsUI(); showOv('ov-settings'); }
 
 function updateSettingsUI() {
-    const pinText  = document.getElementById('pin-status-text');
-    const bioTog   = document.getElementById('bio-toggle');
-    const removeBtn = document.getElementById('btn-remove-pin');
-    const bioRow   = document.getElementById('bio-row');
-    const rateInp  = document.getElementById('exchange-rate-input');
-
-    if (pinText)  pinText.innerText = pin ? 'Faol ✅' : "O'rnatilmagan";
-    if (bioTog)   bioTog.checked = bioEnabled;
-    if (removeBtn) removeBtn.classList.toggle('hidden', !pin);
-    if (bioRow)   bioRow.classList.toggle('hidden', !isBiometricAvailable);
-    if (rateInp)  rateInp.value = exchangeRate;
+  const ps = $('pin-status'), rb = $('pin-rm-b'), ri = $('rate-in');
+  const br = $('bio-row'), bt = $('bio-tgl');
+  if (ps)  ps.textContent = pin ? 'Faol ✅' : 'O\'rnatilmagan';
+  if (rb)  rb.style.display = pin ? 'block' : 'none';
+  if (ri)  ri.value = rate;
+  if (br)  br.style.display = bioAvail ? 'flex' : 'none';
+  if (bt)  bt.classList.toggle('on', bioOn);
 }
 
-async function saveExchangeRate(val) {
-    const num = Number(val);
-    if (!num || num <= 0) return;
-    exchangeRate = num;
-    storage.set('exchangeRate', String(exchangeRate));
-    vibrate('light');
-    const { error } = await supabase.from('users')
-        .upsert({ user_id: currentUserId, exchange_rate: exchangeRate }, { onConflict: 'user_id' });
-    if (error) logError('saveExchangeRate', error, { currentUserId, exchangeRate });
-    else logInfo('saveExchangeRate', { currentUserId, exchangeRate });
+async function saveRate(v) {
+  const n = Number(v);
+  if (!n || n <= 0) return;
+  rate = n; store.set('rate', rate);
+  if (db) await db.from('users').upsert({ user_id: UID, exchange_rate: rate }, { onConflict: 'user_id' });
 }
 
-// ════════════════════════════════════════
-// THEME
-// ════════════════════════════════════════
-function toggleTheme(forceValue) {
-    const isLight = typeof forceValue === 'boolean' ? forceValue : !document.body.classList.contains('light-mode');
-    document.body.classList.toggle('light-mode', isLight);
-    storage.set('theme', isLight ? 'light' : 'dark');
-    safeCreateIcons();
+function toggleTheme() {
+  document.body.classList.toggle('light');
+  store.set('theme', document.body.classList.contains('light') ? 'light' : 'dark');
 }
 
-// ════════════════════════════════════════
-// CATEGORY MODAL
-// ════════════════════════════════════════
-function openAddCategoryModal() { document.getElementById('add-cat-modal')?.classList.remove('hidden'); }
-
-async function saveNewCategory() {
-    const n = document.getElementById('new-cat-name')?.value.trim();
-    if (!n || !draft.type) return;
-
-    const payload = { user_id: currentUserId, name: n, icon: selIcon, type: draft.type };
-    const { data, error } = await supabase.from('categories').insert([payload]).select().single();
-    if (error) {
-        logError('saveNewCategory', error, { currentUserId, payload });
-        alert("Kategoriyani saqlab bo'lmadi. Balki shu nom allaqachon mavjuddir.");
-        return;
-    }
-    allCats[draft.type].push(data);
-    allCats[draft.type].sort((a, b) => a.name.localeCompare(b.name));
-    renderBotCats(draft.type);
-    closeModal('add-cat-modal');
-    const inp = document.getElementById('new-cat-name');
-    if (inp) inp.value = '';
-    selIcon = 'circle';
-}
-
-// ════════════════════════════════════════
-// EXPORT / IMPORT
-// ════════════════════════════════════════
-function exportData() {
-    const blob = new Blob([JSON.stringify({ transactions, allCats, pin, bio: bioEnabled }, null, 2)], { type: 'application/json' });
-    const url  = URL.createObjectURL(blob);
-    const a    = document.createElement('a');
-    a.href = url;
-    a.download = `backup_kassa_${new Date().toISOString().slice(0, 10)}.json`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-}
-
-async function importData(e) {
-    const file = e.target.files[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = async (ev) => {
-        try {
-            const backup = JSON.parse(ev.target.result);
-            if (backup.pin) storage.set('pin', backup.pin);
-            if (backup.bio !== undefined) storage.set('bio', backup.bio);
-
-            if (Array.isArray(backup.transactions) && backup.transactions.length > 0) {
-                const newTrans = backup.transactions.map(({ id, dateMs, receipt, ...rest }) => ({
-                    ...rest,
-                    user_id: currentUserId,
-                    date: toIsoString(rest.date || dateMs || Date.now()),
-                }));
-                const { error } = await supabase.from('transactions').insert(newTrans);
-                if (error) throw error;
-            }
-
-            if (backup.allCats) {
-                const cats = [
-                    ...(backup.allCats.income  || []),
-                    ...(backup.allCats.expense || []),
-                ].map(({ id, created_at, ...rest }) => ({ ...rest, user_id: currentUserId }));
-                if (cats.length > 0) {
-                    await supabase.from('categories').upsert(cats, { onConflict: 'user_id,name,type' });
-                }
-            }
-
-            alert('Muvaffaqiyatli! Dastur qayta yuklanmoqda...');
-            location.reload();
-        } catch (err) {
-            logError('importData', err, { currentUserId });
-            alert('Importda xatolik yuz berdi.');
-        }
-    };
-    reader.readAsText(file);
-    e.target.value = '';
-}
-
-function confirmResetData() {
-    if (!confirm("DIQQAT! Barcha ma'lumotlar BAZADAN o'chib ketadi. Davom etasizmi?")) return;
-    transactions = [];
-    updateUI();
-    closeModal('settings-modal');
-    supabase.from('transactions').delete().eq('user_id', currentUserId)
-        .then(() => alert('Tozalandi!'));
-}
-
-// ════════════════════════════════════════
-// PDF EXPORT
-// ════════════════════════════════════════
-function openExportModal() {
-    const now      = new Date();
-    const firstDay = new Date(now.getFullYear(), now.getMonth(), 1);
-    const startEl  = document.getElementById('export-start-date');
-    const endEl    = document.getElementById('export-end-date');
-    if (startEl) startEl.valueAsDate = firstDay;
-    if (endEl)   endEl.valueAsDate   = now;
-    updateExportPreview();
-    document.getElementById('export-modal')?.classList.remove('hidden');
-    if (startEl) startEl.onchange = updateExportPreview;
-    if (endEl)   endEl.onchange   = updateExportPreview;
+// ─── EXPORT / IMPORT ─────────────────────────────────────
+function openExport() {
+  const now = new Date(), first = new Date(now.getFullYear(), now.getMonth(), 1);
+  $('ex-from').valueAsDate = first;
+  $('ex-to').valueAsDate   = now;
+  updateExportPreview();
+  $('ex-from').onchange = updateExportPreview;
+  $('ex-to').onchange   = updateExportPreview;
+  showOv('ov-export');
 }
 
 function updateExportPreview() {
-    const s = new Date(document.getElementById('export-start-date')?.value || 0).getTime();
-    const e = new Date(document.getElementById('export-end-date')?.value   || Date.now()).getTime() + 86400000;
-    const data     = transactions.filter(t => t.dateMs >= s && t.dateMs < e);
-    const receipts = data.filter(t => t.receipt || t.receipt_url).length;
-    const countEl  = document.getElementById('export-count');
-    const recEl    = document.getElementById('export-receipts');
-    if (countEl) countEl.innerText = `${data.length} ta operatsiya`;
-    if (recEl)   recEl.innerText   = `${receipts} ta rasm`;
+  const s = new Date($('ex-from')?.value || 0).getTime();
+  const e = new Date($('ex-to')?.value || Date.now()).getTime() + 86400000;
+  const d = txList.filter(t => t.ms >= s && t.ms < e);
+  const cntEl = $('ex-cnt'), recEl = $('ex-rec');
+  if (cntEl) cntEl.textContent = d.length + ' ta';
+  if (recEl) recEl.textContent = d.filter(t => t.receipt || t.receipt_url).length + ' ta';
 }
 
-async function generatePDF() {
-    const { jsPDF } = window.jspdf;
-    if (!jsPDF) { alert('PDF kutubxonalari yuklanmagan!'); return; }
+async function makePDF() {
+  const { jsPDF } = window.jspdf || {};
+  if (!jsPDF) { alert('PDF kutubxonasi yuklanmagan!'); return; }
 
-    const sStr = document.getElementById('export-start-date')?.value;
-    const eStr = document.getElementById('export-end-date')?.value;
-    if (!sStr || !eStr) return;
+  const sStr = $('ex-from')?.value, eStr = $('ex-to')?.value;
+  if (!sStr || !eStr) return;
+  const s = new Date(sStr).getTime(), e = new Date(eStr).getTime() + 86400000;
+  const data = txList.filter(t => t.ms >= s && t.ms < e).sort((a, b) => a.ms - b.ms);
+  if (!data.length) { alert("Ma'lumot yo'q"); return; }
 
-    const s    = new Date(sStr).getTime();
-    const e    = new Date(eStr).getTime() + 86400000;
-    const data = transactions.filter(t => t.dateMs >= s && t.dateMs < e).sort((a, b) => a.dateMs - b.dateMs);
+  const doc = new jsPDF(), pw = doc.internal.pageSize.width;
+  doc.setFillColor(10, 10, 15); doc.rect(0, 0, pw, 38, 'F');
+  doc.setTextColor(255, 255, 255); doc.setFontSize(20); doc.text('Kassa — Moliyaviy Hisobot', 14, 17);
+  doc.setFontSize(10); doc.setTextColor(160, 160, 180); doc.text(`${sStr} — ${eStr}`, 14, 28);
 
-    if (data.length === 0) { alert("Tanlangan davrda ma'lumot yo'q."); return; }
+  const inc = data.filter(t => t.type === 'income' ).reduce((a, b) => a + b.amount, 0);
+  const exp = data.filter(t => t.type === 'expense').reduce((a, b) => a + b.amount, 0);
+  let y = 48;
+  doc.setTextColor(0); doc.setFontSize(10);
+  doc.text('Kirim:',   14, y); doc.setTextColor(16,185,129); doc.setFont('helvetica','bold'); doc.text(`+${fmt(inc)} so'm`, 36, y);
+  doc.setTextColor(0); doc.setFont('helvetica','normal');
+  doc.text('Chiqim:', 80, y); doc.setTextColor(239,68,68); doc.setFont('helvetica','bold'); doc.text(`-${fmt(exp)} so'm`, 103, y);
+  doc.setTextColor(0); doc.setFont('helvetica','normal');
+  doc.text('Qoldiq:', 148, y); doc.setTextColor(124,58,237); doc.setFont('helvetica','bold'); doc.text(`${fmt(inc-exp)} so'm`, 168, y);
+  doc.setFont('helvetica','normal');
 
-    const doc       = new jsPDF();
-    const pageWidth = doc.internal.pageSize.width;
+  doc.autoTable({
+    startY: y + 12,
+    head: [['Sana', 'Kategoriya', 'Tur', 'Summa']],
+    body: data.map(t => [
+      new Date(t.ms).toLocaleDateString(), t.category,
+      t.type === 'income' ? 'Kirim' : 'Chiqim',
+      (t.type === 'income' ? '+' : '-') + fmt(t.amount),
+    ]),
+    theme: 'striped',
+    headStyles: { fillColor: [10, 10, 15] },
+    styles: { fontSize: 9 },
+    columnStyles: { 3: { halign: 'right', fontStyle: 'bold' } },
+    didParseCell(d) {
+      if (d.section === 'body' && d.column.index === 3) {
+        d.cell.styles.textColor = d.cell.raw.startsWith('+') ? [16,185,129] : [239,68,68];
+      }
+    },
+  });
 
-    // Header
-    doc.setFillColor(30, 41, 59);
-    doc.rect(0, 0, pageWidth, 40, 'F');
-    doc.setTextColor(255, 255, 255);
-    doc.setFontSize(22);
-    doc.text('Mening Kassam', 14, 18);
-    doc.setFontSize(10);
-    doc.setTextColor(200, 200, 200);
-    doc.text('Moliyaviy hisobot', 14, 28);
-    doc.text(`${sStr} — ${eStr}`, pageWidth - 14, 28, { align: 'right' });
-
-    // Summary
-    const inc = data.filter(t => t.type === 'income' ).reduce((a, b) => a + b.amount, 0);
-    const exp = data.filter(t => t.type === 'expense').reduce((a, b) => a + b.amount, 0);
-    const bal = inc - exp;
-    let yPos  = 52;
-
-    doc.setTextColor(0);
-    doc.setFontSize(10);
-    doc.text('Jami Kirim:',  14,  yPos); doc.setTextColor(16, 185, 129); doc.setFont('helvetica', 'bold'); doc.text(`+${formatNumber(inc)} so'm`, 42, yPos);
-    doc.setTextColor(0);     doc.setFont('helvetica', 'normal');
-    doc.text('Jami Chiqim:', 85,  yPos); doc.setTextColor(239, 68, 68);   doc.setFont('helvetica', 'bold'); doc.text(`-${formatNumber(exp)} so'm`, 115, yPos);
-    doc.setTextColor(0);     doc.setFont('helvetica', 'normal');
-    doc.text('Sof Qoldiq:',  155, yPos); doc.setTextColor(59, 130, 246);  doc.setFont('helvetica', 'bold'); doc.text(`${formatNumber(bal)} so'm`, 178, yPos);
-    doc.setFont('helvetica', 'normal');
-
-    // Table
-    const tableData = data.map(t => [
-        new Date(t.dateMs).toLocaleDateString(),
-        t.category,
-        t.type === 'income' ? 'Kirim' : 'Chiqim',
-        (t.type === 'income' ? '+' : '-') + formatNumber(t.amount),
-    ]);
-
-    doc.autoTable({
-        startY: yPos + 10,
-        head: [['Sana', 'Kategoriya', 'Tur', 'Summa']],
-        body: tableData,
-        theme: 'striped',
-        headStyles: { fillColor: [30, 41, 59] },
-        styles: { fontSize: 9 },
-        columnStyles: { 3: { halign: 'right', fontStyle: 'bold' } },
-        didParseCell(data) {
-            if (data.section === 'body' && data.column.index === 3) {
-                const raw = tableData[data.row.index][3];
-                data.cell.styles.textColor = raw.startsWith('+') ? [16, 185, 129] : [239, 68, 68];
-            }
-        },
-    });
-
-    // Receipts page
-    const receipts = data.filter(t => t.receipt || t.receipt_url);
-    if (receipts.length > 0) {
-        doc.addPage();
-        let rY = 20;
-        doc.setFontSize(16); doc.setTextColor(0); doc.setFont('helvetica', 'bold');
-        doc.text('Biriktirilgan Cheklar', 14, rY);
-        rY += 12;
-        doc.setDrawColor(200); doc.line(14, rY, pageWidth - 14, rY);
-        rY += 8;
-        receipts.forEach(t => {
-            if (rY > 250) { doc.addPage(); rY = 20; }
-            doc.setFontSize(10); doc.setTextColor(50); doc.setFont('helvetica', 'normal');
-            doc.text(`${new Date(t.dateMs).toLocaleDateString()} — ${t.category}: ${formatNumber(t.amount)}`, 14, rY);
-            if (t.receipt) {
-                try { doc.addImage(t.receipt, 'JPEG', 14, rY + 4, 40, 50, undefined, 'FAST'); rY += 60; }
-                catch { rY += 10; }
-            } else if (t.receipt_url) {
-                doc.setTextColor(59, 130, 246);
-                doc.textWithLink("Chekni ko'rish (link)", 14, rY + 8, { url: t.receipt_url });
-                rY += 18;
-            }
-        });
-    }
-
-    doc.save(`Hisobot_${sStr}_${eStr}.pdf`);
-    closeModal('export-modal');
+  doc.save(`Kassa_${sStr}_${eStr}.pdf`);
+  closeOv('ov-export');
 }
 
-// ════════════════════════════════════════
-// GLOBAL ERROR HANDLERS
-// ════════════════════════════════════════
-window.addEventListener('error', ev => {
-    logError('window-error', ev.error || ev.message, { filename: ev.filename, lineno: ev.lineno });
+function doExport() {
+  const blob = new Blob([JSON.stringify({ txList, cats, pin, bio: bioOn }, null, 2)], { type: 'application/json' });
+  const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: `kassa_${isoNow().slice(0,10)}.json` });
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+}
+
+async function doImport(e) {
+  const file = e.target.files?.[0]; if (!file) return;
+  const reader = new FileReader();
+  reader.onload = async ev => {
+    try {
+      const bk = JSON.parse(ev.target.result);
+      if (bk.pin) store.set('pin', bk.pin);
+      if (bk.bio !== undefined) store.set('bio', bk.bio);
+      if (Array.isArray(bk.txList) && bk.txList.length && db) {
+        const rows = bk.txList.map(({ id, ms, receipt, ...r }) => ({
+          ...r, user_id: UID, date: isoNow(r.date || ms || Date.now()),
+        }));
+        const { error } = await db.from('transactions').insert(rows);
+        if (error) throw error;
+      }
+      alert('Muvaffaqiyatli! Qayta yuklanmoqda...');
+      location.reload();
+    } catch (err) { showErr('Import xatolik: ' + err.message); }
+  };
+  reader.readAsText(file);
+  e.target.value = '';
+}
+
+function resetData() {
+  if (!confirm("DIQQAT! Barcha tranzaksiyalar o'chadi. Davom etasizmi?")) return;
+  txList = [];
+  renderAll();
+  closeOv('ov-settings');
+  if (db) db.from('transactions').delete().eq('user_id', UID).then(({ error }) => {
+    if (error) showErr('O\'chirishda xatolik');
+    else alert('Tozalandi ✅');
+  });
+}
+
+// ─── GLOBAL ERROR HANDLER ────────────────────────────────
+window.addEventListener('unhandledrejection', e => {
+  console.error('[unhandled]', e.reason);
 });
-window.addEventListener('unhandledrejection', ev => {
-    logError('unhandledrejection', ev.reason);
+window.addEventListener('error', e => {
+  console.error('[error]', e.message);
 });

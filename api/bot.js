@@ -1,506 +1,385 @@
+'use strict';
+/**
+ * api/bot.js — Telegram Bot Webhook Handler
+ * Vercel serverless / Express handler sifatida ishlaydi
+ */
+
 const TelegramBot = require('node-telegram-bot-api');
 const { createClient } = require('@supabase/supabase-js');
-const fs = require('fs');
+const fs   = require('fs');
 const path = require('path');
 const axios = require('axios');
-const { OpenAI } = require('openai');
 
-const token = process.env.BOT_TOKEN;
-const supabaseUrl = process.env.SUPABASE_URL;
-const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY;
+// ─── ENV CHECKS ──────────────────────────────────────────
+const BOT_TOKEN  = process.env.BOT_TOKEN;
+const SUPA_URL   = process.env.SUPABASE_URL;
+const SUPA_KEY   = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY;
+const OAI_KEY    = process.env.OPENAI_API_KEY;
 
-if (!token) throw new Error('BOT_TOKEN topilmadi');
-if (!supabaseUrl) throw new Error('SUPABASE_URL topilmadi');
-if (!supabaseServiceRoleKey) throw new Error('SUPABASE_SERVICE_ROLE_KEY yoki SUPABASE_KEY topilmadi');
+if (!BOT_TOKEN) throw new Error('BOT_TOKEN yo\'q');
+if (!SUPA_URL)  throw new Error('SUPABASE_URL yo\'q');
+if (!SUPA_KEY)  throw new Error('SUPABASE_KEY yo\'q');
 
-const bot = new TelegramBot(token, { polling: false });
-const supabase = createClient(supabaseUrl, supabaseServiceRoleKey);
-const openai = process.env.OPENAI_API_KEY
-  ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
-  : null;
+// ─── CLIENTS ─────────────────────────────────────────────
+const bot = new TelegramBot(BOT_TOKEN, { polling: false });
+const db  = createClient(SUPA_URL, SUPA_KEY);
 
-const GUIDE_TEXT = `<b>📖 BOTDAN FOYDALANISH QO'LLANMASI:</b>\n\n`
-  + `Botga yozing yoki <b>OVOZLI XABAR</b> yuboring! 🎙\n\n`
-  + `<b>1. Chiqim (Xarajat):</b>\n`
-  + `➖ <i>50 ming tushlik</i>\n`
-  + `➖ <i>-50$ bozorlik</i>\n`
-  + `🎙 <i>"Taksiga 20 ming berdim"</i>\n\n`
-  + `<b>2. Kirim (Daromad):</b>\n`
-  + `➕ <i>2 mln oylik</i>\n`
-  + `🎙 <i>"100 dollar bonus tushdi"</i>\n\n`
-  + `<i>Valyuta kursi Kassa App sozlamalaridan olinadi.</i>`;
+// OpenAI — optional (faqat voice uchun)
+let openai = null;
+if (OAI_KEY && !OAI_KEY.startsWith('your-')) {
+  try {
+    const { OpenAI } = require('openai');
+    openai = new OpenAI({ apiKey: OAI_KEY });
+  } catch {}
+}
 
-const MAIN_KEYBOARD = {
+// ─── CONSTANTS ───────────────────────────────────────────
+const KB = {
   keyboard: [
     ['📊 Bugungi Hisobot', '📅 Oylik Hisobot'],
-    ["↩️ Oxirgisini O'chirish", 'Botdan foydalanish❓'],
+    ['↩️ Oxirgisini O\'chirish', '❓ Qo\'llanma'],
   ],
   resize_keyboard: true,
 };
 
-function logInfo(scope, payload = {}) {
-  console.log(`[BOT:${scope}]`, payload);
-}
+const GUIDE = `<b>📖 Qo'llanma</b>
 
-function logWarn(scope, payload = {}) {
-  console.warn(`[BOT:${scope}]`, payload);
-}
+Menga yozing yoki <b>ovozli xabar</b> yuboring 🎙
 
-function logError(scope, error, payload = {}) {
-  console.error(`[BOT:${scope}]`, {
-    message: error?.message || error,
-    ...payload,
-    raw: error,
-  });
-}
+<b>Chiqim:</b>
+  · <i>50 ming tushlik</i>
+  · <i>-30000 transport</i>
+  · 🎙 <i>"Taksiga 20 ming berdim"</i>
 
-function toIsoString(value = Date.now()) {
-  return new Date(value).toISOString();
-}
+<b>Kirim:</b>
+  · <i>+2 mln oylik</i>
+  · <i>100 dollar bonus tushdi</i>
+  · 🎙 <i>"Mijozdan 500 ming oldim"</i>
 
-function escapeHtml(value = '') {
-  return String(value)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}
+<b>Valyuta kursi</b> Kassa App sozlamalaridan olinadi.`;
 
-function parseText(text) {
-  if (!text) return null;
+// ─── LOGGING ─────────────────────────────────────────────
+const log  = (scope, data)  => console.log (`[BOT:${scope}]`, data);
+const warn = (scope, data)  => console.warn (`[BOT:${scope}]`, data);
+const err  = (scope, e, ex) => console.error(`[BOT:${scope}]`, { msg: e?.message || e, ...ex, raw: e });
 
-  const originalText = String(text).trim();
-  const lowered = originalText.toLowerCase().trim();
-  const isUSD = /\$|\busd\b|dollar/.test(lowered);
+// ─── UTILS ───────────────────────────────────────────────
+const iso  = (ms = Date.now()) => new Date(ms).toISOString();
+const esc  = v => String(v ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+const numFmt = n => Number(n || 0).toLocaleString('uz-UZ');
 
-  const normalized = lowered
+// ─── TEXT PARSER ─────────────────────────────────────────
+function parseText(raw) {
+  if (!raw) return null;
+  const text   = String(raw).trim();
+  const lower  = text.toLowerCase();
+  const isUSD  = /\$|\busd\b|dollar/i.test(lower);
+
+  // Extract number
+  const clean = lower
     .replace(/so'?m|sum|uzs|\$|€|\busd\b|dollar/gi, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
+    .replace(/\s+/g, ' ').trim();
 
-  const numberMatch = normalized.match(/(\d+(?:[.,]\d+)?)\s*(k|ming|mln|mlrd|million|milliard|m)?\b/);
-  if (!numberMatch) return null;
+  const m = clean.match(/(\d[\d.,]*)[\s]*(k|ming|mln|mlrd|million|milliard)?/);
+  if (!m) return null;
 
-  const rawNumber = numberMatch[1].replace(',', '.');
-  const suffix = (numberMatch[2] || '').toLowerCase();
-  let amount = parseFloat(rawNumber);
-  if (!Number.isFinite(amount)) return null;
+  let amount = parseFloat(m[1].replace(',', '.'));
+  if (!isFinite(amount)) return null;
+  const suffix = (m[2] || '').toLowerCase();
+  if (['k', 'ming'].includes(suffix))               amount *= 1000;
+  else if (['mln', 'million', 'm'].includes(suffix)) amount *= 1_000_000;
+  else if (['mlrd', 'milliard'].includes(suffix))    amount *= 1_000_000_000;
 
-  if (['k', 'ming'].includes(suffix)) amount *= 1000;
-  else if (['m', 'mln', 'million'].includes(suffix)) amount *= 1000000;
-  else if (['mlrd', 'milliard'].includes(suffix)) amount *= 1000000000;
-
-  const incomeKeywords = ['kirim', 'tushdi', 'keldi', 'avans', 'oylik', 'bonus', 'qaytdi', 'foyda', 'daromad', 'sotdim', 'tushum', 'dan'];
-  const expenseKeywords = ['chiqim', 'ketdi', "to'landi", 'tolandi', 'xarajat', 'berdim', 'sotib', 'oldim', 'uchun', 'sarfladim', 'taksi', 'ovqat'];
+  // Determine type
+  const incWords = ['kirim','tushdi','keldi','avans','oylik','bonus','qaytdi','foyda','daromad','sotdim','tushum','oldim'];
+  const expWords = ['chiqim','ketdi','berdim','sarfladim','xarajat','sotib','uchun','tolandi',"to'landi",'taksi','ovqat'];
 
   let type = 'expense';
-  if (/^\s*\+/.test(lowered) || incomeKeywords.some(word => lowered.includes(word))) type = 'income';
-  if (/^\s*-/.test(lowered) || expenseKeywords.some(word => lowered.includes(word))) type = 'expense';
+  if (/^\s*\+/.test(lower) || incWords.some(w => lower.includes(w))) type = 'income';
+  if (/^\s*-/.test(lower)  || expWords.some(w => lower.includes(w))) type = 'expense';
 
-  let cleanText = normalized.replace(numberMatch[0], ' ');
-  for (const word of [...incomeKeywords, ...expenseKeywords]) {
-    const escapedWord = word.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&');
-    cleanText = cleanText.replace(new RegExp(`\\b${escapedWord}\\b`, 'g'), ' ');
-  }
+  // Category: leftover words
+  let cat = clean
+    .replace(m[0], '')
+    .replace(new RegExp([...incWords,...expWords].map(w => `\\b${w}\\b`).join('|'), 'g'), '')
+    .replace(/[+\-*/]/g, '')
+    .replace(/\s+/g, ' ').trim();
+  if (!cat || cat.length < 2) cat = type === 'income' ? 'Kirim' : 'Xarajat';
+  else cat = cat.charAt(0).toUpperCase() + cat.slice(1);
 
-  cleanText = cleanText.replace(/[+\-*/]/g, ' ').replace(/\s+/g, ' ').trim();
-  let category = cleanText ? cleanText.charAt(0).toUpperCase() + cleanText.slice(1) : '';
-  if (category.length < 2) category = type === 'income' ? 'Kirim' : 'Umumiy xarajat';
-
-  return {
-    amount: Math.round(amount),
-    type,
-    category,
-    isUSD,
-    originalText,
-  };
+  return { amount: Math.round(amount), type, category: cat, isUSD, original: text };
 }
 
-async function saveTransaction(userId, chatId, parsedData, receiptUrl = null, userExchangeRate = 12850, replyMsgId = null) {
-  let finalAmount = parsedData.amount;
-  let finalCategory = parsedData.category;
-  let amountText = `${finalAmount.toLocaleString('uz-UZ')} so'm`;
+// ─── SAVE TRANSACTION ────────────────────────────────────
+async function saveTx(userId, chatId, parsed, receiptUrl = null, exRate = 12850, replyId = null) {
+  let amount   = parsed.amount;
+  let category = parsed.category;
+  let amtTxt   = `${numFmt(amount)} so'm`;
 
-  if (parsedData.isUSD) {
-    finalAmount = Math.round(parsedData.amount * Number(userExchangeRate || 12850));
-    finalCategory = `${parsedData.category} ($${parsedData.amount})`;
-    amountText = `${finalAmount.toLocaleString('uz-UZ')} so'm\n<i>($${parsedData.amount} × ${Number(userExchangeRate || 12850).toLocaleString('uz-UZ')})</i>`;
+  if (parsed.isUSD) {
+    amount   = Math.round(parsed.amount * Number(exRate || 12850));
+    category = `${parsed.category} ($${parsed.amount})`;
+    amtTxt   = `${numFmt(amount)} so'm\n<i>($${parsed.amount} × ${numFmt(exRate)})</i>`;
   }
 
-  const payload = {
+  const row = {
     user_id: userId,
-    amount: finalAmount,
-    category: finalCategory,
-    type: parsedData.type,
-    date: toIsoString(),
+    amount,
+    category,
+    type: parsed.type,
+    date: iso(),
     receipt_url: receiptUrl,
   };
 
-  const { data, error } = await supabase
-    .from('transactions')
-    .insert(payload)
-    .select()
-    .single();
-
+  const { data, error } = await db.from('transactions').insert(row).select().single();
   if (error) {
-    logError('save-transaction', error, { userId, chatId, payload });
-    await bot.sendMessage(chatId, "⚠️ Bazaga yozishda xatolik bo'ldi. Qaytadan urinib ko'ring.");
+    err('save-tx', error, { userId, chatId, amount, category });
+    await bot.sendMessage(chatId, '⚠️ Bazaga yozishda xatolik. Keyinroq urinib ko\'ring.');
     return null;
   }
 
-  const emoji = parsedData.type === 'income' ? '🟢' : '🔴';
-  const typeText = parsedData.type === 'income' ? 'Kirim' : 'Chiqim';
-  const photoStatus = receiptUrl ? 'Bor 📸' : "Yo'q";
-  const options = { parse_mode: 'HTML' };
-  if (replyMsgId) options.reply_to_message_id = replyMsgId;
+  const ico = parsed.type === 'income' ? '🟢' : '🔴';
+  const typ = parsed.type === 'income' ? 'Kirim' : 'Chiqim';
+  const chk = receiptUrl ? '📸 Bor' : 'Yo\'q';
+  const opts = { parse_mode: 'HTML' };
+  if (replyId) opts.reply_to_message_id = replyId;
 
-  await bot.sendMessage(
-    chatId,
-    `✅ <b>Muvaffaqiyatli saqlandi!</b>\n\n`
-      + `${emoji} <b>Turi:</b> ${typeText}\n`
-      + `💰 <b>Summa:</b> ${amountText}\n`
-      + `📂 <b>Kategoriya:</b> ${escapeHtml(finalCategory)}\n`
-      + `🧾 <b>Chek:</b> ${photoStatus}`,
-    options,
-  );
+  await bot.sendMessage(chatId,
+    `✅ <b>Saqlandi!</b>\n\n`+
+    `${ico} <b>Turi:</b> ${typ}\n`+
+    `💰 <b>Summa:</b> ${amtTxt}\n`+
+    `📂 <b>Kategoriya:</b> ${esc(category)}\n`+
+    `🧾 <b>Chek:</b> ${chk}`, opts);
 
-  logInfo('transaction-saved', {
-    userId,
-    chatId,
-    transactionId: data.id,
-    type: data.type,
-    amount: data.amount,
-    category: data.category,
-    hasReceipt: Boolean(receiptUrl),
-  });
-
+  log('tx-saved', { userId, id: data.id, type: data.type, amount: data.amount });
   return data;
 }
 
-function buildReport(trans, title) {
-  const income = trans
-    .filter(item => item.type === 'income')
-    .reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
-  const expense = trans
-    .filter(item => item.type === 'expense')
-    .reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
-  const balance = income - expense;
-
-  return `📊 <b>${title}:</b>\n\n`
-    + `📥 Kirim: <b>+${income.toLocaleString('uz-UZ')}</b> so'm\n`
-    + `📤 Chiqim: <b>-${expense.toLocaleString('uz-UZ')}</b> so'm\n`
-    + `➖➖➖➖➖➖➖➖\n`
-    + `${balance >= 0 ? '🤑' : '💸'} Sof qoldiq: <b>${balance.toLocaleString('uz-UZ')} so'm</b>`;
+// ─── REPORT BUILDER ──────────────────────────────────────
+function buildReport(rows, title) {
+  const inc = rows.filter(r => r.type === 'income' ).reduce((s, r) => s + (Number(r.amount)||0), 0);
+  const exp = rows.filter(r => r.type === 'expense').reduce((s, r) => s + (Number(r.amount)||0), 0);
+  const bal = inc - exp;
+  return `📊 <b>${title}</b>\n\n`+
+    `📥 Kirim:   <b>+${numFmt(inc)} so'm</b>\n`+
+    `📤 Chiqim:  <b>-${numFmt(exp)} so'm</b>\n`+
+    `━━━━━━━━━━━━\n`+
+    `${bal >= 0 ? '🤑' : '💸'} Qoldiq: <b>${numFmt(bal)} so'm</b>`;
 }
 
+// ─── MAIN HANDLER ────────────────────────────────────────
 module.exports = async (req, res) => {
   try {
-    if (req.method !== 'POST') {
-      return res.status(200).send('Bot ishlamoqda 🚀');
-    }
+    if (req.method !== 'POST') return res.status(200).send('Kassa Bot ishlayapti 🚀');
 
     const update = req.body || {};
     const msg = update.message;
-    if (!msg) return res.status(200).send('No message found');
+    if (!msg) return res.status(200).json({ ok: true });
 
     const chatId = msg.chat.id;
     const userId = msg.from.id;
-    const text = msg.text || msg.caption || '';
+    const text   = (msg.text || msg.caption || '').trim();
 
-    logInfo('incoming-update', {
-      userId,
-      chatId,
-      hasText: Boolean(text),
-      hasPhoto: Boolean(msg.photo),
-      hasVoice: Boolean(msg.voice),
-      hasContact: Boolean(msg.contact),
-    });
+    log('msg', { userId, chatId, hasText: !!text, hasPhoto: !!msg.photo, hasVoice: !!msg.voice, hasContact: !!msg.contact });
 
-    let { data: user, error: userFetchError } = await supabase
-      .from('users')
-      .select('*')
-      .eq('user_id', userId)
-      .maybeSingle();
+    // ── Fetch user ──
+    let { data: user, error: uErr } = await db.from('users').select('*').eq('user_id', userId).maybeSingle();
+    if (uErr) warn('user-fetch', { userId, msg: uErr.message });
 
-    if (userFetchError) logWarn('user-fetch-warning', { userId, message: userFetchError.message });
-
+    // ── Phone registration ──
     if (msg.contact) {
-      if (msg.contact.user_id !== userId) return res.status(200).send('OK');
-
-      const { error: contactUpsertError } = await supabase
-        .from('users')
-        .upsert({
-          user_id: userId,
-          phone_number: msg.contact.phone_number,
-          full_name: `${msg.from.first_name} ${msg.from.last_name || ''}`.trim(),
-          last_start_date: toIsoString(),
-          exchange_rate: 12850,
-        }, { onConflict: 'user_id' });
-
-      if (contactUpsertError) {
-        logError('contact-upsert', contactUpsertError, { userId, chatId });
-        return res.status(500).send('Failed to register user');
-      }
-
-      await bot.sendMessage(
-        chatId,
-        "🎉 <b>Ro'yxatdan o'tdingiz!</b>\nEndi kirim yoki chiqimlarni yozishingiz mumkin.",
-        { reply_markup: MAIN_KEYBOARD, parse_mode: 'HTML' },
-      );
-      return res.status(200).send('OK');
+      if (msg.contact.user_id !== userId) return res.status(200).json({ ok: true });
+      const { error: e } = await db.from('users').upsert({
+        user_id:       userId,
+        phone_number:  msg.contact.phone_number,
+        full_name:     `${msg.from.first_name} ${msg.from.last_name || ''}`.trim(),
+        last_start_date: iso(),
+        exchange_rate: 12850,
+      }, { onConflict: 'user_id' });
+      if (e) { err('reg', e, { userId }); return res.status(500).send('Error'); }
+      await bot.sendMessage(chatId,
+        `🎉 <b>Ro'yxatdan o'tdingiz!</b>\nEndi kirim-chiqimlarni yozishingiz mumkin.`,
+        { reply_markup: KB, parse_mode: 'HTML' });
+      return res.status(200).json({ ok: true });
     }
 
+    // ── Ask phone if new user ──
     if (!user) {
-      await bot.sendMessage(chatId, "👋 Assalomu alaykum!\nBotdan foydalanish uchun telefon raqamingizni tasdiqlang.", {
+      await bot.sendMessage(chatId, '👋 Assalomu alaykum!\nBotdan foydalanish uchun telefon raqamingizni tasdiqlang.', {
         reply_markup: {
           keyboard: [[{ text: '📱 Telefon raqamni yuborish', request_contact: true }]],
-          resize_keyboard: true,
-          one_time_keyboard: true,
+          resize_keyboard: true, one_time_keyboard: true,
         },
       });
-      return res.status(200).send('OK');
+      return res.status(200).json({ ok: true });
     }
 
+    // ── /start ──
     if (text === '/start') {
-      const now = new Date();
-      const todayStr = now.toDateString();
-      const lastDate = user.last_start_date ? new Date(user.last_start_date).toDateString() : null;
-
-      if (lastDate !== todayStr) {
-        await bot.sendMessage(
-          chatId,
-          `Assalomu aleykum, ${escapeHtml(user.full_name || 'Foydalanuvchi')}! ☀️\nBugun qanday moliyaviy operatsiyalarni bajaramiz?`,
-          { reply_markup: MAIN_KEYBOARD, parse_mode: 'HTML' },
-        );
-        await supabase.from('users').update({ last_start_date: toIsoString(now) }).eq('user_id', userId);
-      } else {
-        await bot.sendMessage(chatId, GUIDE_TEXT, { reply_markup: MAIN_KEYBOARD, parse_mode: 'HTML' });
-      }
-      return res.status(200).send('OK');
+      const now    = new Date();
+      const today  = now.toDateString();
+      const last   = user.last_start_date ? new Date(user.last_start_date).toDateString() : null;
+      const greeting = last !== today
+        ? `☀️ Assalomu aleykum, ${esc(user.full_name || 'Foydalanuvchi')}!\nBugun qanday operatsiyalarni bajaramiz?`
+        : GUIDE;
+      await bot.sendMessage(chatId, greeting, { reply_markup: KB, parse_mode: 'HTML' });
+      if (last !== today) await db.from('users').update({ last_start_date: iso(now) }).eq('user_id', userId);
+      return res.status(200).json({ ok: true });
     }
 
-    if (text === 'Botdan foydalanish❓') {
-      await bot.sendMessage(chatId, GUIDE_TEXT, { parse_mode: 'HTML' });
-      return res.status(200).send('OK');
+    // ── Qo'llanma ──
+    if (text === '❓ Qo\'llanma') {
+      await bot.sendMessage(chatId, GUIDE, { parse_mode: 'HTML', reply_markup: KB });
+      return res.status(200).json({ ok: true });
     }
 
+    // ── Hisobotlar ──
     if (text === '📊 Bugungi Hisobot' || text === '📅 Oylik Hisobot') {
-      const statusMsg = await bot.sendMessage(chatId, "⏳ <b>Hisob-kitob qilinmoqda...</b>", { parse_mode: 'HTML' });
-      const now = new Date();
-      let startTime;
-      let title;
+      const wait = await bot.sendMessage(chatId, '⏳ Hisobot tayyorlanmoqda...', { parse_mode: 'HTML' });
+      const now  = new Date();
+      let since, title;
 
-      if (text === '📊 Bugungi Hisobot') {
-        startTime = new Date(now.setHours(0, 0, 0, 0)).toISOString();
+      if (text.includes('Bugungi')) {
+        since = new Date(now.setHours(0,0,0,0)).toISOString();
         title = 'BUGUNGI HISOBOT';
       } else {
-        startTime = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
-        title = `${now.toLocaleString('uz-UZ', { month: 'long' }).toUpperCase()} OYI HISOBOTI`;
+        since = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+        title = `${now.toLocaleString('uz-UZ', { month: 'long' }).toUpperCase()} OYI`;
       }
 
-      const { data: trans, error: reportError } = await supabase
-        .from('transactions')
-        .select('*')
-        .eq('user_id', userId)
-        .gte('date', startTime);
+      const { data: rows, error: re } = await db.from('transactions')
+        .select('*').eq('user_id', userId).gte('date', since);
 
-      if (reportError) {
-        logError('report-query', reportError, { userId, startTime, title });
-        await bot.editMessageText("⚠️ Hisobotni chiqarishda xatolik bo'ldi.", {
-          chat_id: chatId,
-          message_id: statusMsg.message_id,
-        });
-        return res.status(200).send('OK');
+      if (re) {
+        err('report', re, { userId }); 
+        await bot.editMessageText('⚠️ Hisobot chiqarishda xatolik.', { chat_id: chatId, message_id: wait.message_id });
+        return res.status(200).json({ ok: true });
       }
 
-      if (!trans || trans.length === 0) {
-        await bot.editMessageText(`📊 <b>${title}:</b>\n\nMa'lumot topilmadi.`, {
-          chat_id: chatId,
-          message_id: statusMsg.message_id,
-          parse_mode: 'HTML',
-        });
-        return res.status(200).send('OK');
-      }
-
-      await bot.editMessageText(buildReport(trans, title), {
-        chat_id: chatId,
-        message_id: statusMsg.message_id,
-        parse_mode: 'HTML',
-      });
-
-      logInfo('report-built', { userId, title, count: trans.length });
-      return res.status(200).send('OK');
+      const txt = rows?.length ? buildReport(rows, title) : `📊 <b>${title}</b>\n\nMa'lumot topilmadi.`;
+      await bot.editMessageText(txt, { chat_id: chatId, message_id: wait.message_id, parse_mode: 'HTML' });
+      log('report', { userId, title, count: rows?.length });
+      return res.status(200).json({ ok: true });
     }
 
-    if (text === "↩️ Oxirgisini O'chirish") {
-      const statusMsg = await bot.sendMessage(chatId, "⏳ <b>Oxirgi operatsiya qidirilmoqda...</b>", { parse_mode: 'HTML' });
+    // ── Oxirgisini o'chirish ──
+    if (text === '↩️ Oxirgisini O\'chirish') {
+      const wait = await bot.sendMessage(chatId, '⏳ Qidirilmoqda...', { parse_mode: 'HTML' });
 
-      const { data: lastTrans, error: lastTransError } = await supabase
-        .from('transactions')
-        .select('*')
-        .eq('user_id', userId)
-        .order('date', { ascending: false })
-        .limit(1)
-        .maybeSingle();
+      const { data: last } = await db.from('transactions')
+        .select('*').eq('user_id', userId)
+        .order('date', { ascending: false }).limit(1).maybeSingle();
 
-      if (lastTransError) logWarn('last-transaction-warning', { userId, message: lastTransError.message });
-
-      if (!lastTrans) {
-        await bot.editMessageText("⚠️ O'chirish uchun hech narsa topilmadi.", {
-          chat_id: chatId,
-          message_id: statusMsg.message_id,
-        });
-        return res.status(200).send('OK');
+      if (!last) {
+        await bot.editMessageText('⚠️ O\'chirish uchun operatsiya topilmadi.', { chat_id: chatId, message_id: wait.message_id });
+        return res.status(200).json({ ok: true });
       }
 
-      const { error: deleteError } = await supabase
-        .from('transactions')
-        .delete()
-        .eq('id', lastTrans.id)
-        .eq('user_id', userId);
-
-      if (deleteError) {
-        logError('delete-last-transaction', deleteError, { userId, transactionId: lastTrans.id });
-        await bot.editMessageText("⚠️ O'chirishda xatolik bo'ldi.", {
-          chat_id: chatId,
-          message_id: statusMsg.message_id,
-        });
-        return res.status(200).send('OK');
+      const { error: de } = await db.from('transactions').delete().eq('id', last.id).eq('user_id', userId);
+      if (de) {
+        err('del-last', de, { userId });
+        await bot.editMessageText('⚠️ O\'chirishda xatolik.', { chat_id: chatId, message_id: wait.message_id });
+        return res.status(200).json({ ok: true });
       }
 
       await bot.editMessageText(
-        `🗑 <b>Muvaffaqiyatli o'chirildi!</b>\n\n`
-          + `📂 ${escapeHtml(lastTrans.category)}\n`
-          + `💰 ${Number(lastTrans.amount || 0).toLocaleString('uz-UZ')} so'm`,
-        {
-          chat_id: chatId,
-          message_id: statusMsg.message_id,
-          parse_mode: 'HTML',
-        },
-      );
-
-      logInfo('delete-last-transaction', { userId, transactionId: lastTrans.id });
-      return res.status(200).send('OK');
+        `🗑 <b>O'chirildi!</b>\n\n📂 ${esc(last.category)}\n💰 ${numFmt(last.amount)} so'm`,
+        { chat_id: chatId, message_id: wait.message_id, parse_mode: 'HTML' });
+      log('del-last', { userId, id: last.id });
+      return res.status(200).json({ ok: true });
     }
 
+    // ── Ovozli xabar ──
     if (msg.voice) {
       if (!openai) {
-        await bot.sendMessage(chatId, "⚠️ Ovozli xabarni qayta ishlash uchun OPENAI_API_KEY kerak.");
-        return res.status(200).send('OK');
+        await bot.sendMessage(chatId, '⚠️ Ovozli xabar uchun OPENAI_API_KEY kerak.', { reply_markup: KB });
+        return res.status(200).json({ ok: true });
       }
 
-      const processingMsg = await bot.sendMessage(chatId, '🧐 Ovozli xabar tahlil qilinmoqda...');
+      const proc = await bot.sendMessage(chatId, '🎙 Ovozli xabar tahlil qilinmoqda...');
       try {
-        const fileId = msg.voice.file_id;
-        const fileLink = await bot.getFileLink(fileId);
-        const voicePath = path.join('/tmp', `${userId}-${Date.now()}.ogg`);
-        const writer = fs.createWriteStream(voicePath);
+        const fileLink = await bot.getFileLink(msg.voice.file_id);
+        const tmpPath  = path.join('/tmp', `voice_${userId}_${Date.now()}.ogg`);
+        const resp     = await axios({ url: fileLink, method: 'GET', responseType: 'stream' });
+        const writer   = fs.createWriteStream(tmpPath);
+        resp.data.pipe(writer);
+        await new Promise((ok, nok) => { writer.on('finish', ok); writer.on('error', nok); });
 
-        const response = await axios({
-          url: fileLink,
-          method: 'GET',
-          responseType: 'stream',
+        const tr = await openai.audio.transcriptions.create({
+          file: fs.createReadStream(tmpPath), model: 'whisper-1', language: 'uz',
         });
+        try { fs.unlinkSync(tmpPath); } catch {}
 
-        response.data.pipe(writer);
-        await new Promise((resolve, reject) => {
-          writer.on('finish', resolve);
-          writer.on('error', reject);
-        });
-
-        const transcription = await openai.audio.transcriptions.create({
-          file: fs.createReadStream(voicePath),
-          model: 'whisper-1',
-          language: 'uz',
-        });
-
-        try { fs.unlinkSync(voicePath); } catch (_) {}
-
-        const transcribedText = transcription.text || '';
-        if (!transcribedText.trim()) {
-          await bot.editMessageText("Kechirasiz, ovozli xabar ichidan matnni ajrata olmadim.", {
-            chat_id: chatId,
-            message_id: processingMsg.message_id,
-          });
-          return res.status(200).send('OK');
+        const spoken = (tr.text || '').trim();
+        if (!spoken) {
+          await bot.editMessageText('Ovozdan matn ajrata olmadim.', { chat_id: chatId, message_id: proc.message_id });
+          return res.status(200).json({ ok: true });
         }
 
-        const parsedVoice = parseText(transcribedText);
-        if (!parsedVoice) {
+        const parsed = parseText(spoken);
+        if (!parsed) {
           await bot.editMessageText(
-            `🤷‍♂️ <b>Tushunganim:</b> "${escapeHtml(transcribedText)}"\n\nLekin bu matndan aniq summa va maqsadni topa olmadim. Masalan: <i>Taksiga 20 ming berdim</i>.`,
-            {
-              chat_id: chatId,
-              message_id: processingMsg.message_id,
-              parse_mode: 'HTML',
-            },
-          );
-          return res.status(200).send('OK');
+            `🤷 <b>Tushundim:</b> "${esc(spoken)}"\n\nLekin summa topa olmadim. Masalan: <i>Taksiga 20 ming berdim</i>`,
+            { chat_id: chatId, message_id: proc.message_id, parse_mode: 'HTML' });
+          return res.status(200).json({ ok: true });
         }
 
-        await bot.deleteMessage(chatId, processingMsg.message_id).catch(() => {});
-        const currentRate = Number(user.exchange_rate || 12850);
-        await saveTransaction(userId, chatId, parsedVoice, null, currentRate, msg.message_id);
-        return res.status(200).send('OK');
-      } catch (error) {
-        logError('voice-processing', error, { userId, chatId });
-        await bot.editMessageText("Kechirasiz, ovozli xabarni qayta ishlashda xatolik bo'ldi. Keyinroq yana urinib ko'ring.", {
-          chat_id: chatId,
-          message_id: processingMsg.message_id,
-        });
-        return res.status(200).send('OK');
+        await bot.deleteMessage(chatId, proc.message_id).catch(() => {});
+        await saveTx(userId, chatId, parsed, null, user.exchange_rate, msg.message_id);
+      } catch (e) {
+        err('voice', e, { userId });
+        await bot.editMessageText('Ovozli xabarni qayta ishlashda xatolik.', { chat_id: chatId, message_id: proc.message_id });
       }
+      return res.status(200).json({ ok: true });
     }
 
+    // ── Matn + rasm ──
     const parsed = parseText(text);
     if (parsed) {
       let receiptUrl = null;
 
       if (msg.photo) {
-        const photoProcessingMsg = await bot.sendMessage(chatId, '📸 <b>Rasm yuklanmoqda...</b>', { parse_mode: 'HTML' });
+        const procMsg = await bot.sendMessage(chatId, '📸 Rasm yuklanmoqda...', { parse_mode: 'HTML' });
         try {
-          const photoId = msg.photo[msg.photo.length - 1].file_id;
+          const photoId  = msg.photo[msg.photo.length - 1].file_id;
           const fileLink = await bot.getFileLink(photoId);
-          const response = await axios({ url: fileLink, method: 'GET', responseType: 'arraybuffer' });
+          const resp     = await axios({ url: fileLink, method: 'GET', responseType: 'arraybuffer' });
           const fileName = `${userId}/${Date.now()}.jpg`;
-
-          const { error } = await supabase.storage
-            .from('receipts')
-            .upload(fileName, response.data, { contentType: 'image/jpeg' });
-
-          if (error) throw error;
-
-          const { data } = supabase.storage.from('receipts').getPublicUrl(fileName);
-          receiptUrl = data.publicUrl;
-          logInfo('photo-uploaded', { userId, chatId, fileName, receiptUrl });
-          await bot.deleteMessage(chatId, photoProcessingMsg.message_id).catch(() => {});
-        } catch (error) {
-          logError('photo-upload', error, { userId, chatId });
+          const { error: ue } = await db.storage.from('receipts').upload(fileName, resp.data, { contentType: 'image/jpeg' });
+          if (ue) throw ue;
+          const { data: ud } = db.storage.from('receipts').getPublicUrl(fileName);
+          receiptUrl = ud.publicUrl;
+          await bot.deleteMessage(chatId, procMsg.message_id).catch(() => {});
+          log('photo', { userId, fileName });
+        } catch (e) {
+          err('photo', e, { userId });
           await bot.editMessageText(
-            "⚠️ Rasmni saqlay olmadim, lekin tranzaksiya yoziladi. Chekni keyinroq ilovadan qo'shishingiz mumkin.",
-            { chat_id: chatId, message_id: photoProcessingMsg.message_id },
-          );
+            '⚠️ Rasmni saqlashda xatolik. Tranzaksiya yoziladi, chekni keyinroq ilovadan qo\'shishingiz mumkin.',
+            { chat_id: chatId, message_id: procMsg.message_id });
         }
       }
 
-      const currentRate = Number(user.exchange_rate || 12850);
-      await saveTransaction(userId, chatId, parsed, receiptUrl, currentRate, msg.message_id);
-      return res.status(200).send('OK');
+      await saveTx(userId, chatId, parsed, receiptUrl, user.exchange_rate, msg.message_id);
+      return res.status(200).json({ ok: true });
     }
 
+    // ── Photo without text ──
     if (msg.photo && !parsed) {
-      await bot.sendMessage(chatId, "⚠️ Rasm tagiga summa va izoh yozishni unutdingiz yoki men tushunmadim.");
-      return res.status(200).send('OK');
+      await bot.sendMessage(chatId, '⚠️ Rasm tagiga summa va izoh yozishni unutdingiz.\nMasalan: <i>50 ming tushlik</i>', { parse_mode: 'HTML' });
+      return res.status(200).json({ ok: true });
     }
 
-    if (text !== '/start') {
-      await bot.sendMessage(chatId, `Tushunmadim. Quyidagicha yozing:\n${GUIDE_TEXT}`, { parse_mode: 'HTML' });
+    // ── Tushunilmagan ──
+    if (text && text !== '/start') {
+      await bot.sendMessage(chatId,
+        `Tushunmadim 🤔\n\n${GUIDE}`,
+        { parse_mode: 'HTML', reply_markup: KB });
     }
 
-    return res.status(200).send('OK');
-  } catch (error) {
-    logError('handler', error);
-    return res.status(500).send('Internal Server Error');
+    return res.status(200).json({ ok: true });
+
+  } catch (e) {
+    err('handler', e);
+    return res.status(500).json({ ok: false, error: e.message });
   }
 };

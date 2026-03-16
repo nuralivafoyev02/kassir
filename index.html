@@ -2,561 +2,447 @@
 <html lang="uz">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-  <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <title>Mening Kassam</title>
-  <script src="https://cdn.tailwindcss.com"></script>
-  <link rel="stylesheet" href="style.css">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1">
+  <title>Kassa</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+    :root {
+      --bg:#0a0a0f; --surface:#13131a; --surface2:#1c1c28; --border:rgba(255,255,255,0.07);
+      --text:#f1f1f5; --muted:#6b7280; --accent:#7c3aed; --green:#10b981; --red:#ef4444;
+      --r:16px; --nav:64px;
+    }
+    html,body { height:100%; overflow:hidden; background:var(--bg); color:var(--text);
+      font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','Segoe UI',sans-serif;
+      -webkit-font-smoothing:antialiased; }
+    #app { display:flex; flex-direction:column; height:100dvh; max-width:430px; margin:0 auto; }
+    #views { flex:1; position:relative; overflow:hidden; }
+    .view { position:absolute; inset:0; overflow-y:auto; overflow-x:hidden;
+      padding:16px 16px calc(var(--nav) + 16px); display:none; flex-direction:column; gap:12px;
+      -webkit-overflow-scrolling:touch; }
+    .view.active { display:flex; }
+    #nav { display:flex; background:rgba(19,19,26,0.96); backdrop-filter:blur(20px);
+      border-top:1px solid var(--border); height:var(--nav); flex-shrink:0; }
+    .nb { flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center;
+      gap:4px; background:none; border:none; color:var(--muted); cursor:pointer; font-size:10px;
+      font-weight:500; transition:color 0.2s; padding:8px; }
+    .nb svg { width:22px; height:22px; transition:transform 0.15s; stroke-width:1.8; }
+    .nb.active { color:var(--accent); }
+    .nb.active svg { transform:scale(1.1); }
+    .nb:active svg { transform:scale(0.92); }
+    .add-ring { width:46px; height:46px; background:linear-gradient(135deg,var(--accent),#a855f7);
+      border-radius:50%; display:flex; align-items:center; justify-content:center;
+      box-shadow:0 4px 20px rgba(124,58,237,0.45); margin-bottom:2px; transition:transform 0.15s; }
+    .nb:active .add-ring { transform:scale(0.92); }
+    .add-ring svg { stroke:white!important; }
+    .balance-card { background:linear-gradient(135deg,#1a0533 0%,#2d1463 50%,#1a0533 100%);
+      border:1px solid rgba(124,58,237,0.25); border-radius:24px; padding:24px 20px 20px;
+      position:relative; overflow:hidden; cursor:grab; user-select:none; flex-shrink:0; }
+    .balance-card::before { content:''; position:absolute; top:-40px; right:-40px; width:180px; height:180px;
+      background:radial-gradient(circle,rgba(124,58,237,0.2),transparent 70%); pointer-events:none; }
+    .balance-card::after  { content:''; position:absolute; bottom:-30px; left:-20px; width:120px; height:120px;
+      background:radial-gradient(circle,rgba(16,185,129,0.12),transparent 70%); pointer-events:none; }
+    .bc-label { font-size:11px; color:rgba(255,255,255,0.45); letter-spacing:1.5px; text-transform:uppercase; margin-bottom:6px; }
+    .bc-amount { font-size:38px; font-weight:800; letter-spacing:-1px; line-height:1; color:#fff; transition:opacity 0.2s; }
+    .bc-amount.loading { opacity:0.3; }
+    .bc-pills { display:flex; gap:6px; margin-top:8px; }
+    .cpill { font-size:10px; font-weight:700; letter-spacing:0.5px; padding:3px 9px; border-radius:20px;
+      background:rgba(255,255,255,0.08); color:rgba(255,255,255,0.5); cursor:pointer;
+      transition:all 0.2s; border:1px solid rgba(255,255,255,0.08); }
+    .cpill.on { background:rgba(124,58,237,0.45); color:#fff; border-color:rgba(124,58,237,0.5); }
+    .bc-row { display:flex; gap:20px; margin-top:16px; padding-top:16px; border-top:1px solid rgba(255,255,255,0.08); position:relative; z-index:1; }
+    .bcs { display:flex; align-items:center; gap:8px; }
+    .bcs-ico { width:30px; height:30px; border-radius:10px; display:flex; align-items:center; justify-content:center; flex-shrink:0; }
+    .bcs-ico.i { background:rgba(16,185,129,0.15); } .bcs-ico.e { background:rgba(239,68,68,0.15); }
+    .bcs-ico svg { width:16px; height:16px; stroke-width:2.5; }
+    .bcs-ico.i svg { stroke:var(--green); } .bcs-ico.e svg { stroke:var(--red); }
+    .bcs-lbl { font-size:10px; color:rgba(255,255,255,0.4); }
+    .bcs-val { font-size:14px; font-weight:700; }
+    .bcs-val.i { color:var(--green); } .bcs-val.e { color:var(--red); }
+    .filter-row { display:flex; gap:6px; overflow-x:auto; padding-bottom:2px; flex-shrink:0; scrollbar-width:none; }
+    .filter-row::-webkit-scrollbar { display:none; }
+    .fp { padding:7px 14px; border-radius:20px; font-size:12px; font-weight:600;
+      border:1px solid var(--border); background:var(--surface); color:var(--muted); cursor:pointer;
+      white-space:nowrap; transition:all 0.2s; flex-shrink:0; }
+    .fp.on { background:rgba(124,58,237,0.15); color:#a78bfa; border-color:rgba(124,58,237,0.3); }
+    .fp:active { transform:scale(0.95); }
+    .type-cards { display:grid; grid-template-columns:1fr 1fr; gap:10px; flex-shrink:0; }
+    .tc { background:var(--surface); border:1.5px solid var(--border); border-radius:var(--r); padding:14px;
+      display:flex; align-items:center; gap:12px; cursor:pointer; transition:all 0.2s; }
+    .tc:active { transform:scale(0.97); }
+    .tc.on-i { background:rgba(16,185,129,0.1); border-color:rgba(16,185,129,0.35); }
+    .tc.on-e { background:rgba(239,68,68,0.1); border-color:rgba(239,68,68,0.35); }
+    .tc-ico { width:36px; height:36px; border-radius:12px; display:flex; align-items:center; justify-content:center; flex-shrink:0; }
+    .tc-ico.i { background:rgba(16,185,129,0.15); } .tc-ico.e { background:rgba(239,68,68,0.15); }
+    .tc-ico svg { width:18px; height:18px; stroke-width:2; }
+    .tc-ico.i svg { stroke:var(--green); } .tc-ico.e svg { stroke:var(--red); }
+    .tc-ttl { font-size:11px; color:var(--muted); }
+    .tc-sub { font-size:12px; font-weight:700; margin-top:2px; }
+    .tc-sub.i { color:var(--green); } .tc-sub.e { color:var(--red); }
+    .panel { background:var(--surface); border:1px solid var(--border); border-radius:20px; padding:16px; }
+    .panel-ttl { font-size:11px; font-weight:700; color:var(--muted); text-transform:uppercase; letter-spacing:0.8px; margin-bottom:14px; }
+    #chart-wrap { position:relative; height:170px; }
+    #no-data { position:absolute; inset:0; display:none; flex-direction:column; align-items:center; justify-content:center; color:var(--muted); gap:8px; font-size:13px; }
+    #no-data svg { width:36px; height:36px; opacity:0.25; }
+    .ctr { display:flex; justify-content:space-between; align-items:center; padding:7px 0; border-bottom:1px solid var(--border); }
+    .ctr:last-child { border-bottom:none; }
+    .ctr-n { font-size:13px; color:var(--text); text-transform:capitalize; }
+    .ctr-v { font-size:13px; font-weight:700; }
+    #trend-sec { display:none; flex-direction:column; gap:8px; }
+    .tgrid { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+    .tcard { background:var(--surface); border:1px solid var(--border); border-radius:var(--r); padding:12px; display:flex; justify-content:space-between; align-items:center; }
+    .tc-cat { font-size:11px; color:var(--muted); margin-bottom:2px; }
+    .tc-val { font-size:13px; font-weight:700; }
+    .tc-pct { font-size:12px; font-weight:700; }
+    .tc-pct.up { color:var(--red); } .tc-pct.dn { color:var(--green); }
+    .quick-row { display:grid; grid-template-columns:1fr 1fr; gap:10px; flex-shrink:0; }
+    .qbtn { background:var(--surface); border:1px solid var(--border); border-radius:var(--r); padding:13px 16px;
+      display:flex; align-items:center; gap:8px; font-size:13px; font-weight:600; color:var(--text);
+      cursor:pointer; transition:all 0.2s; }
+    .qbtn:active { transform:scale(0.97); background:var(--surface2); }
+    .qbtn svg { width:16px; height:16px; stroke-width:2; stroke:var(--muted); }
+    #view-add { padding-bottom:calc(var(--nav) + 16px); }
+    .add-hdr h2 { font-size:20px; font-weight:800; }
+    .add-hdr p  { font-size:12px; color:var(--muted); margin-top:3px; }
+    #chat-area { flex:1; display:flex; flex-direction:column; gap:10px; overflow-y:auto; min-height:80px; padding-bottom:8px; }
+    .msg { max-width:88%; padding:10px 14px; font-size:14px; line-height:1.5;
+      border-radius:4px 18px 18px 18px; background:var(--surface2); border:1px solid var(--border);
+      color:var(--text); animation:popIn 0.22s ease; }
+    .msg.u { align-self:flex-end; border-radius:18px 4px 18px 18px;
+      background:rgba(124,58,237,0.15); border-color:rgba(124,58,237,0.25); }
+    @keyframes popIn { from { opacity:0; transform:translateY(6px) scale(0.97); } to { opacity:1; transform:none; } }
+    .add-ctrl { flex-shrink:0; display:flex; flex-direction:column; gap:10px; padding-top:10px; border-top:1px solid var(--border); }
+    #flow-start { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+    .fbtn { padding:16px; border-radius:var(--r); border:1.5px solid; font-size:15px; font-weight:700;
+      display:flex; align-items:center; justify-content:center; gap:8px; cursor:pointer; transition:all 0.15s; }
+    .fbtn:active { transform:scale(0.95); }
+    .fbtn.i { background:rgba(16,185,129,0.08); border-color:rgba(16,185,129,0.3); color:var(--green); }
+    .fbtn.e { background:rgba(239,68,68,0.08); border-color:rgba(239,68,68,0.3); color:var(--red); }
+    .fbtn svg { width:20px; height:20px; stroke-width:2.5; }
+    #flow-cats { display:none; flex-direction:column; gap:10px; }
+    .cats-hdr { display:flex; justify-content:space-between; align-items:center; }
+    .cats-hdr span { font-size:13px; font-weight:600; color:var(--muted); }
+    .add-cat-b { font-size:12px; color:#a78bfa; background:rgba(124,58,237,0.1);
+      border:1px solid rgba(124,58,237,0.2); border-radius:10px; padding:5px 10px;
+      cursor:pointer; display:flex; align-items:center; gap:4px; }
+    .add-cat-b svg { width:12px; height:12px; stroke-width:2.5; }
+    #cat-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; max-height:160px; overflow-y:auto; }
+    .ci { background:var(--surface2); border:1px solid var(--border); border-radius:14px; padding:12px 8px;
+      display:flex; flex-direction:column; align-items:center; gap:5px; cursor:pointer; transition:all 0.15s; }
+    .ci:active { transform:scale(0.93); }
+    .ci span { font-size:10px; color:var(--text); text-align:center; line-height:1.3; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; width:100%; }
+    .ci svg { width:22px; height:22px; stroke-width:1.8; }
+    .ci.ci-i svg { stroke:var(--green); } .ci.ci-e svg { stroke:var(--red); }
+    .cflow-cancel { font-size:13px; color:var(--muted); background:none; border:none; cursor:pointer; text-align:center; padding:6px; }
+    #flow-input { display:none; flex-direction:column; gap:10px; }
+    .in-row { display:flex; gap:8px; }
+    .cur-btn { padding:0 14px; height:46px; border-radius:12px; border:1.5px solid rgba(16,185,129,0.35);
+      background:rgba(16,185,129,0.07); color:var(--green); font-size:12px; font-weight:800;
+      cursor:pointer; transition:all 0.2s; flex-shrink:0; }
+    .cur-btn.usd { border-color:rgba(124,58,237,0.35); background:rgba(124,58,237,0.07); color:#a78bfa; }
+    #amt-in { flex:1; height:46px; background:var(--surface2); border:1.5px solid var(--border);
+      border-radius:12px; padding:0 16px; color:var(--text); font-size:18px; font-weight:700;
+      outline:none; transition:border-color 0.2s; appearance:none; }
+    #amt-in:focus { border-color:var(--accent); }
+    #amt-in::placeholder { font-size:14px; font-weight:400; color:var(--muted); }
+    #rec-area { display:none; align-items:center; gap:12px; background:var(--surface2);
+      border:1px solid var(--border); border-radius:14px; padding:10px 14px; }
+    #rec-area img { width:52px; height:52px; object-fit:cover; border-radius:10px; flex-shrink:0; }
+    .rec-del { font-size:12px; color:var(--red); background:none; border:none; cursor:pointer; margin-top:3px; display:block; }
+    .act-row { display:flex; gap:8px; }
+    .clip-b { width:46px; height:46px; border-radius:12px; background:var(--surface2); border:1.5px solid var(--border);
+      display:flex; align-items:center; justify-content:center; cursor:pointer; flex-shrink:0; transition:all 0.15s; }
+    .clip-b:active { transform:scale(0.93); }
+    .clip-b svg { width:20px; height:20px; stroke:var(--muted); stroke-width:1.8; }
+    .save-b { flex:1; height:46px; border-radius:12px;
+      background:linear-gradient(135deg,var(--accent),#a855f7); border:none; color:#fff;
+      font-size:15px; font-weight:800; cursor:pointer; transition:opacity 0.15s; }
+    .save-b:active { opacity:0.88; }
+    .cancel-x { width:46px; height:46px; border-radius:12px; background:var(--surface2);
+      border:1.5px solid var(--border); display:flex; align-items:center; justify-content:center;
+      cursor:pointer; flex-shrink:0; }
+    .cancel-x:active { transform:scale(0.93); }
+    .cancel-x svg { width:18px; height:18px; stroke:var(--muted); stroke-width:2.5; }
+    #view-hist h2 { font-size:20px; font-weight:800; flex-shrink:0; margin-bottom:4px; }
+    #tx-list { display:flex; flex-direction:column; gap:8px; }
+    .txi { background:var(--surface); border:1px solid var(--border); border-radius:var(--r); padding:14px;
+      display:flex; justify-content:space-between; align-items:center; cursor:pointer; transition:all 0.15s; }
+    .txi:active { transform:scale(0.98); background:var(--surface2); }
+    .txi-l { display:flex; align-items:center; gap:12px; }
+    .txi-ico { width:38px; height:38px; border-radius:12px; display:flex; align-items:center; justify-content:center; flex-shrink:0; }
+    .txi-ico.i { background:rgba(16,185,129,0.12); } .txi-ico.e { background:rgba(239,68,68,0.12); }
+    .txi-ico svg { width:18px; height:18px; stroke-width:2.2; }
+    .txi-ico.i svg { stroke:var(--green); } .txi-ico.e svg { stroke:var(--red); }
+    .txi-cat { font-size:14px; font-weight:600; display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
+    .txi-dt  { font-size:11px; color:var(--muted); margin-top:3px; }
+    .txi-amt { font-size:15px; font-weight:800; flex-shrink:0; }
+    .txi-amt.i { color:var(--green); } .txi-amt.e { color:var(--red); }
+    .chek-b { font-size:10px; padding:2px 6px; border-radius:6px;
+      background:rgba(124,58,237,0.12); color:#a78bfa; border:1px solid rgba(124,58,237,0.2); }
+    #empty-s { display:none; flex-direction:column; align-items:center; justify-content:center;
+      padding:60px 20px; text-align:center; color:var(--muted); gap:10px; }
+    #empty-s svg { width:56px; height:56px; opacity:0.2; }
+    #empty-s p { font-size:15px; font-weight:600; } #empty-s small { font-size:13px; }
+    #pin-screen { position:fixed; inset:0; z-index:100; background:var(--bg); display:none;
+      flex-direction:column; align-items:center; justify-content:center; gap:24px; padding:40px 20px; }
+    #pin-screen.on { display:flex; }
+    #pin-ttl { font-size:22px; font-weight:800; text-align:center; }
+    #pin-sub { font-size:14px; color:var(--muted); margin-top:4px; text-align:center; }
+    #pin-dots { display:flex; gap:14px; }
+    .pd { width:14px; height:14px; border-radius:50%; background:var(--surface2); border:2px solid var(--border); transition:all 0.15s; }
+    .pd.on { background:var(--accent); border-color:var(--accent); transform:scale(1.2); box-shadow:0 0 10px rgba(124,58,237,0.5); }
+    .pin-pad { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; width:260px; }
+    .pk { height:60px; background:var(--surface); border:1px solid var(--border); border-radius:18px;
+      color:var(--text); font-size:22px; font-weight:600; cursor:pointer; transition:all 0.1s;
+      display:flex; align-items:center; justify-content:center; }
+    .pk:active { background:rgba(124,58,237,0.18); transform:scale(0.93); }
+    #pin-cancel-b { background:none; border:none; color:var(--muted); font-size:13px; text-decoration:underline;
+      cursor:pointer; display:none; margin-top:-8px; }
+    #pin-bio-b { display:none; flex-direction:column; align-items:center; gap:4px; color:#a78bfa;
+      font-size:12px; cursor:pointer; background:none; border:none; }
+    #pin-bio-b svg { width:36px; height:36px; stroke-width:1.5; stroke:#a78bfa; }
+    @keyframes shake { 0%,100%{transform:translateX(0)} 20%{transform:translateX(-10px)} 40%{transform:translateX(8px)} 60%{transform:translateX(-6px)} 80%{transform:translateX(4px)} }
+    .shk { animation:shake 0.4s ease; }
+    .ov { position:fixed; inset:0; z-index:50; background:rgba(0,0,0,0.72);
+      backdrop-filter:blur(6px); display:none; align-items:flex-end; justify-content:center; }
+    .ov.on { display:flex; }
+    .ov.center { align-items:center; padding:20px; }
+    .sheet { background:var(--surface); border:1px solid var(--border); border-radius:28px 28px 0 0;
+      width:100%; max-width:430px; padding:20px 20px 36px; max-height:90vh; overflow-y:auto; }
+    .sheet.c { border-radius:24px; padding:24px; max-width:360px; margin:auto; }
+    .sh-hdl { width:36px; height:4px; background:var(--border); border-radius:2px; margin:0 auto 16px; }
+    .sh-ttl { font-size:18px; font-weight:800; margin-bottom:16px; }
+    .as-b { width:100%; display:flex; align-items:center; gap:12px; padding:14px 16px;
+      background:var(--surface2); border:1px solid var(--border); border-radius:14px;
+      font-size:14px; font-weight:600; cursor:pointer; transition:all 0.15s; margin-bottom:8px; }
+    .as-b:last-child { margin-bottom:0; } .as-b:active { transform:scale(0.98); }
+    .as-b svg { width:18px; height:18px; stroke-width:2; flex-shrink:0; }
+    .as-b.blue { color:#60a5fa; } .as-b.blue svg { stroke:#60a5fa; }
+    .as-b.green { color:var(--green); } .as-b.green svg { stroke:var(--green); }
+    .as-b.red { color:var(--red); } .as-b.red svg { stroke:var(--red); }
+    .del-ico { width:56px; height:56px; border-radius:18px; background:rgba(239,68,68,0.12);
+      display:flex; align-items:center; justify-content:center; margin:0 auto 12px; }
+    .del-ico svg { width:26px; height:26px; stroke:var(--red); stroke-width:2; }
+    .mrow { display:flex; gap:10px; margin-top:16px; }
+    .bcl { flex:1; padding:13px; border-radius:14px; background:var(--surface2);
+      border:1px solid var(--border); color:var(--text); font-size:14px; font-weight:600; cursor:pointer; }
+    .bdng { flex:1; padding:13px; border-radius:14px; background:var(--red); border:none;
+      color:#fff; font-size:14px; font-weight:700; cursor:pointer; }
+    .bpri { width:100%; padding:13px; border-radius:14px;
+      background:linear-gradient(135deg,var(--accent),#a855f7); border:none; color:#fff;
+      font-size:14px; font-weight:700; cursor:pointer; transition:opacity 0.15s; }
+    .bpri:active { opacity:0.85; }
+    .fld { margin-bottom:14px; }
+    .fld label { font-size:11px; font-weight:700; color:var(--muted); text-transform:uppercase;
+      letter-spacing:0.5px; display:block; margin-bottom:6px; }
+    .fld input,.fld select { width:100%; background:var(--surface2); border:1.5px solid var(--border);
+      border-radius:12px; padding:12px 14px; color:var(--text); font-size:15px; outline:none;
+      transition:border-color 0.2s; appearance:none; }
+    .fld input:focus,.fld select:focus { border-color:var(--accent); }
+    .fld select option { background:var(--surface2); }
+    #icon-grid { display:grid; grid-template-columns:repeat(6,1fr); gap:8px; max-height:130px; overflow-y:auto; margin-top:8px; }
+    .io { background:var(--surface2); border:1.5px solid var(--border); border-radius:12px; padding:10px;
+      display:flex; align-items:center; justify-content:center; cursor:pointer; transition:all 0.15s; }
+    .io.on { border-color:var(--accent); background:rgba(124,58,237,0.15); }
+    .io svg { width:20px; height:20px; stroke:var(--muted); stroke-width:1.8; }
+    .io.on svg { stroke:#a78bfa; }
+    .si { display:flex; justify-content:space-between; align-items:center; padding:14px 0; border-bottom:1px solid var(--border); }
+    .si:last-child { border-bottom:none; }
+    .si-l { font-size:14px; font-weight:600; }
+    .si-s { font-size:12px; color:var(--muted); margin-top:2px; }
+    .si-a { font-size:12px; font-weight:700; padding:8px 14px; border-radius:10px;
+      border:1px solid rgba(124,58,237,0.3); background:rgba(124,58,237,0.08); color:#a78bfa; cursor:pointer; white-space:nowrap; }
+    .si-i { width:110px; background:var(--surface2); border:1.5px solid var(--border); border-radius:10px;
+      padding:8px 12px; color:var(--text); font-size:14px; font-weight:700; text-align:right; outline:none; }
+    .si-i:focus { border-color:var(--accent); }
+    .tgl { width:44px; height:26px; background:var(--border); border-radius:13px; position:relative; cursor:pointer; transition:background 0.25s; flex-shrink:0; }
+    .tgl.on { background:var(--accent); }
+    .tgl::after { content:''; position:absolute; top:3px; left:3px; width:20px; height:20px;
+      border-radius:50%; background:#fff; box-shadow:0 2px 4px rgba(0,0,0,0.3); transition:left 0.25s; }
+    .tgl.on::after { left:21px; }
+    .dbtn { width:100%; display:flex; align-items:center; gap:10px; padding:13px 16px;
+      background:var(--surface2); border:1px solid var(--border); border-radius:14px;
+      font-size:13px; font-weight:600; cursor:pointer; margin-bottom:8px; transition:all 0.15s; color:var(--text); }
+    .dbtn:active { transform:scale(0.98); }
+    .dbtn svg { width:16px; height:16px; stroke-width:2; stroke:var(--muted); }
+    .dbtn.red { color:var(--red); } .dbtn.red svg { stroke:var(--red); }
+    .pin-rm { font-size:12px; color:var(--red); background:none; border:none; cursor:pointer; padding:4px 0; display:none; }
+    #ctx-menu { position:fixed; z-index:60; background:var(--surface2); border:1px solid var(--border);
+      border-radius:16px; overflow:hidden; display:none; box-shadow:0 10px 40px rgba(0,0,0,0.5); min-width:150px; }
+    .ctx-i { width:100%; padding:13px 16px; display:flex; align-items:center; gap:10px;
+      font-size:14px; font-weight:600; cursor:pointer; background:none; border:none; transition:background 0.15s; }
+    .ctx-i:hover { background:rgba(255,255,255,0.05); }
+    .ctx-i svg { width:16px; height:16px; stroke-width:2; }
+    .ctx-i.blue { color:#60a5fa; } .ctx-i.blue svg { stroke:#60a5fa; }
+    .ctx-i.red  { color:var(--red); } .ctx-i.red svg  { stroke:var(--red); }
+    .ctx-div { height:1px; background:var(--border); }
+    #rec-view { position:fixed; inset:0; z-index:70; background:rgba(0,0,0,0.92);
+      display:none; align-items:center; justify-content:center; padding:16px; cursor:pointer; }
+    #rec-view.on { display:flex; }
+    #rec-view img { max-width:100%; max-height:100%; object-fit:contain; border-radius:16px; }
+    #loader { position:fixed; inset:0; z-index:200; background:var(--bg); display:flex;
+      align-items:center; justify-content:center; flex-direction:column; gap:16px; transition:opacity 0.4s; }
+    #loader.out { opacity:0; pointer-events:none; }
+    .spin { width:40px; height:40px; border:3px solid var(--surface2); border-top-color:var(--accent);
+      border-radius:50%; animation:spin 0.8s linear infinite; }
+    @keyframes spin { to { transform:rotate(360deg); } }
+    #loader p { font-size:14px; color:var(--muted); }
+    #err-bar { display:none; position:fixed; top:12px; left:12px; right:12px; z-index:90;
+      background:rgba(239,68,68,0.12); border:1px solid rgba(239,68,68,0.3);
+      border-radius:14px; padding:12px 16px; font-size:13px; color:#fca5a5; }
+    .exp-s { display:flex; justify-content:space-between; padding:10px 0; border-bottom:1px solid var(--border); font-size:14px; }
+    .exp-s:last-child { border-bottom:none; }
+    .exp-s span:last-child { font-weight:700; }
+    * { scrollbar-width:thin; scrollbar-color:var(--surface2) transparent; }
+    ::-webkit-scrollbar { width:3px; height:3px; }
+    ::-webkit-scrollbar-track { background:transparent; }
+    ::-webkit-scrollbar-thumb { background:var(--surface2); border-radius:3px; }
+    body.light { --bg:#f0f2f5; --surface:#ffffff; --surface2:#f0f2f5; --border:rgba(0,0,0,0.08); --text:#111827; --muted:#6b7280; }
+    body.light .balance-card { background:linear-gradient(135deg,#4f46e5,#7c3aed); }
+    body.light #nav { background:rgba(255,255,255,0.96); }
+    body.light .nb { color:#94a3b8; }
+    body.light .nb.active { color:var(--accent); }
+    body.light #pin-screen { background:var(--bg); }
+  </style>
 </head>
-<body class="bg-slate-950 text-white select-none">
+<body>
 
-<!-- ════════════════════════════════════════
-     PIN SCREEN
-════════════════════════════════════════ -->
-<div id="pin-screen" class="hidden fixed inset-0 z-50 bg-slate-950 flex flex-col items-center justify-center gap-6 p-6">
-  <div class="text-center">
-    <div class="text-4xl mb-2">🔒</div>
-    <h2 id="pin-title" class="text-xl font-bold">PIN Kod</h2>
-    <p id="pin-subtitle" class="text-sm text-slate-400 mt-1">Kirish uchun</p>
-  </div>
+<div id="loader"><div class="spin"></div><p>Yuklanmoqda...</p></div>
+<div id="err-bar"></div>
 
-  <div id="pin-dots" class="flex gap-4">
-    <div class="pin-dot"></div>
-    <div class="pin-dot"></div>
-    <div class="pin-dot"></div>
-    <div class="pin-dot"></div>
-  </div>
-
-  <button id="bio-btn" class="hidden flex-col items-center gap-1 text-blue-400 text-sm" onclick="triggerBiometric()">
-    <i data-lucide="fingerprint" class="w-8 h-8"></i>
+<!-- PIN -->
+<div id="pin-screen">
+  <div style="font-size:48px">🔐</div>
+  <div><div id="pin-ttl">PIN Kod</div><div id="pin-sub">Kirish uchun 4 xonali kod</div></div>
+  <div id="pin-dots"><div class="pd" id="pd0"></div><div class="pd" id="pd1"></div><div class="pd" id="pd2"></div><div class="pd" id="pd3"></div></div>
+  <button id="pin-bio-b" onclick="triggerBio()">
+    <svg viewBox="0 0 24 24" fill="none"><path d="M12 1C8.14 1 5 4.14 5 8v3M12 1c3.86 0 7 3.14 7 7v3M8 21v-4a4 4 0 0 1 8 0v4M12 11v4" stroke-linecap="round" stroke-linejoin="round"/></svg>
     <span>Biometrik</span>
   </button>
-  <div id="bio-placeholder" class="h-10"></div>
-
-  <div class="grid grid-cols-3 gap-3 w-64">
-    <button class="pin-key" onclick="handlePinInput('1')">1</button>
-    <button class="pin-key" onclick="handlePinInput('2')">2</button>
-    <button class="pin-key" onclick="handlePinInput('3')">3</button>
-    <button class="pin-key" onclick="handlePinInput('4')">4</button>
-    <button class="pin-key" onclick="handlePinInput('5')">5</button>
-    <button class="pin-key" onclick="handlePinInput('6')">6</button>
-    <button class="pin-key" onclick="handlePinInput('7')">7</button>
-    <button class="pin-key" onclick="handlePinInput('8')">8</button>
-    <button class="pin-key" onclick="handlePinInput('9')">9</button>
-    <div></div>
-    <button class="pin-key" onclick="handlePinInput('0')">0</button>
-    <button class="pin-key text-rose-400" onclick="handlePinDelete()">
-      <i data-lucide="delete" class="w-5 h-5 mx-auto pointer-events-none"></i>
-    </button>
+  <div class="pin-pad">
+    <button class="pk" onclick="pp('1')">1</button><button class="pk" onclick="pp('2')">2</button><button class="pk" onclick="pp('3')">3</button>
+    <button class="pk" onclick="pp('4')">4</button><button class="pk" onclick="pp('5')">5</button><button class="pk" onclick="pp('6')">6</button>
+    <button class="pk" onclick="pp('7')">7</button><button class="pk" onclick="pp('8')">8</button><button class="pk" onclick="pp('9')">9</button>
+    <div></div><button class="pk" onclick="pp('0')">0</button>
+    <button class="pk" onclick="pd()" style="font-size:16px">⌫</button>
   </div>
-  <button id="cancel-pin-setup" class="hidden text-slate-500 text-sm underline" onclick="cancelPinSetup()">Bekor qilish</button>
+  <button id="pin-cancel-b" onclick="cancelPin()">Bekor qilish</button>
 </div>
 
+<!-- APP -->
+<div id="app">
+  <div id="views">
 
-<!-- ════════════════════════════════════════
-     MAIN APP
-════════════════════════════════════════ -->
-<div class="app-container flex flex-col h-screen max-w-lg mx-auto relative overflow-hidden">
-
-  <!-- VIEWS -->
-  <div class="flex-1 relative overflow-hidden">
-
-    <!-- Skeleton -->
-    <div id="dashboard-skeleton" class="absolute inset-0 overflow-y-auto p-4 pb-24 space-y-4">
-      <div class="skeleton-card h-40 rounded-3xl"></div>
-      <div class="grid grid-cols-2 gap-3">
-        <div class="skeleton-card h-20 rounded-2xl"></div>
-        <div class="skeleton-card h-20 rounded-2xl"></div>
+    <!-- DASHBOARD -->
+    <div id="view-dash" class="view active">
+      <div class="balance-card" id="bc">
+        <div class="bc-label">Umumiy Qoldiq</div>
+        <div class="bc-amount loading" id="total-bal">— so'm</div>
+        <div class="bc-pills">
+          <div class="cpill on" id="pill-uzs" onclick="setCur('UZS')">UZS</div>
+          <div class="cpill" id="pill-usd" onclick="setCur('USD')">USD</div>
+        </div>
+        <div class="bc-row">
+          <div class="bcs">
+            <div class="bcs-ico i"><svg viewBox="0 0 24 24" fill="none" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg></div>
+            <div><div class="bcs-lbl">Kirim</div><div class="bcs-val i" id="total-inc">+0</div></div>
+          </div>
+          <div class="bcs">
+            <div class="bcs-ico e"><svg viewBox="0 0 24 24" fill="none" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 18 13.5 8.5 8.5 13.5 1 6"/><polyline points="17 18 23 18 23 12"/></svg></div>
+            <div><div class="bcs-lbl">Chiqim</div><div class="bcs-val e" id="total-exp">-0</div></div>
+          </div>
+        </div>
       </div>
-      <div class="skeleton-card h-56 rounded-3xl"></div>
+      <div class="type-cards">
+        <div class="tc" id="tc-i" onclick="toggleType('income')">
+          <div class="tc-ico i"><svg viewBox="0 0 24 24" fill="none" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg></div>
+          <div><div class="tc-ttl">Kirimlar</div><div class="tc-sub i">Filtrlash</div></div>
+        </div>
+        <div class="tc" id="tc-e" onclick="toggleType('expense')">
+          <div class="tc-ico e"><svg viewBox="0 0 24 24" fill="none" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 18 13.5 8.5 8.5 13.5 1 6"/><polyline points="17 18 23 18 23 12"/></svg></div>
+          <div><div class="tc-ttl">Chiqimlar</div><div class="tc-sub e">Filtrlash</div></div>
+        </div>
+      </div>
+      <div class="filter-row">
+        <div class="fp on" data-f="all"    onclick="setDate('all')">Hammasi</div>
+        <div class="fp"    data-f="week"   onclick="setDate('week')">Hafta</div>
+        <div class="fp"    data-f="month"  onclick="setDate('month')">Oy</div>
+        <div class="fp"    data-f="custom" onclick="openDateMod()">📅 Maxsus</div>
+      </div>
+      <div class="panel">
+        <div class="panel-ttl">Kategoriyalar</div>
+        <div id="chart-wrap"><canvas id="myChart"></canvas><div id="no-data"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21.21 15.89A10 10 0 1 1 8 2.83"/><path d="M22 12A10 10 0 0 0 12 2v10z"/></svg>Ma'lumot yo'q</div></div>
+        <div id="cat-table"></div>
+      </div>
+      <div id="trend-sec"><div class="panel-ttl" style="padding-left:2px">📈 Trendlar</div><div class="tgrid" id="trend-grid"></div></div>
+      <div class="quick-row">
+        <button class="qbtn" onclick="openSettings()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>Sozlamalar</button>
+        <button class="qbtn" onclick="openExport()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>PDF Hisobot</button>
+      </div>
     </div>
 
-    <!-- ── DASHBOARD ── -->
-    <div id="view-dashboard" class="hidden absolute inset-0 overflow-y-auto p-4 pb-24 space-y-4">
-
-      <!-- Balance Card -->
-      <div id="balance-card" class="balance-card rounded-3xl p-5 relative overflow-hidden cursor-grab active:cursor-grabbing">
-        <div class="blob blob-1"></div>
-        <div class="blob blob-2"></div>
-        <div id="balance-swiper" class="relative z-10">
-          <div class="flex items-center justify-between mb-1">
-            <span class="text-white/60 text-xs font-medium tracking-wide">UMUMIY QOLDIQ</span>
-            <span id="currency-badge" class="text-[10px] bg-white/10 px-2 py-0.5 rounded-full text-white font-mono tracking-wider">UZS</span>
+    <!-- ADD VIEW -->
+    <div id="view-add" class="view">
+      <div class="add-hdr"><h2>Tranzaksiya</h2><p>Kirim yoki chiqimni qo'shing</p></div>
+      <div id="chat-area"><div class="msg">👋 Salom! Kirim yoki chiqimni qo'shing.</div></div>
+      <div class="add-ctrl">
+        <div id="flow-start">
+          <button class="fbtn i" onclick="startFlow('income')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>Kirim</button>
+          <button class="fbtn e" onclick="startFlow('expense')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="8" y1="12" x2="16" y2="12"/></svg>Chiqim</button>
+        </div>
+        <div id="flow-cats">
+          <div class="cats-hdr">
+            <span>Kategoriya tanlang</span>
+            <button class="add-cat-b" onclick="openAddCat()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>Yangi</button>
           </div>
-          <div id="total-balance" class="text-4xl font-extrabold tracking-tight mt-1 text-white">0 so'm</div>
-          <div class="flex gap-1.5 mt-2">
-            <div id="dot-uzs" class="currency-dot active"></div>
-            <div id="dot-usd" class="currency-dot"></div>
+          <div id="cat-grid"></div>
+          <button class="cflow-cancel" onclick="cancelFlow()">✕ Bekor qilish</button>
+        </div>
+        <div id="flow-input">
+          <div class="in-row">
+            <button class="cur-btn" id="cur-btn" onclick="toggleCur()">UZS</button>
+            <input id="amt-in" type="number" inputmode="decimal" placeholder="Summani kiriting...">
           </div>
-          <div class="flex gap-5 mt-4 pt-4 border-t border-white/10">
-            <div class="flex items-center gap-2">
-              <div class="w-7 h-7 rounded-full bg-emerald-400/20 flex items-center justify-center flex-none">
-                <i data-lucide="arrow-down-left" class="w-4 h-4 text-emerald-400"></i>
-              </div>
-              <div>
-                <div class="text-[10px] text-white/50">Kirim</div>
-                <div id="total-income" class="text-sm font-bold text-emerald-400">+0</div>
-              </div>
-            </div>
-            <div class="flex items-center gap-2">
-              <div class="w-7 h-7 rounded-full bg-rose-400/20 flex items-center justify-center flex-none">
-                <i data-lucide="arrow-up-right" class="w-4 h-4 text-rose-400"></i>
-              </div>
-              <div>
-                <div class="text-[10px] text-white/50">Chiqim</div>
-                <div id="total-expense" class="text-sm font-bold text-rose-400">-0</div>
-              </div>
-            </div>
+          <div id="rec-area">
+            <img id="rec-thumb" src="" alt="chek">
+            <div><div style="font-size:13px;font-weight:600">✅ Chek biriktirildi</div><button class="rec-del" onclick="clearRec()">O'chirish</button></div>
+          </div>
+          <div class="act-row">
+            <label class="clip-b"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg><input type="file" accept="image/*" style="display:none" onchange="handleFile(event)"></label>
+            <button class="save-b" onclick="submitFlow()">💾 Saqlash</button>
+            <button class="cancel-x" onclick="cancelFlow()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
           </div>
         </div>
       </div>
-
-      <!-- Type Filter Cards -->
-      <div class="grid grid-cols-2 gap-3">
-        <div id="card-income" onclick="toggleTypeFilter('income')"
-          class="glass-panel p-3 rounded-2xl flex items-center gap-3 cursor-pointer transition-all hover:bg-emerald-500/10">
-          <div class="p-2.5 rounded-xl bg-emerald-500/10 text-emerald-400 flex-none">
-            <i data-lucide="trending-up" class="w-5 h-5"></i>
-          </div>
-          <div>
-            <div class="text-[11px] text-slate-400">Kirimlar</div>
-            <div class="text-xs font-semibold text-emerald-400 mt-0.5">Filtrlash</div>
-          </div>
-        </div>
-        <div id="card-expense" onclick="toggleTypeFilter('expense')"
-          class="glass-panel p-3 rounded-2xl flex items-center gap-3 cursor-pointer transition-all hover:bg-rose-500/10">
-          <div class="p-2.5 rounded-xl bg-rose-500/10 text-rose-400 flex-none">
-            <i data-lucide="trending-down" class="w-5 h-5"></i>
-          </div>
-          <div>
-            <div class="text-[11px] text-slate-400">Chiqimlar</div>
-            <div class="text-xs font-semibold text-rose-400 mt-0.5">Filtrlash</div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Date Filters -->
-      <div class="flex gap-2 overflow-x-auto pb-1 scrollbar-none">
-        <button class="date-filter-btn filter-active" data-filter="all" onclick="setDateFilter('all')">Hammasi</button>
-        <button class="date-filter-btn" data-filter="week" onclick="setDateFilter('week')">Hafta</button>
-        <button class="date-filter-btn" data-filter="month" onclick="setDateFilter('month')">Oy</button>
-        <button class="date-filter-btn" data-filter="custom" onclick="openDateRangeModal()">📅 Maxsus</button>
-      </div>
-
-      <!-- Chart -->
-      <div class="glass-panel rounded-3xl p-4">
-        <h3 class="text-sm font-semibold text-slate-300 mb-3">Kategoriyalar bo'yicha</h3>
-        <div class="relative" style="height:180px">
-          <canvas id="categoryChart"></canvas>
-          <div id="no-data-msg" class="hidden absolute inset-0 flex flex-col items-center justify-center text-slate-500 text-sm gap-2">
-            <i data-lucide="pie-chart" class="w-10 h-10 opacity-30"></i>
-            Ma'lumot yo'q
-          </div>
-        </div>
-        <table class="w-full mt-3 text-sm">
-          <tbody id="top-transaction-list"></tbody>
-        </table>
-      </div>
-
-      <!-- Trends -->
-      <div id="trend-container" class="hidden space-y-2">
-        <div class="text-xs font-semibold text-slate-400 uppercase tracking-wider px-1">📊 Trendlar</div>
-        <div id="trend-list" class="grid grid-cols-2 gap-2"></div>
-      </div>
-
-      <!-- Quick Actions -->
-      <div class="grid grid-cols-2 gap-3">
-        <button onclick="openSettings()"
-          class="glass-panel p-3 rounded-2xl flex items-center justify-center gap-2 text-sm text-slate-300 hover:bg-slate-800/50 active:scale-95 transition-all">
-          <i data-lucide="settings" class="w-4 h-4"></i> Sozlamalar
-        </button>
-        <button onclick="openExportModal()"
-          class="glass-panel p-3 rounded-2xl flex items-center justify-center gap-2 text-sm text-slate-300 hover:bg-slate-800/50 active:scale-95 transition-all">
-          <i data-lucide="file-down" class="w-4 h-4"></i> Hisobot PDF
-        </button>
-      </div>
-    </div><!-- /dashboard -->
-
-
-    <!-- ── BOT VIEW ── -->
-    <div id="view-bot" class="hidden absolute inset-0 flex flex-col" style="padding-bottom:72px">
-      <div class="px-4 pt-4 pb-2 flex-none">
-        <h2 class="text-lg font-bold">Kassa Yordamchisi</h2>
-        <p class="text-xs text-slate-400">Kirim yoki chiqimni tez qo'shing</p>
-      </div>
-
-      <div id="chat-messages" class="flex-1 overflow-y-auto px-4 py-2 space-y-3">
-        <div class="msg-wrapper ai fade-in">
-          <div class="msg-bubble ai">
-            👋 Assalomu alaykum! Kirim yoki chiqim qo'shish uchun pastdagi tugmalardan foydalaning.
-          </div>
-        </div>
-      </div>
-
-      <div class="flex-none px-4 pb-4 pt-2 space-y-3 border-t border-slate-800/50">
-        <!-- Start Actions -->
-        <div id="bot-start-actions" class="grid grid-cols-2 gap-3">
-          <button onclick="startBotFlow('income')"
-            class="p-4 rounded-2xl bg-emerald-500/10 border border-emerald-500/25 text-emerald-400 font-bold flex items-center justify-center gap-2 active:scale-95 transition-all hover:bg-emerald-500/20">
-            <i data-lucide="plus-circle" class="w-5 h-5"></i> Kirim
-          </button>
-          <button onclick="startBotFlow('expense')"
-            class="p-4 rounded-2xl bg-rose-500/10 border border-rose-500/25 text-rose-400 font-bold flex items-center justify-center gap-2 active:scale-95 transition-all hover:bg-rose-500/20">
-            <i data-lucide="minus-circle" class="w-5 h-5"></i> Chiqim
-          </button>
-        </div>
-
-        <!-- Category Selector -->
-        <div id="category-selector" class="hidden space-y-3">
-          <div class="flex items-center justify-between">
-            <span class="text-sm text-slate-300 font-medium">Kategoriya tanlang:</span>
-            <button onclick="openAddCategoryModal()"
-              class="text-xs text-blue-400 border border-blue-500/30 rounded-lg px-2 py-1 flex items-center gap-1 hover:bg-blue-500/10 transition-colors">
-              <i data-lucide="plus" class="w-3 h-3"></i> Yangi
-            </button>
-          </div>
-          <div id="category-grid" class="grid grid-cols-3 gap-2 max-h-44 overflow-y-auto"></div>
-          <button onclick="cancelBotFlow()" class="w-full py-2 text-slate-500 text-sm rounded-xl hover:text-slate-400 transition-colors">
-            ✕ Bekor qilish
-          </button>
-        </div>
-
-        <!-- Amount Input -->
-        <div id="bot-input-container" class="hidden space-y-3">
-          <div class="flex gap-2">
-            <button id="currency-toggle" onclick="toggleInputCurrency()"
-              class="px-3 py-2.5 rounded-xl border border-emerald-500/30 bg-emerald-500/5 text-emerald-400 text-sm font-bold transition-all hover:bg-emerald-500/15 flex-none">
-              UZS
-            </button>
-            <input id="bot-input" type="number" inputmode="decimal" placeholder="Summani kiriting..."
-              class="flex-1 bg-slate-800/80 border border-slate-700 rounded-xl px-4 py-2.5 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 transition-colors">
-          </div>
-
-          <div id="receipt-preview-area" class="hidden flex items-center gap-3 p-3 bg-slate-800/60 rounded-xl border border-slate-700/50">
-            <img id="receipt-img-preview" src="" alt="Chek" class="w-14 h-14 object-cover rounded-lg flex-none">
-            <div class="flex-1 min-w-0">
-              <div class="text-sm text-slate-300 font-medium">✅ Chek biriktirildi</div>
-              <button onclick="clearReceipt()" class="text-xs text-rose-400 mt-0.5 hover:text-rose-300">O'chirish</button>
-            </div>
-          </div>
-
-          <div class="flex gap-2">
-            <label class="flex-none w-11 h-11 rounded-xl bg-slate-800/80 border border-slate-700 cursor-pointer flex items-center justify-center hover:bg-slate-700/50 transition-colors">
-              <i data-lucide="paperclip" class="w-5 h-5 text-slate-400"></i>
-              <input id="file-upload" type="file" accept="image/*" class="hidden" onchange="handleReceiptUpload(event)">
-            </label>
-            <button onclick="submitBotInput()"
-              class="flex-1 h-11 rounded-xl bg-blue-600 hover:bg-blue-500 active:bg-blue-700 text-white font-bold transition-all active:scale-95">
-              💾 Saqlash
-            </button>
-            <button onclick="cancelBotFlow()"
-              class="flex-none w-11 h-11 rounded-xl bg-slate-800/80 border border-slate-700 flex items-center justify-center text-slate-400 hover:bg-slate-700/50 transition-colors">
-              <i data-lucide="x" class="w-5 h-5"></i>
-            </button>
-          </div>
-        </div>
-      </div>
-    </div><!-- /bot -->
-
-
-    <!-- ── HISTORY ── -->
-    <div id="view-history" class="hidden absolute inset-0 overflow-y-auto p-4 pb-24 space-y-3">
-      <h2 class="text-lg font-bold">Operatsiyalar tarixi</h2>
-      <div id="history-list" class="space-y-2"></div>
-      <div id="empty-history" class="hidden flex flex-col items-center justify-center py-16 text-center">
-        <i data-lucide="inbox" class="w-16 h-16 text-slate-700 mb-4"></i>
-        <p class="text-slate-400 font-medium">Hali operatsiyalar yo'q</p>
-        <p class="text-sm text-slate-500 mt-1">Bot tabidan kirim yoki chiqim qo'shing</p>
-      </div>
-    </div><!-- /history -->
-
-  </div><!-- /views -->
-
-
-  <!-- BOTTOM NAV -->
-  <nav class="flex-none bg-slate-900/95 backdrop-blur-xl border-t border-slate-800/80">
-    <div class="flex">
-      <button id="nav-dashboard" class="nav-item active" onclick="switchTab('dashboard')">
-        <i data-lucide="layout-dashboard" class="w-5 h-5"></i>
-        <span>Bosh sahifa</span>
-      </button>
-      <button id="nav-bot" class="nav-item" onclick="switchTab('bot')">
-        <i data-lucide="plus-circle" class="w-6 h-6 text-white"></i>
-        <span>Qo'shish</span>
-      </button>
-      <button id="nav-history" class="nav-item" onclick="switchTab('history')">
-        <i data-lucide="clock" class="w-5 h-5"></i>
-        <span>Tarix</span>
-      </button>
     </div>
+
+    <!-- HISTORY -->
+    <div id="view-hist" class="view"><h2>Tarix</h2><div id="tx-list"></div><div id="empty-s"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8"/><path d="M12 17v4"/></svg><p>Hali operatsiyalar yo'q</p><small>Qo'shish tabidan boshlang</small></div></div>
+
+  </div>
+  <nav id="nav">
+    <button class="nb active" id="nb-dash" onclick="goTab('dash')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>Bosh</button>
+    <button class="nb" id="nb-add" onclick="goTab('add')"><div class="add-ring"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" style="width:22px;height:22px"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></div>Qo'shish</button>
+    <button class="nb" id="nb-hist" onclick="goTab('hist')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>Tarix</button>
   </nav>
-
-</div><!-- /app-container -->
-
-
-<!-- ════════════════════════════════════════
-     MODALS
-════════════════════════════════════════ -->
-
-<!-- Category Context Menu -->
-<div id="cat-context-menu" class="hidden fixed z-50 rounded-2xl shadow-2xl overflow-hidden border border-slate-700/80"
-  style="min-width:160px;background:#1e293b">
-  <button onclick="editCatFromMenu()" class="w-full flex items-center gap-3 px-4 py-3 text-sm text-blue-400 hover:bg-slate-700/50 transition-colors">
-    <i data-lucide="edit-3" class="w-4 h-4"></i> Tahrirlash
-  </button>
-  <div class="border-t border-slate-700/50"></div>
-  <button onclick="deleteCatFromMenu()" class="w-full flex items-center gap-3 px-4 py-3 text-sm text-rose-400 hover:bg-slate-700/50 transition-colors">
-    <i data-lucide="trash-2" class="w-4 h-4"></i> O'chirish
-  </button>
 </div>
 
-<!-- Receipt Viewer -->
-<div id="receipt-modal" class="hidden modal-overlay" onclick="closeReceiptModal()">
-  <div class="flex items-center justify-center w-full h-full p-4">
-    <img id="full-receipt-image" src="" alt="Chek" class="max-w-full max-h-full object-contain rounded-2xl shadow-2xl">
-  </div>
-</div>
+<!-- MODALS -->
+<div class="ov" id="ov-action" onclick="closeOv('ov-action',event)"><div class="sheet"><div class="sh-hdl"></div><div id="action-btns"></div></div></div>
+<div class="ov center" id="ov-delete" onclick="closeOv('ov-delete',event)"><div class="sheet c" onclick="e.stopPropagation()"><div class="del-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg></div><div style="text-align:center"><div style="font-size:17px;font-weight:800">O'chirishni tasdiqlang</div><div style="font-size:13px;color:var(--muted);margin-top:6px">Bu operatsiya bazadan o'chiriladi</div></div><div class="mrow"><button class="bcl" onclick="closeOv('ov-delete')">Bekor</button><button class="bdng" onclick="confirmDel()">O'chirish</button></div></div></div>
+<div class="ov center" id="ov-edit" onclick="closeOv('ov-edit',event)"><div class="sheet c" onclick="event.stopPropagation()"><div class="sh-ttl">✏️ Tahrirlash</div><div class="fld"><label>Kategoriya</label><input id="ed-cat" type="text"></div><div class="fld"><label>Summa (so'm)</label><input id="ed-amt" type="number"></div><div class="fld"><label>Turi</label><select id="ed-type"><option value="income">📈 Kirim</option><option value="expense">📉 Chiqim</option></select></div><div class="mrow"><button class="bcl" onclick="closeOv('ov-edit')">Bekor</button><button class="bpri" onclick="saveEdit()">Saqlash</button></div></div></div>
+<div class="ov center" id="ov-editcat" onclick="closeOv('ov-editcat',event)"><div class="sheet c" onclick="event.stopPropagation()"><div class="sh-ttl">✏️ Kategoriya nomi</div><div class="fld"><label>Yangi nom</label><input id="ec-name" type="text" placeholder="Nom..."></div><div class="mrow"><button class="bcl" onclick="closeOv('ov-editcat')">Bekor</button><button class="bpri" onclick="saveEditCat()">Saqlash</button></div></div></div>
+<div class="ov" id="ov-addcat" onclick="closeOv('ov-addcat',event)"><div class="sheet" onclick="event.stopPropagation()"><div class="sh-hdl"></div><div class="sh-ttl">Yangi Kategoriya</div><div class="fld"><label>Nom</label><input id="nc-name" type="text" placeholder="Kategoriya nomi..."></div><div class="fld"><label>Ikonka</label><div id="icon-grid"></div></div><button class="bpri" style="margin-top:8px" onclick="saveNewCat()">Saqlash</button></div></div>
+<div class="ov center" id="ov-date" onclick="closeOv('ov-date',event)"><div class="sheet c" onclick="event.stopPropagation()"><div class="sh-ttl">📅 Sana oralig'i</div><div class="fld"><label>Boshlanish</label><input id="d-from" type="date"></div><div class="fld"><label>Tugash</label><input id="d-to" type="date"></div><div class="mrow"><button class="bcl" onclick="closeOv('ov-date')">Bekor</button><button class="bpri" onclick="applyDate()">Qo'llash</button></div></div></div>
+<div class="ov center" id="ov-export" onclick="closeOv('ov-export',event)"><div class="sheet c" onclick="event.stopPropagation()"><div class="sh-ttl">📄 PDF Hisobot</div><div class="fld"><label>Boshlanish</label><input id="ex-from" type="date"></div><div class="fld"><label>Tugash</label><input id="ex-to" type="date"></div><div class="panel" style="margin:12px 0"><div class="exp-s"><span>Operatsiyalar</span><span id="ex-cnt">0 ta</span></div><div class="exp-s"><span>Cheklar</span><span id="ex-rec">0 ta</span></div></div><div class="mrow"><button class="bcl" onclick="closeOv('ov-export')">Bekor</button><button class="bpri" onclick="makePDF()">Yaratish</button></div></div></div>
+<div class="ov" id="ov-settings" onclick="closeOv('ov-settings',event)"><div class="sheet" onclick="event.stopPropagation()" style="padding-bottom:40px"><div class="sh-hdl"></div><div class="sh-ttl">⚙️ Sozlamalar</div><div class="si"><div><div class="si-l">Valyuta kursi</div><div class="si-s">1 USD = ? UZS</div></div><input class="si-i" id="rate-in" type="number" placeholder="12850" onchange="saveRate(this.value)"></div><div class="si"><div><div class="si-l">PIN Kod</div><div class="si-s" id="pin-status">O'rnatilmagan</div></div><button class="si-a" onclick="setupPin()">O'rnatish</button></div><div style="padding:4px 0 8px"><button id="pin-rm-b" class="pin-rm" onclick="removePin()">— PIN ni o'chirish</button></div><div class="si" id="bio-row" style="display:none"><div><div class="si-l">Biometrik</div><div class="si-s">Face ID / Touch ID</div></div><div class="tgl" id="bio-tgl" onclick="toggleBio()"></div></div><div class="si"><div><div class="si-l">Mavzu</div><div class="si-s">Tungi / Kunduzgi</div></div><button class="si-a" onclick="toggleTheme()">🌙 Almashtirish</button></div><div style="height:1px;background:var(--border);margin:16px 0"></div><div style="font-size:11px;font-weight:700;color:var(--muted);letter-spacing:0.8px;text-transform:uppercase;margin-bottom:12px">Ma'lumotlar</div><button class="dbtn" onclick="doExport()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>JSON Eksport</button><label class="dbtn" style="cursor:pointer"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>JSON Import<input type="file" accept=".json" style="display:none" onchange="doImport(event)"></label><button class="dbtn red" onclick="resetData()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg>Barcha ma'lumotlarni o'chirish</button><button class="bcl" style="margin-top:16px;width:100%" onclick="closeOv('ov-settings')">Yopish</button></div></div>
+<div id="ctx-menu"><button class="ctx-i blue" onclick="ctxEdit()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>Tahrirlash</button><div class="ctx-div"></div><button class="ctx-i red" onclick="ctxDel()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg>O'chirish</button></div>
+<div id="rec-view" onclick="this.classList.remove('on')"><img id="rec-img" src="" alt="chek"></div>
 
-<!-- Action Sheet -->
-<div id="action-sheet" class="hidden modal-overlay flex items-end justify-center" onclick="closeActionSheet(event)">
-  <div class="bg-slate-800 rounded-t-3xl w-full max-w-lg p-4 pb-8 space-y-2">
-    <div class="w-10 h-1 bg-slate-600 rounded-full mx-auto mb-4"></div>
-    <div id="action-sheet-content" class="space-y-2"></div>
-  </div>
-</div>
-
-<!-- Delete Confirm -->
-<div id="delete-modal" class="hidden modal-overlay flex items-center justify-center p-6">
-  <div class="glass-panel rounded-3xl p-6 w-full max-w-sm text-center space-y-4">
-    <div class="w-14 h-14 rounded-full bg-rose-500/10 flex items-center justify-center mx-auto">
-      <i data-lucide="trash-2" class="w-7 h-7 text-rose-400"></i>
-    </div>
-    <div>
-      <h3 class="font-bold text-lg">O'chirishni tasdiqlang</h3>
-      <p class="text-sm text-slate-400 mt-1">Bu operatsiya butunlay o'chirib tashlanadi.</p>
-    </div>
-    <div class="flex gap-3">
-      <button onclick="closeModal('delete-modal')" class="flex-1 py-3 rounded-2xl bg-slate-700/50 text-slate-300 font-medium">Bekor qilish</button>
-      <button onclick="confirmDelete()" class="flex-1 py-3 rounded-2xl bg-rose-500 text-white font-bold">O'chirish</button>
-    </div>
-  </div>
-</div>
-
-<!-- Edit Transaction -->
-<div id="edit-modal" class="hidden modal-overlay flex items-center justify-center p-6">
-  <div class="glass-panel rounded-3xl p-6 w-full max-w-sm space-y-4">
-    <h3 class="font-bold text-lg">Tahrirlash</h3>
-    <div class="space-y-3">
-      <div>
-        <label class="text-xs text-slate-400 mb-1 block">Kategoriya</label>
-        <input id="edit-category" type="text"
-          class="w-full bg-slate-800/80 border border-slate-700 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:border-blue-500 transition-colors">
-      </div>
-      <div>
-        <label class="text-xs text-slate-400 mb-1 block">Summa (so'm)</label>
-        <input id="edit-amount" type="number"
-          class="w-full bg-slate-800/80 border border-slate-700 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:border-blue-500 transition-colors">
-      </div>
-      <div>
-        <label class="text-xs text-slate-400 mb-1 block">Turi</label>
-        <select id="edit-type"
-          class="w-full bg-slate-800 border border-slate-700 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:border-blue-500 transition-colors">
-          <option value="income">📈 Kirim</option>
-          <option value="expense">📉 Chiqim</option>
-        </select>
-      </div>
-    </div>
-    <div class="flex gap-3 pt-1">
-      <button onclick="closeModal('edit-modal')" class="flex-1 py-3 rounded-2xl bg-slate-700/50 text-slate-300 font-medium">Bekor qilish</button>
-      <button onclick="saveEdit()" class="flex-1 py-3 rounded-2xl bg-blue-600 text-white font-bold">Saqlash</button>
-    </div>
-  </div>
-</div>
-
-<!-- Edit Category -->
-<div id="edit-cat-modal" class="hidden modal-overlay flex items-center justify-center p-6">
-  <div class="glass-panel rounded-3xl p-6 w-full max-w-sm space-y-4">
-    <h3 class="font-bold text-lg">Kategoriyani tahrirlash</h3>
-    <input id="edit-cat-name-input" type="text" placeholder="Yangi nom..."
-      class="w-full bg-slate-800/80 border border-slate-700 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:border-blue-500 transition-colors">
-    <div class="flex gap-3">
-      <button onclick="closeModal('edit-cat-modal')" class="flex-1 py-3 rounded-2xl bg-slate-700/50 text-slate-300 font-medium">Bekor qilish</button>
-      <button onclick="confirmEditCat()" class="flex-1 py-3 rounded-2xl bg-blue-600 text-white font-bold">Saqlash</button>
-    </div>
-  </div>
-</div>
-
-<!-- Add Category -->
-<div id="add-cat-modal" class="hidden modal-overlay flex items-end justify-center">
-  <div class="glass-panel rounded-t-3xl w-full max-w-lg p-6 pb-8 space-y-4 max-h-[85vh] overflow-y-auto">
-    <div class="w-10 h-1 bg-slate-600 rounded-full mx-auto"></div>
-    <h3 class="font-bold text-lg">Yangi kategoriya</h3>
-    <div>
-      <label class="text-xs text-slate-400 mb-1 block">Nom</label>
-      <input id="new-cat-name" type="text" placeholder="Kategoriya nomi..."
-        class="w-full bg-slate-800/80 border border-slate-700 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:border-blue-500 transition-colors">
-    </div>
-    <div>
-      <label class="text-xs text-slate-400 mb-2 block">Ikonka tanlang</label>
-      <div id="icon-selector" class="grid grid-cols-6 gap-2 max-h-36 overflow-y-auto"></div>
-    </div>
-    <div class="flex gap-3 pt-1">
-      <button onclick="closeModal('add-cat-modal')" class="flex-1 py-3 rounded-2xl bg-slate-700/50 text-slate-300 font-medium">Bekor qilish</button>
-      <button onclick="saveNewCategory()" class="flex-1 py-3 rounded-2xl bg-blue-600 text-white font-bold">Saqlash</button>
-    </div>
-  </div>
-</div>
-
-<!-- Date Range -->
-<div id="date-range-modal" class="hidden modal-overlay flex items-center justify-center p-6">
-  <div class="glass-panel rounded-3xl p-6 w-full max-w-sm space-y-4">
-    <h3 class="font-bold text-lg">Sana oralig'i</h3>
-    <div class="space-y-3">
-      <div>
-        <label class="text-xs text-slate-400 mb-1 block">Boshlanish</label>
-        <input id="start-date" type="date"
-          class="w-full bg-slate-800/80 border border-slate-700 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:border-blue-500 transition-colors">
-      </div>
-      <div>
-        <label class="text-xs text-slate-400 mb-1 block">Tugash</label>
-        <input id="end-date" type="date"
-          class="w-full bg-slate-800/80 border border-slate-700 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:border-blue-500 transition-colors">
-      </div>
-    </div>
-    <div class="flex gap-3">
-      <button onclick="closeModal('date-range-modal')" class="flex-1 py-3 rounded-2xl bg-slate-700/50 text-slate-300 font-medium">Bekor qilish</button>
-      <button onclick="applyDateRange()" class="flex-1 py-3 rounded-2xl bg-blue-600 text-white font-bold">Qo'llash</button>
-    </div>
-  </div>
-</div>
-
-<!-- PDF Export -->
-<div id="export-modal" class="hidden modal-overlay flex items-center justify-center p-6">
-  <div class="glass-panel rounded-3xl p-6 w-full max-w-sm space-y-4">
-    <h3 class="font-bold text-lg">📄 Hisobot yaratish</h3>
-    <div class="space-y-3">
-      <div>
-        <label class="text-xs text-slate-400 mb-1 block">Boshlanish sanasi</label>
-        <input id="export-start-date" type="date"
-          class="w-full bg-slate-800/80 border border-slate-700 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:border-blue-500 transition-colors">
-      </div>
-      <div>
-        <label class="text-xs text-slate-400 mb-1 block">Tugash sanasi</label>
-        <input id="export-end-date" type="date"
-          class="w-full bg-slate-800/80 border border-slate-700 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:border-blue-500 transition-colors">
-      </div>
-    </div>
-    <div class="glass-panel rounded-2xl p-3 space-y-1.5">
-      <div class="flex justify-between text-sm">
-        <span class="text-slate-400">Operatsiyalar:</span>
-        <span id="export-count" class="font-bold">0 ta</span>
-      </div>
-      <div class="flex justify-between text-sm">
-        <span class="text-slate-400">Cheklar:</span>
-        <span id="export-receipts" class="font-bold">0 ta</span>
-      </div>
-    </div>
-    <div class="flex gap-3">
-      <button onclick="closeModal('export-modal')" class="flex-1 py-3 rounded-2xl bg-slate-700/50 text-slate-300 font-medium">Bekor qilish</button>
-      <button onclick="generatePDF()" class="flex-1 py-3 rounded-2xl bg-blue-600 text-white font-bold">PDF Yaratish</button>
-    </div>
-  </div>
-</div>
-
-<!-- Settings -->
-<div id="settings-modal" class="hidden modal-overlay flex items-end justify-center">
-  <div class="bg-slate-900 border border-slate-800/80 rounded-t-3xl w-full max-w-lg p-6 pb-8 max-h-[90vh] overflow-y-auto space-y-1">
-    <div class="w-10 h-1 bg-slate-700 rounded-full mx-auto mb-4"></div>
-    <h3 class="font-bold text-xl mb-5">⚙️ Sozlamalar</h3>
-
-    <!-- Exchange Rate -->
-    <div class="settings-row">
-      <div>
-        <div class="text-sm font-medium">Valyuta kursi</div>
-        <div class="text-xs text-slate-400">1 USD = ? UZS</div>
-      </div>
-      <input id="exchange-rate-input" type="number" placeholder="12850"
-        class="w-28 bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white text-right text-sm focus:outline-none focus:border-blue-500 transition-colors"
-        onchange="saveExchangeRate(this.value)">
-    </div>
-
-    <!-- PIN -->
-    <div class="settings-row">
-      <div>
-        <div class="text-sm font-medium">PIN Kod</div>
-        <div id="pin-status-text" class="text-xs text-slate-400">O'rnatilmagan</div>
-      </div>
-      <button onclick="startPinSetup(); closeModal('settings-modal');"
-        class="px-4 py-2 rounded-xl bg-blue-600/20 text-blue-400 border border-blue-500/30 text-sm font-medium hover:bg-blue-600/30 transition-colors">
-        O'rnatish
-      </button>
-    </div>
-    <div class="px-1 pb-1">
-      <button id="btn-remove-pin" onclick="removePin()" class="hidden text-xs text-rose-400 hover:text-rose-300 transition-colors">
-        — PIN kodni o'chirish
-      </button>
-    </div>
-
-    <!-- Biometric -->
-    <div id="bio-row" class="settings-row hidden">
-      <div>
-        <div class="text-sm font-medium">Biometrik kirish</div>
-        <div class="text-xs text-slate-400">Touch ID / Face ID</div>
-      </div>
-      <label class="toggle-switch">
-        <input id="bio-toggle" type="checkbox" onchange="toggleBiometric(this)">
-        <span class="toggle-track"></span>
-      </label>
-    </div>
-
-    <!-- Theme -->
-    <div class="settings-row">
-      <div>
-        <div class="text-sm font-medium">Mavzu</div>
-        <div class="text-xs text-slate-400">Qoʻngʻir / Oq rejim</div>
-      </div>
-      <button onclick="toggleTheme()"
-        class="px-4 py-2 rounded-xl bg-slate-700/50 text-slate-300 border border-slate-600/50 text-sm font-medium hover:bg-slate-700 transition-colors">
-        🌙 O'zgartirish
-      </button>
-    </div>
-
-    <div class="border-t border-slate-800 my-3"></div>
-
-    <div class="space-y-2">
-      <div class="text-xs text-slate-500 uppercase tracking-wider px-1 mb-3">Ma'lumotlar</div>
-      <button onclick="exportData()" class="settings-action-btn text-slate-300">
-        <i data-lucide="download" class="w-4 h-4"></i> JSON Eksport
-      </button>
-      <label class="settings-action-btn text-slate-300 cursor-pointer">
-        <i data-lucide="upload" class="w-4 h-4"></i> JSON Import
-        <input type="file" accept=".json" class="hidden" onchange="importData(event)">
-      </label>
-      <button onclick="confirmResetData()" class="settings-action-btn text-rose-400">
-        <i data-lucide="trash" class="w-4 h-4"></i> Barcha ma'lumotlarni o'chirish
-      </button>
-    </div>
-
-    <div class="pt-4">
-      <button onclick="closeModal('settings-modal')" class="w-full py-3 rounded-2xl bg-slate-800 text-slate-300 font-medium hover:bg-slate-700 transition-colors">
-        Yopish
-      </button>
-    </div>
-  </div>
-</div>
-
-
-<!-- ════════════════════════════════════════
-     SCRIPTS (loading order matters!)
-════════════════════════════════════════ -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
-<script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
-<script src="/api/config.js"></script>
 <script src="app.js"></script>
 </body>
 </html>
