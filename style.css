@@ -846,8 +846,11 @@ body {
     border: none;
     cursor: pointer;
     text-align: center;
-    padding: 6px;
+    padding: 10px;
     font-weight: 500;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    margin-bottom: 10px;
 }
 
 #flow-input {
