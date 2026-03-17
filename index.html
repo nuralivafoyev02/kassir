@@ -7,7 +7,8 @@
   <title>Kassa</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap"
+    rel="stylesheet">
   <link rel="stylesheet" href="style.css">
 </head>
 
@@ -78,7 +79,8 @@
             <button class="header-btn settings-btn" onclick="openSettings()" title="Sozlamalar">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
                 <circle cx="12" cy="12" r="3" />
-                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+                <path
+                  d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
               </svg>
             </button>
           </div>
@@ -198,7 +200,8 @@
           <div id="flow-input">
             <div class="in-row">
               <button class="cur-btn" id="cur-btn" onclick="toggleCur()">UZS</button>
-              <input id="amt-in" type="text" inputmode="decimal" placeholder="Summani kiriting..." oninput="formatInputAmount(event)">
+              <input id="amt-in" type="text" inputmode="decimal" placeholder="Summani kiriting..."
+                oninput="formatInputAmount(event)">
             </div>
             <div id="rec-area">
               <img id="rec-thumb" src="" alt="chek">
@@ -253,13 +256,13 @@
           <rect x="14" y="3" width="7" height="7" />
           <rect x="14" y="14" width="7" height="7" />
           <rect x="3" y="14" width="7" height="7" />
-        </svg>Bosh</button>
+        </svg>Asosiy</button>
       <button class="nb" id="nb-add" onclick="goTab('add')">
         <div class="add-ring"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round"
             stroke-linejoin="round" style="width:22px;height:22px">
             <line x1="12" y1="5" x2="12" y2="19" />
             <line x1="5" y1="12" x2="19" y2="12" />
-          </svg></div>Qo'shish
+          </svg>Qo'shish</div>
       </button>
       <button class="nb" id="nb-hist" onclick="goTab('hist')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
           stroke-linecap="round" stroke-linejoin="round">
@@ -352,7 +355,8 @@
         <div>
           <div class="si-l">Valyuta kursi</div>
           <div class="si-s">1 USD = ? UZS</div>
-        </div><input class="si-i" id="rate-in" type="text" inputmode="decimal" placeholder="12850" oninput="handleRateInput(this)" onchange="saveRate(getCleanAmount(this.value))">
+        </div><input class="si-i" id="rate-in" type="text" inputmode="decimal" placeholder="12850"
+          oninput="handleRateInput(this)" onchange="saveRate(getCleanAmount(this.value))">
       </div>
       <div class="si">
         <div>
