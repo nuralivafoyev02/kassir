@@ -82,8 +82,8 @@ function parseText(raw) {
   if (!isFinite(amount)) return null;
   const suffix = (m[2] || '').toLowerCase();
   if (['k', 'ming'].includes(suffix))               amount *= 1000;
-  else if (['mln', 'million', 'm'].includes(suffix)) amount *= 1000000;
-  else if (['mlrd', 'milliard'].includes(suffix))    amount *= 1000000000;
+  else if (['mln', 'million', 'm'].includes(suffix)) amount *= 1_000_000;
+  else if (['mlrd', 'milliard'].includes(suffix))    amount *= 1_000_000_000;
 
   // Determine type
   const incWords = ['kirim','tushdi','keldi','avans','oylik','bonus','qaytdi','foyda','daromad','sotdim','tushum','oldim', 'dan'];
