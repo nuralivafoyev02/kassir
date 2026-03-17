@@ -15,7 +15,7 @@ if (tg) {
     if (tg.isExpanded) {
       document.documentElement.style.setProperty(
         '--tg-header-offset',
-        (tg.viewportStableHeight ? (tg.viewportHeight - tg.viewportStableHeight) : 0) + 'px'
+        (tg.viewportStableHeight ? (tg.viewportHeight - tg.viewportStableHeight) : 0) + 'px',
       );
     }
   });
