@@ -169,6 +169,10 @@ function checkEnv() {
         console.log('✅  .env o\'zgaruvchilari to\'g\'ri yuklandi');
     }
 
+    if (!process.env.ADMIN_IDS) {
+        console.log('ℹ️  ADMIN_IDS topilmadi. Ommaviy xabar (/message) yuborish imkoniyati o\'chiq');
+    }
+
     if (!process.env.SUPABASE_ANON_KEY && process.env.SUPABASE_KEY) {
         process.env.SUPABASE_ANON_KEY = process.env.SUPABASE_KEY;
         console.log('ℹ️  SUPABASE_ANON_KEY ga SUPABASE_KEY ishlatildi (anon key ajrating tavsiya etiladi)');

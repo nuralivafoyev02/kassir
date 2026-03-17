@@ -209,6 +209,69 @@ module.exports = async (req, res) => {
       return res.status(200).json({ ok: true });
     }
 
+    // ── Admin Broadcast (/message) ──
+    const hasBroadcastCmd = text.startsWith('/message');
+    if (hasBroadcastCmd) {
+      const allowedAdmins = (process.env.ADMIN_IDS || '').split(',').map(s => s.trim());
+      
+      if (!allowedAdmins.includes(userId.toString())) {
+        await bot.sendMessage(chatId, '⛔️ Sizga bu buyruqni ishlatish ruxsat etilmagan.\n(ENV da ADMIN_IDS ni tekshiring)', { parse_mode: 'HTML' });
+        return res.status(200).json({ ok: true });
+      }
+
+      const waitMsg = await bot.sendMessage(chatId, '⏳ Xabar barcha foydalanuvchilarga jo\'natilmoqda...', { parse_mode: 'HTML' });
+      
+      const { data: usersData, error: fErr } = await db.from('users').select('user_id');
+      if (fErr || !usersData) {
+        await bot.editMessageText('⚠️ Foydalanuvchilarni olishda xatolik yuz berdi.', { chat_id: chatId, message_id: waitMsg.message_id });
+        return res.status(200).json({ ok: true });
+      }
+
+      let success = 0;
+      let failed = 0;
+      
+      const contentText = text.replace('/message', '').trim();
+
+      const sendToUser = async (uId) => {
+        try {
+          if (msg.reply_to_message) {
+             await bot.copyMessage(uId, chatId, msg.reply_to_message.message_id);
+          } else if (msg.photo) {
+             const photoId = msg.photo[msg.photo.length - 1].file_id;
+             await bot.sendPhoto(uId, photoId, { caption: contentText, parse_mode: 'HTML' });
+          } else if (msg.video) {
+             await bot.sendVideo(uId, msg.video.file_id, { caption: contentText, parse_mode: 'HTML' });
+          } else if (msg.animation) {
+             await bot.sendAnimation(uId, msg.animation.file_id, { caption: contentText, parse_mode: 'HTML' });
+          } else if (msg.document) {
+             await bot.sendDocument(uId, msg.document.file_id, { caption: contentText, parse_mode: 'HTML' });
+          } else {
+             if (!contentText) throw new Error('Empty message');
+             await bot.sendMessage(uId, contentText, { parse_mode: 'HTML' });
+          }
+          success++;
+        } catch (e) {
+          failed++;
+        }
+      };
+
+      const batchSize = 25;
+      for (let i = 0; i < usersData.length; i += batchSize) {
+        const batch = usersData.slice(i, i + batchSize);
+        await Promise.allSettled(batch.map(u => sendToUser(u.user_id)));
+        if (i + batchSize < usersData.length) {
+           await new Promise(r => setTimeout(r, 1000));
+        }
+      }
+
+      await bot.editMessageText(
+        `✅ <b>Xabar yuborildi!</b>\n\nYetkazildi: ${success} ta\nXato: ${failed} ta`,
+         { chat_id: chatId, message_id: waitMsg.message_id, parse_mode: 'HTML' }
+      );
+
+      return res.status(200).json({ ok: true });
+    }
+
     // ── /start ──
     if (text === '/start') {
       const now    = new Date();
