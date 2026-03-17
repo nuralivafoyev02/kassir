@@ -5,6 +5,7 @@
     margin: 0;
     padding: 0;
     -webkit-tap-highlight-color: transparent;
+    scroll-behavior: smooth;
 }
 
 :root {
@@ -1860,7 +1861,7 @@ body {
 #err-bar {
     display: none;
     position: fixed;
-    top: 12px;
+    top: 42px;
     left: 12px;
     right: 12px;
     z-index: 90;
@@ -1952,4 +1953,10 @@ body.light #pin-screen {
 body.light .header-title {
     -webkit-text-fill-color: #111827;
     background: none;
+}
+
+@media only screen and (max-height: 950px) {
+    body {
+        padding-top: 40px;
+    }
 }
