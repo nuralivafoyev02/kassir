@@ -5,7 +5,21 @@
 
 // ─── TELEGRAM ───────────────────────────────────────────
 const tg = window.Telegram?.WebApp;
-if (tg) { tg.expand(); tg.setHeaderColor?.('#050508'); }
+if (tg) {
+  tg.expand();
+  tg.setHeaderColor?.('#050508');
+  tg.setBackgroundColor?.('#050508');
+  /* Telegram viewport o'zgarganda (mini-app ochilganda/yopilganda)
+     CSS safe-area o'zgaruvchisini qayta hisoblash */
+  tg.onEvent?.('viewportChanged', () => {
+    if (tg.isExpanded) {
+      document.documentElement.style.setProperty(
+        '--tg-header-offset',
+        (tg.viewportStableHeight ? (tg.viewportHeight - tg.viewportStableHeight) : 0) + 'px'
+      );
+    }
+  });
+}
 
 // ─── STORAGE ────────────────────────────────────────────
 const store = {
@@ -481,7 +495,7 @@ function formatInputAmount(e) {
   const diff = newLen - oldLen;
   try {
     input.setSelectionRange(cursorPos + diff, cursorPos + diff);
-  } catch (_) {}
+  } catch (_) { }
 }
 
 // Bo'shliqlarni olib tashlash va sof raqam olish
@@ -498,7 +512,7 @@ function handleRateInput(input) {
   const oldLen = input.value.length;
   input.value = formatted;
   const diff = formatted.length - oldLen;
-  try { input.setSelectionRange(cursor + diff, cursor + diff); } catch (_) {}
+  try { input.setSelectionRange(cursor + diff, cursor + diff); } catch (_) { }
 }
 
 // ─── BOT FLOW ────────────────────────────────────────────

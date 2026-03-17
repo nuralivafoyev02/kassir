@@ -1,3 +1,7 @@
+/* ═══════════════════════════════════════════════
+   KASSA — style.css  (tozalangan va yaxshilangan)
+   ═══════════════════════════════════════════════ */
+
 *,
 *::before,
 *::after {
@@ -5,7 +9,6 @@
     margin: 0;
     padding: 0;
     -webkit-tap-highlight-color: transparent;
-    scroll-behavior: smooth;
 }
 
 :root {
@@ -22,6 +25,9 @@
     --r: 16px;
     --nav: 78px;
     --nav-bottom: 20px;
+    /* Telefon "notch" va Telegram header uchun xavfsiz masofa */
+    --safe-top: env(safe-area-inset-top, 0px);
+    --safe-bottom: env(safe-area-inset-bottom, 0px);
 }
 
 html,
@@ -35,12 +41,16 @@ body {
     color: var(--text);
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', sans-serif;
     -webkit-font-smoothing: antialiased;
+    /* iOS viewport-fit=cover bilan to'liq ekranni egallash */
+    padding-top: var(--safe-top);
+    padding-bottom: var(--safe-bottom);
 }
 
 #app {
     display: flex;
     flex-direction: column;
-    height: 100dvh;
+    /* 100dvh minus safe area (body padding bilan bir xil bo'lmasligi uchun) */
+    height: calc(100dvh - var(--safe-top) - var(--safe-bottom));
     max-width: 430px;
     margin: 0 auto;
 }
@@ -56,7 +66,8 @@ body {
     inset: 0;
     overflow-y: auto;
     overflow-x: hidden;
-    padding: 12px 16px calc(var(--nav) + var(--nav-bottom) + 16px);
+    /* Pastki nav + safe-area (iPhone Home Indicator) uchun joy */
+    padding: 12px 16px calc(var(--nav) + var(--nav-bottom) + var(--safe-bottom) + 16px);
     display: none;
     flex-direction: column;
     gap: 12px;
@@ -148,7 +159,8 @@ body {
 /* ─── NAV ─────────────────────────────────────── */
 #nav {
     position: fixed;
-    bottom: var(--nav-bottom);
+    /* Pastki safe-area (iPhone Home Indicator) uchun qo'shimcha masofa */
+    bottom: calc(var(--nav-bottom) + var(--safe-bottom));
     left: 16px;
     right: 16px;
     background: rgba(15, 15, 26, 0.88);
@@ -849,9 +861,9 @@ body {
     text-align: center;
     padding: 10px;
     font-weight: 500;
-    border-radius: 10px;
+    margin-bottom: 20px;
     border: 1px solid var(--border);
-    margin-bottom: 10px;
+    border-radius: 14px;
 }
 
 #flow-input {
@@ -1861,7 +1873,7 @@ body {
 #err-bar {
     display: none;
     position: fixed;
-    top: 42px;
+    top: 12px;
     left: 12px;
     right: 12px;
     z-index: 90;
@@ -1953,10 +1965,4 @@ body.light #pin-screen {
 body.light .header-title {
     -webkit-text-fill-color: #111827;
     background: none;
-}
-
-@media only screen and (max-height: 950px) {
-    body {
-        padding-top: 40px;
-    }
 }
