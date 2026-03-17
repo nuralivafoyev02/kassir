@@ -975,6 +975,23 @@ function resetData() {
   });
 }
 
+// Input Formatter
+function formatInputAmount(e) {
+  let val = e.target.value.replace(/\D/g, ''); // Faqat raqamlarni qoldirish
+  if (!val) return;
+  
+  // Sonni bo'shliqlar bilan formatlash: 1000000 -> 1 000 000
+  e.target.value = new Intl.NumberFormat('fr-FR').format(val);
+}
+
+// Transaction Modal ochilganda inputga event listener qo'shing:
+// document.getElementById('tx-amount').addEventListener('input', formatInputAmount);
+
+// Ma'lumotni saqlashdan oldin bo'shliqlarni olib tashlang:
+function getCleanAmount(val) {
+    return parseFloat(val.replace(/\s/g, '')) || 0;
+}
+
 // ─── GLOBAL ERROR HANDLER ────────────────────────────────
 window.addEventListener('unhandledrejection', e => {
   console.error('[unhandled]', e.reason);
