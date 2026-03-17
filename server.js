@@ -7,9 +7,9 @@
 'use strict';
 
 const http = require('http');
-const fs   = require('fs');
+const fs = require('fs');
 const path = require('path');
-const url  = require('url');
+const url = require('url');
 
 // ── .env faylni o'qish (dotenv o'rniga) ─────────────────────
 function loadEnv() {
@@ -31,14 +31,14 @@ loadEnv();
 // ── MIME turlari ──────────────────────────────────────────────
 const MIME = {
     '.html': 'text/html; charset=utf-8',
-    '.js':   'application/javascript; charset=utf-8',
-    '.css':  'text/css; charset=utf-8',
+    '.js': 'application/javascript; charset=utf-8',
+    '.css': 'text/css; charset=utf-8',
     '.json': 'application/json',
-    '.png':  'image/png',
-    '.jpg':  'image/jpeg',
+    '.png': 'image/png',
+    '.jpg': 'image/jpeg',
     '.jpeg': 'image/jpeg',
-    '.svg':  'image/svg+xml',
-    '.ico':  'image/x-icon',
+    '.svg': 'image/svg+xml',
+    '.ico': 'image/x-icon',
 };
 
 // ── API handler'larni lazy yuklaymiz ─────────────────────────
@@ -93,7 +93,7 @@ function serveStatic(filePath, res) {
             res.end('Not Found');
             return;
         }
-        const ext  = path.extname(filePath).toLowerCase();
+        const ext = path.extname(filePath).toLowerCase();
         const mime = MIME[ext] || 'application/octet-stream';
         res.writeHead(200, { 'Content-Type': mime, 'Cache-Control': 'no-cache' });
         res.end(data);
@@ -102,7 +102,7 @@ function serveStatic(filePath, res) {
 
 // ── Asosiy server ─────────────────────────────────────────────
 const server = http.createServer(async (req, res) => {
-    const parsed   = url.parse(req.url, true);
+    const parsed = url.parse(req.url, true);
     const pathname = parsed.pathname;
 
     // /api/config.js
@@ -125,7 +125,7 @@ const server = http.createServer(async (req, res) => {
     if (pathname === '/api/client-log') {
         const handler = loadApiHandler('client-log');
         if (handler) {
-            req.body  = req.method === 'POST' ? await parseBody(req) : {};
+            req.body = req.method === 'POST' ? await parseBody(req) : {};
             const mRes = mockRes(res);
             return handler(req, mRes);
         }
@@ -162,7 +162,7 @@ server.listen(PORT, () => {
 
 function checkEnv() {
     const required = ['BOT_TOKEN', 'SUPABASE_URL', 'SUPABASE_KEY'];
-    const missing  = required.filter(k => !process.env[k]);
+    const missing = required.filter(k => !process.env[k]);
     if (missing.length > 0) {
         console.warn('⚠️  .env da quyidagi o\'zgaruvchilar topilmadi:', missing.join(', '));
     } else {

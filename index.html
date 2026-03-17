@@ -5,6 +5,9 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1">
   <title>Kassa</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css">
 </head>
 
@@ -55,6 +58,32 @@
 
       <!-- DASHBOARD -->
       <div id="view-dash" class="view active">
+        <!-- Header -->
+        <div class="app-header">
+          <div class="header-left">
+            <div class="header-logo">💰</div>
+            <div>
+              <div class="header-title">Kassa</div>
+              <div class="header-sub">Moliyaviy boshqaruv</div>
+            </div>
+          </div>
+          <div class="header-actions">
+            <button class="header-btn" onclick="openExport()" title="PDF Hisobot">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                <polyline points="7 10 12 15 17 10" />
+                <line x1="12" y1="15" x2="12" y2="3" />
+              </svg>
+            </button>
+            <button class="header-btn settings-btn" onclick="openSettings()" title="Sozlamalar">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="3" />
+                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+              </svg>
+            </button>
+          </div>
+        </div>
+
         <div class="balance-card" id="bc">
           <div class="bc-label">Umumiy Qoldiq</div>
           <div class="bc-amount loading" id="total-bal">— so'm</div>
@@ -129,20 +158,6 @@
           <div class="panel-ttl" style="padding-left:2px">📈 Trendlar</div>
           <div class="tgrid" id="trend-grid"></div>
         </div>
-        <div class="quick-row">
-          <button class="qbtn" onclick="openSettings()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
-              stroke-linecap="round" stroke-linejoin="round">
-              <circle cx="12" cy="12" r="3" />
-              <path
-                d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
-            </svg>Sozlamalar</button>
-          <button class="qbtn" onclick="openExport()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
-              stroke-linecap="round" stroke-linejoin="round">
-              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-              <polyline points="7 10 12 15 17 10" />
-              <line x1="12" y1="15" x2="12" y2="3" />
-            </svg>PDF Hisobot</button>
-        </div>
       </div>
 
       <!-- ADD VIEW -->
@@ -183,7 +198,7 @@
           <div id="flow-input">
             <div class="in-row">
               <button class="cur-btn" id="cur-btn" onclick="toggleCur()">UZS</button>
-              <input id="amt-in" type="number" inputmode="decimal" placeholder="Summani kiriting..." oninput="formatInputAmount(event)">
+              <input id="amt-in" type="text" inputmode="decimal" placeholder="Summani kiriting..." oninput="formatInputAmount(event)">
             </div>
             <div id="rec-area">
               <img id="rec-thumb" src="" alt="chek">
@@ -211,7 +226,14 @@
 
       <!-- HISTORY -->
       <div id="view-hist" class="view">
-        <h2>Tarix</h2>
+        <div class="view-hist-hdr">
+          <h2>Tarix</h2>
+          <div class="hist-filter-row">
+            <div class="fp on" data-hf="all" onclick="setHistFilter('all')">Barchasi</div>
+            <div class="fp" data-hf="income" onclick="setHistFilter('income')">Kirim</div>
+            <div class="fp" data-hf="expense" onclick="setHistFilter('expense')">Chiqim</div>
+          </div>
+        </div>
         <div id="tx-list"></div>
         <div id="empty-s"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
             stroke-linecap="round">
@@ -255,7 +277,7 @@
     </div>
   </div>
   <div class="ov center" id="ov-delete" onclick="closeOv('ov-delete',event)">
-    <div class="sheet c" onclick="e.stopPropagation()">
+    <div class="sheet c" onclick="event.stopPropagation()">
       <div class="del-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round"
           stroke-linejoin="round">
           <polyline points="3 6 5 6 21 6" />
@@ -273,7 +295,7 @@
     <div class="sheet c" onclick="event.stopPropagation()">
       <div class="sh-ttl">✏️ Tahrirlash</div>
       <div class="fld"><label>Kategoriya</label><input id="ed-cat" type="text"></div>
-      <div class="fld"><label>Summa (so'm)</label><input id="ed-amt" type="number"></div>
+      <div class="fld"><label>Summa (so'm)</label><input id="ed-amt" type="text" inputmode="decimal"></div>
       <div class="fld"><label>Turi</label><select id="ed-type">
           <option value="income">📈 Kirim</option>
           <option value="expense">📉 Chiqim</option>
@@ -330,7 +352,7 @@
         <div>
           <div class="si-l">Valyuta kursi</div>
           <div class="si-s">1 USD = ? UZS</div>
-        </div><input class="si-i" id="rate-in" type="number" placeholder="12850" onchange="saveRate(this.value)">
+        </div><input class="si-i" id="rate-in" type="text" inputmode="decimal" placeholder="12850" oninput="handleRateInput(this)" onchange="saveRate(getCleanAmount(this.value))">
       </div>
       <div class="si">
         <div>

@@ -1,16 +1,11 @@
 'use strict';
 // ═══════════════════════════════════════════════════════
-//  KASSA — app.js  (noldan qayta yozilgan)
-//  Asosiy farqlar:
-//   1. UI DARHOL ko'rinadi — data kelishini kutmaydi
-//   2. Config fetch() orqali olinadi — <script> tag emas
-//   3. supabase = null bo'lsa ham UI ishlaydi (offline rejim)
-//   4. Barcha DOM ID'lar index.html bilan mos
+//  KASSA — app.js  (to'liq qayta ko'rib chiqilgan)
 // ═══════════════════════════════════════════════════════
 
 // ─── TELEGRAM ───────────────────────────────────────────
 const tg = window.Telegram?.WebApp;
-if (tg) { tg.expand(); tg.setHeaderColor?.('#0a0a0f'); }
+if (tg) { tg.expand(); tg.setHeaderColor?.('#050508'); }
 
 // ─── STORAGE ────────────────────────────────────────────
 const store = {
@@ -37,7 +32,6 @@ const ICON_NAMES = [
   'shopping-bag', 'banknote', 'pill', 'shirt', 'wifi', 'monitor', 'smile', 'film',
 ];
 
-// Inline SVG paths for category icons (no external lib needed)
 const SVGS = {
   'shopping-cart': '<path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/>',
   'coffee': '<path d="M18 8h1a4 4 0 0 1 0 8h-1"/><path d="M2 8h16v9a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V8z"/><line x1="6" y1="1" x2="6" y2="4"/><line x1="10" y1="1" x2="10" y2="4"/><line x1="14" y1="1" x2="14" y2="4"/>',
@@ -70,8 +64,8 @@ function svgIcon(name, cls = '') {
 }
 
 // ─── STATE ───────────────────────────────────────────────
-let db = null;          // supabase client (null = offline)
-let txList = [];            // all transactions
+let db = null;
+let txList = [];
 let cats = { income: [], expense: [] };
 let pin = store.get('pin');
 let bioOn = store.get('bio') === 'true';
@@ -79,13 +73,14 @@ let rate = Number(store.get('rate') || 12850);
 let currency = 'UZS';
 let typeFilt = 'all';
 let dateFilt = 'all';
+let histFilt = 'all';
 let selTxId = null;
 let selCatIdx = null;
 let selCatType = null;
 let selIcon = 'star';
-let draft = {};            // current transaction being built
+let draft = {};
 let inputCur = 'UZS';
-let pinMode = 'unlock';      // unlock | setup_new | setup_confirm | change_old
+let pinMode = 'unlock';
 let pinBuf = '';
 let pinTemp = '';
 let bioAvail = false;
@@ -141,23 +136,17 @@ function hideLoader() {
 
 // ─── INIT: entry point ──────────────────────────────────
 (async () => {
-  // 1. UI immediately visible — loader starts fading at 800ms
   setTimeout(hideLoader, 800);
 
-  // 2. Theme
   if (store.get('theme') === 'light') document.body.classList.add('light');
 
-  // 3. Pin check
   bioAvail = await checkBioAvail();
   if (pin) showPin('unlock');
 
-  // 4. Build icon grid
   buildIconGrid();
 
-  // 5. Fetch config + connect to Supabase
   await loadConfig();
 
-  // 6. Load data
   if (db && UID) {
     try {
       await ensureUser();
@@ -170,12 +159,10 @@ function hideLoader() {
     showErr("Telegram user_id topilmadi. URLga ?user_id=123 qo'shing.");
   }
 
-  // 7. Render UI with whatever data we have
   renderAll();
   updateSettingsUI();
   hideLoader();
 
-  // 8. Balance card swipe
   initSwipe();
 })();
 
@@ -185,8 +172,6 @@ async function loadConfig() {
     const res = await fetch('/api/config.js', { cache: 'no-store' });
     if (!res.ok) throw new Error('HTTP ' + res.status);
     const txt = await res.text();
-    // runs: window.__APP_CONFIG__ = {...}
-    // eslint-disable-next-line no-new-func
     new Function(txt)();
   } catch (e) {
     console.warn('[config] fetch failed:', e.message);
@@ -214,17 +199,14 @@ async function ensureUser() {
 }
 
 async function loadData() {
-  // exchange rate from DB
   const { data: u } = await db.from('users').select('exchange_rate').eq('user_id', UID).maybeSingle();
   if (u?.exchange_rate) { rate = Number(u.exchange_rate) || rate; store.set('rate', rate); }
 
-  // transactions
   const { data: tx, error: te } = await db.from('transactions').select('*')
     .eq('user_id', UID).order('date', { ascending: false });
   if (te) throw te;
   txList = normAll(tx);
 
-  // categories
   const { data: cd, error: ce } = await db.from('categories').select('*')
     .eq('user_id', UID).order('name');
   if (ce) throw ce;
@@ -291,14 +273,12 @@ function renderAll() {
     }
   }
 
-  // type filter card highlights
   const tci = $('tc-i'), tce = $('tc-e');
   if (tci) { tci.classList.toggle('on-i', typeFilt === 'income'); }
   if (tce) { tce.classList.toggle('on-e', typeFilt === 'expense'); }
 
   renderChart(shown);
   renderTrends();
-  renderHistory();
 }
 
 function renderChart(data) {
@@ -388,9 +368,11 @@ function renderHistory() {
   if (!list) return;
 
   const sorted = [...txList].sort((a, b) => b.ms - a.ms);
-  empty.style.display = sorted.length === 0 ? 'flex' : 'none';
+  const filtered = histFilt === 'all' ? sorted : sorted.filter(t => t.type === histFilt);
 
-  list.innerHTML = sorted.map(t => {
+  if (empty) empty.style.display = filtered.length === 0 ? 'flex' : 'none';
+
+  list.innerHTML = filtered.map(t => {
     const isI = t.type === 'income';
     const dt = new Date(t.ms);
     const dateStr = dt.toLocaleDateString() + ' · ' + dt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -411,6 +393,12 @@ function renderHistory() {
   }).join('');
 }
 
+function setHistFilter(f) {
+  histFilt = f;
+  document.querySelectorAll('[data-hf]').forEach(b => b.classList.toggle('on', b.dataset.hf === f));
+  renderHistory();
+}
+
 // ─── DATE RANGE ─────────────────────────────────────────
 function getRange() {
   const now = new Date();
@@ -427,7 +415,7 @@ function getRange() {
 function setDate(f) {
   vib('soft');
   dateFilt = f;
-  document.querySelectorAll('.fp').forEach(b => b.classList.toggle('on', b.dataset.f === f));
+  document.querySelectorAll('.fp[data-f]').forEach(b => b.classList.toggle('on', b.dataset.f === f));
   renderAll();
 }
 
@@ -465,6 +453,54 @@ function initSwipe() {
   card.addEventListener('mouseup', e => { const dx = sx - e.clientX; if (Math.abs(dx) > 50) setCur(dx > 0 ? 'USD' : 'UZS'); });
 }
 
+// ─── INPUT FORMAT ────────────────────────────────────────
+// Raqam kiritishda bo'shliq bilan formatlash (type="text" bilan ishlaydi)
+function formatInputAmount(e) {
+  const input = e.target;
+  const cursorPos = input.selectionStart;
+  const oldLen = input.value.length;
+
+  // Faqat raqam va nuqtani qoldirish
+  let rawVal = input.value.replace(/[^\d.]/g, '');
+
+  // Bir nechta nuqtaga yo'l qo'ymaslik
+  const dotIdx = rawVal.indexOf('.');
+  if (dotIdx !== -1) {
+    rawVal = rawVal.slice(0, dotIdx + 1) + rawVal.slice(dotIdx + 1).replace(/\./g, '');
+  }
+
+  // Integer qismini formatlash
+  const parts = rawVal.split('.');
+  const intPart = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
+  const formatted = parts.length > 1 ? intPart + '.' + parts[1] : intPart;
+
+  input.value = formatted;
+
+  // Cursor pozitsiyasini saqlash
+  const newLen = input.value.length;
+  const diff = newLen - oldLen;
+  try {
+    input.setSelectionRange(cursorPos + diff, cursorPos + diff);
+  } catch (_) {}
+}
+
+// Bo'shliqlarni olib tashlash va sof raqam olish
+function getCleanAmount(val) {
+  if (!val && val !== 0) return 0;
+  return parseFloat(String(val).replace(/\s/g, '').replace(/,/g, '.')) || 0;
+}
+
+// Settings rate inputi uchun
+function handleRateInput(input) {
+  const rawVal = input.value.replace(/[^\d]/g, '');
+  const formatted = rawVal.replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
+  const cursor = input.selectionStart;
+  const oldLen = input.value.length;
+  input.value = formatted;
+  const diff = formatted.length - oldLen;
+  try { input.setSelectionRange(cursor + diff, cursor + diff); } catch (_) {}
+}
+
 // ─── BOT FLOW ────────────────────────────────────────────
 function startFlow(type) {
   draft = { type, category: '', receipt: null, rawFile: null };
@@ -487,7 +523,8 @@ function buildCatGrid(type) {
       draft.category = c.name;
       $('flow-cats').style.display = 'none';
       $('flow-input').style.display = 'flex';
-      $('amt-in')?.focus();
+      const amtIn = $('amt-in');
+      if (amtIn) { amtIn.value = ''; amtIn.focus(); }
       vib('light');
     };
     btn.oncontextmenu = e => { e.preventDefault(); showCtxMenu(e, idx, type); };
@@ -545,8 +582,12 @@ function clearRec() {
 
 async function submitFlow() {
   vib('heavy');
-  const raw = parseFloat(($('amt-in')?.value || '').replace(/[^0-9.]/g, ''));
-  if (!raw || !draft.category) return;
+  // Bo'shliqli formatlangan qiymatdan sof raqam olish
+  const raw = getCleanAmount($('amt-in')?.value || '');
+  if (!raw || !draft.category) {
+    showErr('Summa kiritilmagan!');
+    return;
+  }
 
   let amount = Math.round(raw);
   let note = '';
@@ -633,7 +674,6 @@ async function saveNewCat() {
   closeOv('ov-addcat');
 }
 
-// Cat context menu
 let ctxTimer;
 function showCtxMenu(pos, idx, type) {
   selCatIdx = idx; selCatType = type;
@@ -709,14 +749,15 @@ function openEdit() {
   const t = txList.find(x => x.id === selTxId);
   if (!t) return;
   $('ed-cat').value = t.category;
-  $('ed-amt').value = t.amount;
+  // Formatlangan ko'rinishda ko'rsatish
+  $('ed-amt').value = fmt(t.amount).replace(/\s/g, ' ');
   $('ed-type').value = t.type;
   showOv('ov-edit');
 }
 
 async function saveEdit() {
   const cat = $('ed-cat')?.value.trim();
-  const amt = Number($('ed-amt')?.value);
+  const amt = getCleanAmount($('ed-amt')?.value);
   const typ = $('ed-type')?.value;
   if (!cat || !amt) return;
 
@@ -724,6 +765,7 @@ async function saveEdit() {
   if (i !== -1) txList[i] = { ...txList[i], category: cat, amount: amt, type: typ };
   closeOv('ov-edit');
   renderAll();
+  renderHistory();
 
   if (db) {
     const { error } = await db.from('transactions').update({ category: cat, amount: amt, type: typ })
@@ -736,6 +778,7 @@ async function confirmDel() {
   txList = txList.filter(t => t.id !== selTxId);
   closeOv('ov-delete');
   renderAll();
+  renderHistory();
   if (db) await db.from('transactions').delete().eq('id', selTxId).eq('user_id', UID);
 }
 
@@ -803,7 +846,7 @@ function checkPin() {
       store.set('pin', pin);
       $('pin-screen')?.classList.remove('on');
       updateSettingsUI();
-      alert('PIN o\'rnatildi ✅');
+      showErr('PIN o\'rnatildi ✅');
     } else {
       shake();
       setTimeout(() => showPin('setup_new'), 500);
@@ -849,7 +892,7 @@ function updateSettingsUI() {
   const br = $('bio-row'), bt = $('bio-tgl');
   if (ps) ps.textContent = pin ? 'Faol ✅' : 'O\'rnatilmagan';
   if (rb) rb.style.display = pin ? 'block' : 'none';
-  if (ri) ri.value = rate;
+  if (ri) ri.value = rate ? fmt(rate).replace(/\s/g, ' ') : '';
   if (br) br.style.display = bioAvail ? 'flex' : 'none';
   if (bt) bt.classList.toggle('on', bioOn);
 }
@@ -888,13 +931,13 @@ function updateExportPreview() {
 
 async function makePDF() {
   const { jsPDF } = window.jspdf || {};
-  if (!jsPDF) { alert('PDF kutubxonasi yuklanmagan!'); return; }
+  if (!jsPDF) { showErr('PDF kutubxonasi yuklanmagan!'); return; }
 
   const sStr = $('ex-from')?.value, eStr = $('ex-to')?.value;
   if (!sStr || !eStr) return;
   const s = new Date(sStr).getTime(), e = new Date(eStr).getTime() + 86400000;
   const data = txList.filter(t => t.ms >= s && t.ms < e).sort((a, b) => a.ms - b.ms);
-  if (!data.length) { alert("Ma'lumot yo'q"); return; }
+  if (!data.length) { showErr("Ma'lumot yo'q"); return; }
 
   const doc = new jsPDF(), pw = doc.internal.pageSize.width;
   doc.setFillColor(10, 10, 15); doc.rect(0, 0, pw, 38, 'F');
@@ -956,8 +999,8 @@ async function doImport(e) {
         const { error } = await db.from('transactions').insert(rows);
         if (error) throw error;
       }
-      alert('Muvaffaqiyatli! Qayta yuklanmoqda...');
-      location.reload();
+      showErr('Muvaffaqiyatli import! Qayta yuklanmoqda...');
+      setTimeout(() => location.reload(), 1500);
     } catch (err) { showErr('Import xatolik: ' + err.message); }
   };
   reader.readAsText(file);
@@ -968,28 +1011,12 @@ function resetData() {
   if (!confirm("DIQQAT! Barcha tranzaksiyalar o'chadi. Davom etasizmi?")) return;
   txList = [];
   renderAll();
+  renderHistory();
   closeOv('ov-settings');
   if (db) db.from('transactions').delete().eq('user_id', UID).then(({ error }) => {
     if (error) showErr('O\'chirishda xatolik');
-    else alert('Tozalandi ✅');
+    else showErr('Tozalandi ✅');
   });
-}
-
-// Input Formatter
-function formatInputAmount(e) {
-  let val = e.target.value.replace(/\D/g, ''); // Faqat raqamlarni qoldirish
-  if (!val) return;
-  
-  // Sonni bo'shliqlar bilan formatlash: 1000000 -> 1 000 000
-  e.target.value = new Intl.NumberFormat('fr-FR').format(val);
-}
-
-// Transaction Modal ochilganda inputga event listener qo'shing:
-// document.getElementById('tx-amount').addEventListener('input', formatInputAmount);
-
-// Ma'lumotni saqlashdan oldin bo'shliqlarni olib tashlang:
-function getCleanAmount(val) {
-    return parseFloat(val.replace(/\s/g, '')) || 0;
 }
 
 // ─── GLOBAL ERROR HANDLER ────────────────────────────────

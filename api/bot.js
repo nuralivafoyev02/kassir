@@ -1,31 +1,33 @@
 'use strict';
 const TelegramBot = require('node-telegram-bot-api');
 const { createClient } = require('@supabase/supabase-js');
-const fs   = require('fs');
+const fs = require('fs');
 const path = require('path');
 const axios = require('axios');
 
 // ─── ENV CHECKS ──────────────────────────────────────────
-const BOT_TOKEN  = process.env.BOT_TOKEN;
-const SUPA_URL   = process.env.SUPABASE_URL;
-const SUPA_KEY   = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY;
-const OAI_KEY    = process.env.OPENAI_API_KEY;
+const BOT_TOKEN = process.env.BOT_TOKEN;
+const SUPA_URL = process.env.SUPABASE_URL;
+const SUPA_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY;
+const OAI_KEY = process.env.OPENAI_API_KEY;
 
 if (!BOT_TOKEN) throw new Error('BOT_TOKEN yo\'q');
-if (!SUPA_URL)  throw new Error('SUPABASE_URL yo\'q');
-if (!SUPA_KEY)  throw new Error('SUPABASE_KEY yo\'q');
+if (!SUPA_URL) throw new Error('SUPABASE_URL yo\'q');
+if (!SUPA_KEY) throw new Error('SUPABASE_KEY (SERVICE_ROLE yoki anon) yo\'q');
 
 // ─── CLIENTS ─────────────────────────────────────────────
 const bot = new TelegramBot(BOT_TOKEN, { polling: false });
-const db  = createClient(SUPA_URL, SUPA_KEY);
+const db = createClient(SUPA_URL, SUPA_KEY);
 
-// OpenAI — optional (faqat voice uchun)
+// OpenAI — faqat ovozli xabar uchun (ixtiyoriy)
 let openai = null;
 if (OAI_KEY && !OAI_KEY.startsWith('your-')) {
   try {
     const { OpenAI } = require('openai');
     openai = new OpenAI({ apiKey: OAI_KEY });
-  } catch {}
+  } catch (e) {
+    console.warn('[BOT:openai] OpenAI moduli topilmadi:', e.message);
+  }
 }
 
 // ─── CONSTANTS ───────────────────────────────────────────
@@ -51,76 +53,124 @@ Menga yozing yoki <b>ovozli xabar</b> yuboring 🎙
   · <i>100 dollar bonus tushdi</i>
   · 🎙 <i>"Mijozdan 500 ming oldim"</i>
 
+<b>Rasm + matn:</b> Chek rasmini izoh bilan yuboring
+
 <b>Valyuta kursi</b> Kassa App sozlamalaridan olinadi.`;
 
+const DEFAULT_RATE = 12850;
+
 // ─── LOGGING ─────────────────────────────────────────────
-const log  = (scope, data)  => console.log (`[BOT:${scope}]`, data);
-const warn = (scope, data)  => console.warn (`[BOT:${scope}]`, data);
-const err  = (scope, e, ex) => console.error(`[BOT:${scope}]`, { msg: e?.message || e, ...ex, raw: e });
+const log = (scope, data) => console.log(`[BOT:${scope}]`, JSON.stringify(data));
+const warn = (scope, data) => console.warn(`[BOT:${scope}]`, JSON.stringify(data));
+const logErr = (scope, e, extra = {}) => console.error(`[BOT:${scope}]`, { msg: e?.message || String(e), ...extra });
 
 // ─── UTILS ───────────────────────────────────────────────
-const iso  = (ms = Date.now()) => new Date(ms).toISOString();
-const esc  = v => String(v ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-const numFmt = n => Number(n || 0).toLocaleString('uz-UZ');
+const iso = (ms = Date.now()) => new Date(ms).toISOString();
 
-// bot.js ichidagi parseText funksiyasini quyidagiga almashtiring:
+// HTML entity escape
+const esc = v => String(v ?? '')
+  .replace(/&/g, '&amp;')
+  .replace(/</g, '&lt;')
+  .replace(/>/g, '&gt;');
+
+// Raqamni lokal formatda ko'rsatish
+const numFmt = n => Number(n || 0).toLocaleString('ru-RU');
+
+// ─── TEXT PARSER ──────────────────────────────────────────
+// Matndan summa, tur va kategoriyani ajratib olish
 function parseText(raw) {
   if (!raw) return null;
   const text = String(raw).trim();
+  if (!text) return null;
+
   const lower = text.toLowerCase();
+
+  // Dollar belgilari bormi?
   const isUSD = /\$|\busd\b|dollar/i.test(lower);
 
-  // 1. Belgilarni tozalash (faqat raqamlar, vergul va nuqtani qoldiramiz)
+  // Belgilarni tozalash — raqam, bo'shliq, nuqta, vergulni qoldirish
   let clean = lower
     .replace(/so'?m|sum|uzs|\$|€|\busd\b|dollar/gi, ' ')
-    .replace(/\s+/g, ' ').trim();
+    .replace(/[^\d\s.,a-z']/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
 
-  // 2. Miqdor va Suffixni ajratib olish (regex yaxshilandi)
-  const m = clean.match(/(\d[\d\s.,]*)\s*(k|ming|mln|mlrd|million|milliard|m|b)?\b/i);
+  // Raqam va suffix topish
+  // Masalan: "50 ming", "2mln", "100 000", "30,000"
+  const m = clean.match(/(\d[\d\s,.]*)(\s*(?:k|ming|mln|mlrd|million|milliard|m|b)\b)?/i);
   if (!m) return null;
 
-  // 3. Sonni tozalash: "1.000.000" yoki "1 000" -> "1000000"
-  let numStr = m[1].replace(/[\s.,]/g, ''); 
-  let amount = parseFloat(numStr);
+  // Raqamni tozalash: minglik ajratgichlarni olib tashlash
+  // "1 000 000" => "1000000", "1,000" => "1000", "12.5" => "12.5"
+  let numStr = m[1].trim();
 
-  if (isNaN(amount)) return null;
+  // Agar vergul minglik ajratgich bo'lsa yoki nuqta bo'lsa:
+  // "1,500" -> 1500; "1.5" -> 1.5; "1 500" -> 1500
+  numStr = numStr
+    .replace(/,(?=\d{3}(\D|$))/g, '') // minglik vergul ajratgich
+    .replace(/\s/g, '');              // bo'shliqlarni olib tashlash
 
-  // 4. Suffixlar (Millionni milliardga chalkashtirmaslik uchun aniq tekshiruv)
-  const suffix = (m[2] || '').toLowerCase();
-  if (['k', 'ming'].includes(suffix)) amount *= 1000;
-  else if (['mln', 'million', 'm'].includes(suffix)) amount *= 1000000;
-  else if (['mlrd', 'milliard', 'b'].includes(suffix)) amount *= 1000000000;
+  const amount = parseFloat(numStr);
+  if (!amount || isNaN(amount) || !isFinite(amount)) return null;
 
-  // 5. Kirim yoki Chiqim ekanini aniqlash
-  const incWords = ['kirim','tushdi','keldi','avans','oylik','bonus','qaytdi','foyda','oldim'];
-  const expWords = ['chiqim','ketdi','berdim','sarfladim','xarajat','sotib','taksi','ovqat','toladi'];
+  // Suffix multiplier
+  const suffix = (m[2] || '').replace(/\s/g, '').toLowerCase();
+  let finalAmount = amount;
+  if (suffix === 'k' || suffix === 'ming') finalAmount = amount * 1_000;
+  else if (suffix === 'mln' || suffix === 'million' || suffix === 'm') finalAmount = amount * 1_000_000;
+  else if (suffix === 'mlrd' || suffix === 'milliard' || suffix === 'b') finalAmount = amount * 1_000_000_000;
 
-  let type = 'expense';
-  if (/^\+/.test(lower) || incWords.some(w => lower.includes(w))) type = 'income';
-  if (/^-/.test(lower) || expWords.some(w => lower.includes(w))) type = 'expense';
+  if (!isFinite(finalAmount) || finalAmount <= 0) return null;
 
-  // Kategoriya aniqlash
-  let cat = clean.replace(m[0], '').trim();
-  if (!cat || cat.length < 2) cat = type === 'income' ? 'Kirim' : 'Xarajat';
+  // Tur aniqlash (income / expense)
+  const incWords = ['kirim', 'tushdi', 'keldi', 'avans', 'oylik', 'bonus',
+    'qaytdi', 'foyda', 'oldim', 'topdi', 'yutdi', 'daromad'];
+  const expWords = ['chiqim', 'ketdi', 'berdim', 'sarfladim', 'xarajat',
+    'sotib', 'taksi', 'ovqat', 'toladi', 'toladim', 'tushlik', 'kechki'];
 
-  return { 
-    amount: Math.round(amount), 
-    type, 
-    category: cat.charAt(0).toUpperCase() + cat.slice(1), 
-    isUSD 
+  let type = 'expense'; // sukut bo'yicha chiqim
+
+  // Aniq belgilar
+  if (/^\+/.test(lower)) type = 'income';
+  else if (/^-/.test(lower)) type = 'expense';
+  // Kalit so'zlar
+  else if (incWords.some(w => lower.includes(w))) type = 'income';
+  else if (expWords.some(w => lower.includes(w))) type = 'expense';
+
+  // Kategoriya: raqam va suffixni olib tashlagan qoldiq
+  let catPart = clean
+    .replace(m[0], '')
+    .replace(/^\s*[+\-]\s*/, '')
+    .trim();
+
+  // Juda qisqa yoki bo'sh bo'lsa standart nom
+  if (!catPart || catPart.length < 2) {
+    catPart = type === 'income' ? 'kirim' : 'xarajat';
+  }
+
+  // Birinchi harfni katta
+  const category = catPart.charAt(0).toUpperCase() + catPart.slice(1);
+
+  return {
+    amount: Math.round(finalAmount),
+    type,
+    category,
+    isUSD,
   };
 }
 
 // ─── SAVE TRANSACTION ────────────────────────────────────
-async function saveTx(userId, chatId, parsed, receiptUrl = null, exRate = 12850, replyId = null) {
-  let amount   = parsed.amount;
+async function saveTx(userId, chatId, parsed, receiptUrl = null, exRate = DEFAULT_RATE, replyId = null) {
+  const safeRate = Number(exRate) > 0 ? Number(exRate) : DEFAULT_RATE;
+
+  let amount = parsed.amount;
   let category = parsed.category;
-  let amtTxt   = `${numFmt(amount)} so'm`;
+  let amtTxt = `${numFmt(amount)} so'm`;
 
   if (parsed.isUSD) {
-    amount   = Math.round(parsed.amount * Number(exRate || 12850));
+    amount = Math.round(parsed.amount * safeRate);
     category = `${parsed.category} ($${parsed.amount})`;
-    amtTxt   = `${numFmt(amount)} so'm\n<i>($${parsed.amount} × ${numFmt(exRate)})</i>`;
+    amtTxt = `${numFmt(amount)} so'm\n<i>($${numFmt(parsed.amount)} × ${numFmt(safeRate)})</i>`;
   }
 
   const row = {
@@ -129,28 +179,31 @@ async function saveTx(userId, chatId, parsed, receiptUrl = null, exRate = 12850,
     category,
     type: parsed.type,
     date: iso(),
-    receipt_url: receiptUrl,
+    receipt_url: receiptUrl || null,
   };
 
   const { data, error } = await db.from('transactions').insert(row).select().single();
   if (error) {
-    err('save-tx', error, { userId, chatId, amount, category });
-    await bot.sendMessage(chatId, '⚠️ Bazaga yozishda xatolik. Keyinroq urinib ko\'ring.');
+    logErr('save-tx', error, { userId, chatId, amount, category });
+    await bot.sendMessage(chatId, '⚠️ Bazaga yozishda xatolik. Keyinroq urinib ko\'ring.').catch(() => { });
     return null;
   }
 
   const ico = parsed.type === 'income' ? '🟢' : '🔴';
   const typ = parsed.type === 'income' ? 'Kirim' : 'Chiqim';
   const chk = receiptUrl ? '📸 Bor' : 'Yo\'q';
+
   const opts = { parse_mode: 'HTML' };
   if (replyId) opts.reply_to_message_id = replyId;
 
   await bot.sendMessage(chatId,
-    `✅ <b>Saqlandi!</b>\n\n`+
-    `${ico} <b>Turi:</b> ${typ}\n`+
-    `💰 <b>Summa:</b> ${amtTxt}\n`+
-    `📂 <b>Kategoriya:</b> ${esc(category)}\n`+
-    `🧾 <b>Chek:</b> ${chk}`, opts);
+    `✅ <b>Saqlandi!</b>\n\n` +
+    `${ico} <b>Turi:</b> ${typ}\n` +
+    `💰 <b>Summa:</b> ${amtTxt}\n` +
+    `📂 <b>Kategoriya:</b> ${esc(category)}\n` +
+    `🧾 <b>Chek:</b> ${chk}`,
+    opts
+  ).catch(() => { });
 
   log('tx-saved', { userId, id: data.id, type: data.type, amount: data.amount });
   return data;
@@ -158,268 +211,377 @@ async function saveTx(userId, chatId, parsed, receiptUrl = null, exRate = 12850,
 
 // ─── REPORT BUILDER ──────────────────────────────────────
 function buildReport(rows, title) {
-  const inc = rows.filter(r => r.type === 'income' ).reduce((s, r) => s + (Number(r.amount)||0), 0);
-  const exp = rows.filter(r => r.type === 'expense').reduce((s, r) => s + (Number(r.amount)||0), 0);
+  const inc = rows.filter(r => r.type === 'income').reduce((s, r) => s + (Number(r.amount) || 0), 0);
+  const exp = rows.filter(r => r.type === 'expense').reduce((s, r) => s + (Number(r.amount) || 0), 0);
   const bal = inc - exp;
-  return `📊 <b>${title}</b>\n\n`+
-    `📥 Kirim:   <b>+${numFmt(inc)} so'm</b>\n`+
-    `📤 Chiqim:  <b>-${numFmt(exp)} so'm</b>\n`+
-    `━━━━━━━━━━━━\n`+
-    `${bal >= 0 ? '🤑' : '💸'} Qoldiq: <b>${numFmt(bal)} so'm</b>`;
+
+  // Top 5 chiqim kategoriyalar
+  const catMap = {};
+  rows.filter(r => r.type === 'expense').forEach(r => {
+    catMap[r.category] = (catMap[r.category] || 0) + (Number(r.amount) || 0);
+  });
+  const top = Object.entries(catMap)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5)
+    .map(([c, v]) => `  · ${esc(c)}: <b>${numFmt(v)}</b>`)
+    .join('\n');
+
+  return `📊 <b>${esc(title)}</b>\n\n` +
+    `📥 Kirim:  <b>+${numFmt(inc)} so'm</b>\n` +
+    `📤 Chiqim: <b>-${numFmt(exp)} so'm</b>\n` +
+    `━━━━━━━━━━━━\n` +
+    `${bal >= 0 ? '🤑' : '💸'} Qoldiq: <b>${numFmt(bal)} so'm</b>` +
+    (top ? `\n\n<b>Top kategoriyalar:</b>\n${top}` : '');
 }
 
 // ─── MAIN HANDLER ────────────────────────────────────────
 module.exports = async (req, res) => {
-  try {
-    if (req.method !== 'POST') return res.status(200).send('Kassa Bot ishlayapti 🚀');
+  // Webhook sog'liqi tekshiruvi
+  if (req.method !== 'POST') {
+    return res.status(200).send('Kassa Bot ishlayapti 🚀');
+  }
 
+  try {
     const update = req.body || {};
     const msg = update.message;
+
+    // Callback query va boshqa turdagi update'lar — e'tiborsiz
     if (!msg) return res.status(200).json({ ok: true });
 
-    const chatId = msg.chat.id;
-    const userId = msg.from.id;
-    const text   = (msg.text || msg.caption || '').trim();
+    const chatId = msg.chat?.id;
+    const userId = msg.from?.id;
 
-    log('msg', { userId, chatId, hasText: !!text, hasPhoto: !!msg.photo, hasVoice: !!msg.voice, hasContact: !!msg.contact });
+    if (!chatId || !userId) return res.status(200).json({ ok: true });
 
-    // ── Fetch user ──
-    let { data: user, error: uErr } = await db.from('users').select('*').eq('user_id', userId).maybeSingle();
+    const text = (msg.text || msg.caption || '').trim();
+
+    log('msg', {
+      userId,
+      chatId,
+      type: msg.voice ? 'voice' : msg.photo ? 'photo' : msg.contact ? 'contact' : 'text',
+    });
+
+    // ── Foydalanuvchi ma'lumotlarini olish ──
+    let { data: user, error: uErr } = await db
+      .from('users').select('*').eq('user_id', userId).maybeSingle();
     if (uErr) warn('user-fetch', { userId, msg: uErr.message });
 
-    // ── Phone registration ──
+    // ── Telefon raqami ro'yxatdan o'tkazish ──
     if (msg.contact) {
+      // Faqat o'z kontaktini yuborishga ruxsat
       if (msg.contact.user_id !== userId) return res.status(200).json({ ok: true });
-      const { error: e } = await db.from('users').upsert({
-        user_id:       userId,
-        phone_number:  msg.contact.phone_number,
-        full_name:     `${msg.from.first_name} ${msg.from.last_name || ''}`.trim(),
+
+      const { error: regErr } = await db.from('users').upsert({
+        user_id: userId,
+        phone_number: msg.contact.phone_number,
+        full_name: `${msg.from.first_name || ''} ${msg.from.last_name || ''}`.trim() || `User ${userId}`,
         last_start_date: iso(),
-        exchange_rate: 12850,
+        exchange_rate: DEFAULT_RATE,
       }, { onConflict: 'user_id' });
-      if (e) { err('reg', e, { userId }); return res.status(500).send('Error'); }
+
+      if (regErr) {
+        logErr('reg', regErr, { userId });
+        return res.status(200).json({ ok: false });
+      }
+
       await bot.sendMessage(chatId,
-        `🎉 <b>Ro'yxatdan o'tdingiz!</b>\nEndi kirim-chiqimlarni yozishingiz mumkin.`,
-        { reply_markup: KB, parse_mode: 'HTML' });
+        `🎉 <b>Ro'yxatdan o'tdingiz!</b>\n\nEndi kirim-chiqimlarni yozishingiz mumkin.\n\n${GUIDE}`,
+        { reply_markup: KB, parse_mode: 'HTML' }
+      ).catch(() => { });
+
       return res.status(200).json({ ok: true });
     }
 
-    // ── Ask phone if new user ──
+    // ── Yangi foydalanuvchi — telefon so'rash ──
     if (!user) {
-      await bot.sendMessage(chatId, '👋 Assalomu alaykum!\nBotdan foydalanish uchun telefon raqamingizni tasdiqlang.', {
-        reply_markup: {
-          keyboard: [[{ text: '📱 Telefon raqamni yuborish', request_contact: true }]],
-          resize_keyboard: true, one_time_keyboard: true,
-        },
-      });
+      await bot.sendMessage(chatId,
+        '👋 Assalomu alaykum!\nBotdan foydalanish uchun telefon raqamingizni tasdiqlang.',
+        {
+          reply_markup: {
+            keyboard: [[{ text: '📱 Telefon raqamni yuborish', request_contact: true }]],
+            resize_keyboard: true,
+            one_time_keyboard: true,
+          },
+        }
+      ).catch(() => { });
       return res.status(200).json({ ok: true });
     }
 
-    // ── Admin Broadcast (/message) ──
-    const hasBroadcastCmd = text.startsWith('/message');
-    if (hasBroadcastCmd) {
-      const allowedAdmins = (process.env.ADMIN_IDS || '').split(',').map(s => s.trim());
-      
-      if (!allowedAdmins.includes(userId.toString())) {
-        await bot.sendMessage(chatId, '⛔️ Sizga bu buyruqni ishlatish ruxsat etilmagan.\n(ENV da ADMIN_IDS ni tekshiring)', { parse_mode: 'HTML' });
+    // ── Admin Broadcast (/message ...) ──
+    if (text.startsWith('/message')) {
+      const allowedAdmins = (process.env.ADMIN_IDS || '')
+        .split(',')
+        .map(s => s.trim())
+        .filter(Boolean);
+
+      if (!allowedAdmins.includes(String(userId))) {
+        await bot.sendMessage(chatId, '⛔️ Bu buyruq faqat adminlar uchun.').catch(() => { });
         return res.status(200).json({ ok: true });
       }
 
-      const waitMsg = await bot.sendMessage(chatId, '⏳ Xabar barcha foydalanuvchilarga jo\'natilmoqda...', { parse_mode: 'HTML' });
-      
-      const { data: usersData, error: fErr } = await db.from('users').select('user_id');
-      if (fErr || !usersData) {
-        await bot.editMessageText('⚠️ Foydalanuvchilarni olishda xatolik yuz berdi.', { chat_id: chatId, message_id: waitMsg.message_id });
+      const waitMsg = await bot.sendMessage(chatId, '⏳ Xabar barcha foydalanuvchilarga jo\'natilmoqda...');
+
+      const { data: allUsers, error: fErr } = await db.from('users').select('user_id');
+      if (fErr || !allUsers?.length) {
+        await bot.editMessageText('⚠️ Foydalanuvchilarni olishda xatolik.',
+          { chat_id: chatId, message_id: waitMsg.message_id }).catch(() => { });
         return res.status(200).json({ ok: true });
       }
 
-      let success = 0;
-      let failed = 0;
-      
-      const contentText = text.replace('/message', '').trim();
+      const broadcastText = text.replace('/message', '').trim();
+      let success = 0, failed = 0;
 
-      const sendToUser = async (uId) => {
+      const sendOne = async (uid) => {
         try {
           if (msg.reply_to_message) {
-             await bot.copyMessage(uId, chatId, msg.reply_to_message.message_id);
+            await bot.copyMessage(uid, chatId, msg.reply_to_message.message_id);
           } else if (msg.photo) {
-             const photoId = msg.photo[msg.photo.length - 1].file_id;
-             await bot.sendPhoto(uId, photoId, { caption: contentText, parse_mode: 'HTML' });
+            const photoId = msg.photo[msg.photo.length - 1].file_id;
+            await bot.sendPhoto(uid, photoId, { caption: broadcastText, parse_mode: 'HTML' });
           } else if (msg.video) {
-             await bot.sendVideo(uId, msg.video.file_id, { caption: contentText, parse_mode: 'HTML' });
+            await bot.sendVideo(uid, msg.video.file_id, { caption: broadcastText, parse_mode: 'HTML' });
           } else if (msg.animation) {
-             await bot.sendAnimation(uId, msg.animation.file_id, { caption: contentText, parse_mode: 'HTML' });
+            await bot.sendAnimation(uid, msg.animation.file_id, { caption: broadcastText, parse_mode: 'HTML' });
           } else if (msg.document) {
-             await bot.sendDocument(uId, msg.document.file_id, { caption: contentText, parse_mode: 'HTML' });
+            await bot.sendDocument(uid, msg.document.file_id, { caption: broadcastText, parse_mode: 'HTML' });
           } else {
-             if (!contentText) throw new Error('Empty message');
-             await bot.sendMessage(uId, contentText, { parse_mode: 'HTML' });
+            if (!broadcastText) throw new Error('Bo\'sh xabar');
+            await bot.sendMessage(uid, broadcastText, { parse_mode: 'HTML' });
           }
           success++;
-        } catch (e) {
+        } catch {
           failed++;
         }
       };
 
+      // Telegram rate limit: 30 msg/s max — batch: 25, 1s oraliq
       const batchSize = 25;
-      for (let i = 0; i < usersData.length; i += batchSize) {
-        const batch = usersData.slice(i, i + batchSize);
-        await Promise.allSettled(batch.map(u => sendToUser(u.user_id)));
-        if (i + batchSize < usersData.length) {
-           await new Promise(r => setTimeout(r, 1000));
+      for (let i = 0; i < allUsers.length; i += batchSize) {
+        await Promise.allSettled(allUsers.slice(i, i + batchSize).map(u => sendOne(u.user_id)));
+        if (i + batchSize < allUsers.length) {
+          await new Promise(r => setTimeout(r, 1000));
         }
       }
 
       await bot.editMessageText(
-        `✅ <b>Xabar yuborildi!</b>\n\nYetkazildi: ${success} ta\nXato: ${failed} ta`,
-         { chat_id: chatId, message_id: waitMsg.message_id, parse_mode: 'HTML' }
-      );
+        `✅ <b>Xabar yuborildi!</b>\n\nYetkazildi: <b>${success} ta</b>\nXato: ${failed} ta`,
+        { chat_id: chatId, message_id: waitMsg.message_id, parse_mode: 'HTML' }
+      ).catch(() => { });
 
+      log('broadcast', { userId, success, failed, total: allUsers.length });
       return res.status(200).json({ ok: true });
     }
 
     // ── /start ──
     if (text === '/start') {
-      const now    = new Date();
-      const today  = now.toDateString();
-      const last   = user.last_start_date ? new Date(user.last_start_date).toDateString() : null;
-      const greeting = last !== today
-        ? `☀️ Assalomu aleykum, ${esc(user.full_name || 'Foydalanuvchi')}!\nBugun qanday operatsiyalarni bajaramiz?`
+      const now = new Date();
+      const todayStr = now.toDateString();
+      const lastStr = user.last_start_date ? new Date(user.last_start_date).toDateString() : null;
+      const isNew = lastStr !== todayStr;
+
+      const greeting = isNew
+        ? `☀️ Xush kelibsiz, ${esc(user.full_name || 'Foydalanuvchi')}!\nBugun qanday operatsiyalarni bajaramiz?`
         : GUIDE;
-      await bot.sendMessage(chatId, greeting, { reply_markup: KB, parse_mode: 'HTML' });
-      if (last !== today) await db.from('users').update({ last_start_date: iso(now) }).eq('user_id', userId);
+
+      await bot.sendMessage(chatId, greeting, { reply_markup: KB, parse_mode: 'HTML' }).catch(() => { });
+
+      if (isNew) {
+        await db.from('users').update({ last_start_date: iso() }).eq('user_id', userId);
+      }
       return res.status(200).json({ ok: true });
     }
 
     // ── Qo'llanma ──
     if (text === '❓ Qo\'llanma') {
-      await bot.sendMessage(chatId, GUIDE, { parse_mode: 'HTML', reply_markup: KB });
+      await bot.sendMessage(chatId, GUIDE, { parse_mode: 'HTML', reply_markup: KB }).catch(() => { });
       return res.status(200).json({ ok: true });
     }
 
     // ── Hisobotlar ──
     if (text === '📊 Bugungi Hisobot' || text === '📅 Oylik Hisobot') {
-      const wait = await bot.sendMessage(chatId, '⏳ Hisobot tayyorlanmoqda...', { parse_mode: 'HTML' });
-      const now  = new Date();
+      const wait = await bot.sendMessage(chatId, '⏳ Hisobot tayyorlanmoqda...').catch(() => null);
+      const now = new Date();
       let since, title;
 
       if (text.includes('Bugungi')) {
-        since = new Date(now.setHours(0,0,0,0)).toISOString();
+        since = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
         title = 'BUGUNGI HISOBOT';
       } else {
         since = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
         title = `${now.toLocaleString('uz-UZ', { month: 'long' }).toUpperCase()} OYI`;
       }
 
-      const { data: rows, error: re } = await db.from('transactions')
-        .select('*').eq('user_id', userId).gte('date', since);
+      const { data: rows, error: re } = await db
+        .from('transactions')
+        .select('type, amount, category')
+        .eq('user_id', userId)
+        .gte('date', since);
 
       if (re) {
-        err('report', re, { userId }); 
-        await bot.editMessageText('⚠️ Hisobot chiqarishda xatolik.', { chat_id: chatId, message_id: wait.message_id });
+        logErr('report', re, { userId });
+        if (wait) await bot.editMessageText('⚠️ Hisobot chiqarishda xatolik.',
+          { chat_id: chatId, message_id: wait.message_id }).catch(() => { });
         return res.status(200).json({ ok: true });
       }
 
-      const txt = rows?.length ? buildReport(rows, title) : `📊 <b>${title}</b>\n\nMa'lumot topilmadi.`;
-      await bot.editMessageText(txt, { chat_id: chatId, message_id: wait.message_id, parse_mode: 'HTML' });
+      const txt = rows?.length
+        ? buildReport(rows, title)
+        : `📊 <b>${esc(title)}</b>\n\nBu davr uchun ma'lumot topilmadi.`;
+
+      if (wait) {
+        await bot.editMessageText(txt, { chat_id: chatId, message_id: wait.message_id, parse_mode: 'HTML' }).catch(() => { });
+      } else {
+        await bot.sendMessage(chatId, txt, { parse_mode: 'HTML' }).catch(() => { });
+      }
+
       log('report', { userId, title, count: rows?.length });
       return res.status(200).json({ ok: true });
     }
 
     // ── Oxirgisini o'chirish ──
     if (text === '↩️ Oxirgisini O\'chirish') {
-      const wait = await bot.sendMessage(chatId, '⏳ Qidirilmoqda...', { parse_mode: 'HTML' });
+      const wait = await bot.sendMessage(chatId, '⏳ Qidirilmoqda...').catch(() => null);
 
-      const { data: last } = await db.from('transactions')
-        .select('*').eq('user_id', userId)
-        .order('date', { ascending: false }).limit(1).maybeSingle();
+      const { data: last } = await db
+        .from('transactions')
+        .select('id, category, amount, type')
+        .eq('user_id', userId)
+        .order('date', { ascending: false })
+        .limit(1)
+        .maybeSingle();
 
       if (!last) {
-        await bot.editMessageText('⚠️ O\'chirish uchun operatsiya topilmadi.', { chat_id: chatId, message_id: wait.message_id });
+        if (wait) await bot.editMessageText('⚠️ O\'chirish uchun operatsiya topilmadi.',
+          { chat_id: chatId, message_id: wait.message_id }).catch(() => { });
         return res.status(200).json({ ok: true });
       }
 
-      const { error: de } = await db.from('transactions').delete().eq('id', last.id).eq('user_id', userId);
+      const { error: de } = await db
+        .from('transactions')
+        .delete()
+        .eq('id', last.id)
+        .eq('user_id', userId);
+
       if (de) {
-        err('del-last', de, { userId });
-        await bot.editMessageText('⚠️ O\'chirishda xatolik.', { chat_id: chatId, message_id: wait.message_id });
+        logErr('del-last', de, { userId });
+        if (wait) await bot.editMessageText('⚠️ O\'chirishda xatolik.',
+          { chat_id: chatId, message_id: wait.message_id }).catch(() => { });
         return res.status(200).json({ ok: true });
       }
 
-      await bot.editMessageText(
-        `🗑 <b>O'chirildi!</b>\n\n📂 ${esc(last.category)}\n💰 ${numFmt(last.amount)} so'm`,
-        { chat_id: chatId, message_id: wait.message_id, parse_mode: 'HTML' });
-      log('del-last', { userId, id: last.id });
+      const ico = last.type === 'income' ? '🟢' : '🔴';
+      if (wait) {
+        await bot.editMessageText(
+          `🗑 <b>O'chirildi!</b>\n\n${ico} ${esc(last.category)}\n💰 ${numFmt(last.amount)} so'm`,
+          { chat_id: chatId, message_id: wait.message_id, parse_mode: 'HTML' }
+        ).catch(() => { });
+      }
+
+      log('del-last', { userId, id: last.id, category: last.category });
       return res.status(200).json({ ok: true });
     }
 
     // ── Ovozli xabar ──
     if (msg.voice) {
       if (!openai) {
-        await bot.sendMessage(chatId, '⚠️ Ovozli xabar uchun OPENAI_API_KEY kerak.', { reply_markup: KB });
+        await bot.sendMessage(chatId,
+          '⚠️ Ovozli xabar uchun <b>OPENAI_API_KEY</b> sozlanmagan.\n\nMatn orqali yozib yuboring.',
+          { parse_mode: 'HTML', reply_markup: KB }
+        ).catch(() => { });
         return res.status(200).json({ ok: true });
       }
 
-      const proc = await bot.sendMessage(chatId, '🎙 Ovozli xabar tahlil qilinmoqda...');
+      const proc = await bot.sendMessage(chatId, '🎙 Ovozli xabar tahlil qilinmoqda...').catch(() => null);
+      const tmpPath = path.join('/tmp', `voice_${userId}_${Date.now()}.ogg`);
+
       try {
         const fileLink = await bot.getFileLink(msg.voice.file_id);
-        const tmpPath  = path.join('/tmp', `voice_${userId}_${Date.now()}.ogg`);
-        const resp     = await axios({ url: fileLink, method: 'GET', responseType: 'stream' });
-        const writer   = fs.createWriteStream(tmpPath);
+        const resp = await axios({ url: fileLink, method: 'GET', responseType: 'stream', timeout: 30000 });
+        const writer = fs.createWriteStream(tmpPath);
         resp.data.pipe(writer);
-        await new Promise((ok, nok) => { writer.on('finish', ok); writer.on('error', nok); });
+        await new Promise((resolve, reject) => {
+          writer.on('finish', resolve);
+          writer.on('error', reject);
+        });
 
         const tr = await openai.audio.transcriptions.create({
-          file: fs.createReadStream(tmpPath), model: 'whisper-1', language: 'uz',
+          file: fs.createReadStream(tmpPath),
+          model: 'whisper-1',
+          language: 'uz',
         });
-        try { fs.unlinkSync(tmpPath); } catch {}
+
+        // Vaqtincha faylni tozalash
+        fs.unlink(tmpPath, () => { });
 
         const spoken = (tr.text || '').trim();
         if (!spoken) {
-          await bot.editMessageText('Ovozdan matn ajrata olmadim.', { chat_id: chatId, message_id: proc.message_id });
+          if (proc) await bot.editMessageText('Ovozdan matn ajrata olmadim. Qaytadan urinib ko\'ring.',
+            { chat_id: chatId, message_id: proc.message_id }).catch(() => { });
           return res.status(200).json({ ok: true });
         }
+
+        log('voice-text', { userId, spoken });
 
         const parsed = parseText(spoken);
         if (!parsed) {
-          await bot.editMessageText(
-            `🤷 <b>Tushundim:</b> "${esc(spoken)}"\n\nLekin summa topa olmadim. Masalan: <i>Taksiga 20 ming berdim</i>`,
-            { chat_id: chatId, message_id: proc.message_id, parse_mode: 'HTML' });
+          if (proc) await bot.editMessageText(
+            `🤷 <b>Tushundim:</b> "${esc(spoken)}"\n\nLekin summa topa olmadim.\n<i>Masalan: Taksiga 20 ming berdim</i>`,
+            { chat_id: chatId, message_id: proc.message_id, parse_mode: 'HTML' }
+          ).catch(() => { });
           return res.status(200).json({ ok: true });
         }
 
-        await bot.deleteMessage(chatId, proc.message_id).catch(() => {});
+        // Protsessing xabarini o'chirish
+        if (proc) await bot.deleteMessage(chatId, proc.message_id).catch(() => { });
+
         await saveTx(userId, chatId, parsed, null, user.exchange_rate, msg.message_id);
+
       } catch (e) {
-        err('voice', e, { userId });
-        await bot.editMessageText('Ovozli xabarni qayta ishlashda xatolik.', { chat_id: chatId, message_id: proc.message_id });
+        logErr('voice', e, { userId });
+        fs.unlink(tmpPath, () => { });
+        if (proc) {
+          await bot.editMessageText(
+            '⚠️ Ovozli xabarni qayta ishlashda xatolik yuz berdi.',
+            { chat_id: chatId, message_id: proc.message_id }
+          ).catch(() => { });
+        }
       }
       return res.status(200).json({ ok: true });
     }
 
-    // ── Matn + rasm ──
+    // ── Matn (rasm bilan yoki yolg'iz) ──
     const parsed = parseText(text);
+
     if (parsed) {
       let receiptUrl = null;
 
       if (msg.photo) {
-        const procMsg = await bot.sendMessage(chatId, '📸 Rasm yuklanmoqda...', { parse_mode: 'HTML' });
+        const procMsg = await bot.sendMessage(chatId, '📸 Chek rasmini yuklanmoqda...').catch(() => null);
         try {
-          const photoId  = msg.photo[msg.photo.length - 1].file_id;
+          const photoId = msg.photo[msg.photo.length - 1].file_id;
           const fileLink = await bot.getFileLink(photoId);
-          const resp     = await axios({ url: fileLink, method: 'GET', responseType: 'arraybuffer' });
+          const resp = await axios({ url: fileLink, method: 'GET', responseType: 'arraybuffer', timeout: 30000 });
           const fileName = `${userId}/${Date.now()}.jpg`;
-          const { error: ue } = await db.storage.from('receipts').upload(fileName, resp.data, { contentType: 'image/jpeg' });
-          if (ue) throw ue;
+
+          const { error: upErr } = await db.storage
+            .from('receipts')
+            .upload(fileName, Buffer.from(resp.data), { contentType: 'image/jpeg' });
+
+          if (upErr) throw upErr;
+
           const { data: ud } = db.storage.from('receipts').getPublicUrl(fileName);
           receiptUrl = ud.publicUrl;
-          await bot.deleteMessage(chatId, procMsg.message_id).catch(() => {});
-          log('photo', { userId, fileName });
+
+          if (procMsg) await bot.deleteMessage(chatId, procMsg.message_id).catch(() => { });
+          log('photo-uploaded', { userId, fileName });
         } catch (e) {
-          err('photo', e, { userId });
-          await bot.editMessageText(
-            '⚠️ Rasmni saqlashda xatolik. Tranzaksiya yoziladi, chekni keyinroq ilovadan qo\'shishingiz mumkin.',
-            { chat_id: chatId, message_id: procMsg.message_id });
+          logErr('photo', e, { userId });
+          if (procMsg) {
+            await bot.editMessageText(
+              '⚠️ Rasmni saqlashda xatolik.\nTranzaksiya yoziladi, chekni ilovadan qo\'shishingiz mumkin.',
+              { chat_id: chatId, message_id: procMsg.message_id }
+            ).catch(() => { });
+          }
         }
       }
 
@@ -427,23 +589,27 @@ module.exports = async (req, res) => {
       return res.status(200).json({ ok: true });
     }
 
-    // ── Photo without text ──
+    // ── Rasm matnsiz yuborilgan ──
     if (msg.photo && !parsed) {
-      await bot.sendMessage(chatId, '⚠️ Rasm tagiga summa va izoh yozishni unutdingiz.\nMasalan: <i>50 ming tushlik</i>', { parse_mode: 'HTML' });
+      await bot.sendMessage(chatId,
+        '⚠️ Rasm tagiga summa va izoh yozishni unutdingiz.\n\n<i>Masalan: 50 ming tushlik</i>',
+        { parse_mode: 'HTML' }
+      ).catch(() => { });
       return res.status(200).json({ ok: true });
     }
 
-    // ── Tushunilmagan ──
+    // ── Tushunilmagan matn ──
     if (text && text !== '/start') {
       await bot.sendMessage(chatId,
         `Tushunmadim 🤔\n\n${GUIDE}`,
-        { parse_mode: 'HTML', reply_markup: KB });
+        { parse_mode: 'HTML', reply_markup: KB }
+      ).catch(() => { });
     }
 
     return res.status(200).json({ ok: true });
 
   } catch (e) {
-    err('handler', e);
+    logErr('handler', e);
     return res.status(500).json({ ok: false, error: e.message });
   }
 };
