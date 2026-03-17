@@ -43,15 +43,14 @@ body {
     -webkit-font-smoothing: antialiased;
     /* iOS viewport-fit=cover bilan to'liq ekranni egallash */
     padding-top: var(--safe-top);
-    /* padding-bottom: var(--safe-bottom); */
+    padding-bottom: var(--safe-bottom);
 }
 
 #app {
     display: flex;
     flex-direction: column;
     /* 100dvh minus safe area (body padding bilan bir xil bo'lmasligi uchun) */
-    height: calc(100dvh - var(--safe-top));
-    /* - var(--safe-bottom) add to top*/
+    height: calc(100dvh - var(--safe-top) - var(--safe-bottom));
     max-width: 430px;
     margin: 0 auto;
 }
