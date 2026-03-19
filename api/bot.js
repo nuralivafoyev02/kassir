@@ -530,7 +530,8 @@ module.exports = async (req, res) => {
       const lastStr = user.last_start_date ? new Date(user.last_start_date).toDateString() : null;
       const isNew = lastStr !== todayStr;
 
-      const greeting = `Xush kelibsiz, <b>${esc(user.full_name || 'Boshliq')}☺️!</b>\nBemalol kirim yoki chiqim qilishingiz mumkin💸`;
+      const firstName = (user.full_name || 'Boshliq').split(' ')[0];
+      const greeting = `Xush kelibsiz, <b>${esc(firstName)}</b>☺️!\nBemalol kirim yoki chiqim qilishingiz mumkin💸`;
 
       await bot.sendMessage(chatId, greeting, { reply_markup: KB, parse_mode: 'HTML' }).catch(() => { });
 
