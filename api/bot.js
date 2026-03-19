@@ -128,14 +128,21 @@ function parseText(raw) {
   const expWords = ['chiqim', 'ketdi', 'berdim', 'sarfladim', 'xarajat',
     'sotib', 'taksi', 'ovqat', 'toladi', 'toladim', 'tushlik', 'kechki'];
 
+  // Suffix checks (Uzbek)
+  const hasDan = /\w+dan\b/i.test(lower); // from ... (usually income)
+  const hasGa = /\w+ga\b/i.test(lower);   // to ... (usually expense)
+
   let type = 'expense'; // sukut bo'yicha chiqim
 
   // Aniq belgilar
   if (/^\+/.test(lower)) type = 'income';
   else if (/^-/.test(lower)) type = 'expense';
+  // Suffix override: "akamdan" "oylikdan" etc. should be income as per user request
+  else if (hasDan) type = 'income'; 
   // Kalit so'zlar
   else if (incWords.some(w => lower.includes(w))) type = 'income';
   else if (expWords.some(w => lower.includes(w))) type = 'expense';
+  else if (hasGa) type = 'expense';
 
   // Kategoriya: raqam va suffixni olib tashlagan qoldiq
   let catPart = clean
@@ -243,6 +250,47 @@ module.exports = async (req, res) => {
 
   try {
     const update = req.body || {};
+
+    // ── Inline Query Handlers ──
+    if (update.inline_query) {
+      const q = update.inline_query;
+      const text = q.query.trim();
+      if (!text) return res.status(200).json({ ok: true });
+
+      const parsed = parseText(text);
+      if (!parsed) return res.status(200).json({ ok: true });
+
+      const title = parsed.type === 'income' ? '🟢 Kirim' : '🔴 Chiqim';
+      const amount = numFmt(parsed.amount);
+      const cat = esc(parsed.category);
+
+      const result = {
+        type: 'article',
+        id: 'tx_' + Date.now(),
+        title: `${title}: ${amount} so'm`,
+        description: `📂 Kategoriya: ${cat}${parsed.isUSD ? ' ($)' : ''}\n✨ Saqlash uchun bosing`,
+        input_message_content: {
+          message_text: `✅ <b>Kassa:</b> ${title}\n💰 <b>Summa:</b> ${amount} so'm\n📂 <b>Kategoriya:</b> ${cat}`,
+          parse_mode: 'HTML'
+        }
+      };
+
+      await bot.answerInlineQuery(q.id, [result], { cache_time: 0 }).catch(() => { });
+      return res.status(200).json({ ok: true });
+    }
+
+    if (update.chosen_inline_result) {
+      const cir = update.chosen_inline_result;
+      const userId = cir.from.id;
+      const query = cir.query;
+      const parsed = parseText(query);
+      if (parsed) {
+        let { data: user } = await db.from('users').select('exchange_rate').eq('user_id', userId).maybeSingle();
+        await saveTx(userId, userId, parsed, null, user?.exchange_rate || DEFAULT_RATE);
+      }
+      return res.status(200).json({ ok: true });
+    }
+
     const msg = update.message;
 
     // Callback query va boshqa turdagi update'lar — e'tiborsiz
