@@ -152,7 +152,7 @@ function hideLoader() {
 
 // ─── INIT: entry point ──────────────────────────────────
 (async () => {
-  setTimeout(hideLoader, 800);
+  // Avval loader ko'rinsin, faqat hamma narsa tayyor bo'lgach yopiladi
 
   if (store.get('theme') === 'light') document.body.classList.add('light');
 
@@ -167,6 +167,7 @@ function hideLoader() {
     try {
       await ensureUser();
       await loadData();
+      initRealtime(); // Real-time ulanishni yoqish
     } catch (e) {
       console.error('[boot]', e);
       showErr('Ma\'lumotlar yuklanmadi: ' + (e?.message || e));
@@ -178,9 +179,58 @@ function hideLoader() {
   renderAll();
   updateSettingsUI();
   hideLoader();
-
   initSwipe();
 })();
+
+// ─── REALTIME ───────────────────────────────────────────
+function initRealtime() {
+  if (!db || !UID) return;
+
+  // Tranzaksiyalar uchun realtime
+  db.channel('tx-changes')
+    .on('postgres_changes', 
+      { event: '*', schema: 'public', table: 'transactions', filter: `user_id=eq.${UID}` }, 
+      payload => {
+        const { eventType, new: newRow, old: oldRow } = payload;
+        if (eventType === 'INSERT') {
+          const tx = normTx(newRow);
+          if (!txList.some(t => t.id === tx.id)) txList.unshift(tx);
+        } else if (eventType === 'UPDATE') {
+          const tx = normTx(newRow);
+          const i = txList.findIndex(t => t.id === tx.id);
+          if (i !== -1) txList[i] = tx;
+        } else if (eventType === 'DELETE') {
+          txList = txList.filter(t => t.id !== oldRow.id);
+        }
+        renderAll();
+        renderHistory();
+      }
+    )
+    .subscribe();
+
+  // Kategoriyalar uchun realtime
+  db.channel('cat-changes')
+    .on('postgres_changes', 
+      { event: '*', schema: 'public', table: 'categories', filter: `user_id=eq.${UID}` }, 
+      payload => {
+        const { eventType, new: newRow, old: oldRow } = payload;
+        if (eventType === 'INSERT' || eventType === 'UPDATE') {
+          const list = cats[newRow.type];
+          if (list) {
+            const i = list.findIndex(c => c.id === newRow.id);
+            if (i !== -1) list[i] = newRow; else list.push(newRow);
+            list.sort((a, b) => a.name.localeCompare(b.name));
+          }
+        } else if (eventType === 'DELETE') {
+          cats.income = cats.income.filter(c => c.id !== oldRow.id);
+          cats.expense = cats.expense.filter(c => c.id !== oldRow.id);
+        }
+        if ($('flow-cats').style.display === 'flex') buildCatGrid(draft.type);
+        renderAll();
+      }
+    )
+    .subscribe();
+}
 
 // ─── CONFIG LOAD ────────────────────────────────────────
 async function loadConfig() {
