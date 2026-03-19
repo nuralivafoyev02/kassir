@@ -73,6 +73,13 @@ const esc = v => String(v ?? '')
   .replace(/</g, '&lt;')
   .replace(/>/g, '&gt;');
 
+// Markdown-ish to HTML (simple bold/italic)
+const md2html = (t) => String(t ?? '')
+  .replace(/\*\*(.*?)\*\*/g, '<b>$1</b>')
+  .replace(/__(.*?)__/g, '<i>$1</i>')
+  .replace(/\*(.*?)\*/g, '<b>$1</b>')
+  .replace(/_(.*?)_/g, '<i>$1</i>');
+
 // Raqamni lokal formatda ko'rsatish
 const numFmt = n => Number(n || 0).toLocaleString('ru-RU');
 
@@ -377,7 +384,8 @@ module.exports = async (req, res) => {
       }
 
       const parts = text.replace('/message', '').trim().split(/\s*\n--\n\s*/);
-      const broadcastText = parts[0].trim();
+      const broadcastRaw = parts[0].trim();
+      const broadcastText = md2html(broadcastRaw);
       let reply_markup = null;
 
       if (parts[1]) {
