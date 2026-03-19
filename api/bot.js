@@ -258,6 +258,77 @@ module.exports = async (req, res) => {
   try {
     const update = req.body || {};
 
+    // ── Callback Query Handlers ──
+    if (update.callback_query) {
+      const q = update.callback_query;
+      const userId = q.from.id;
+      const data = q.data || '';
+      const chatId = q.message.chat.id;
+      const msgId = q.message.message_id;
+
+      if (data.startsWith('bc_')) {
+        const [action, bcId] = data.split(':');
+
+        if (action === 'bc_cancel') {
+          await bot.deleteMessage(chatId, msgId).catch(() => { });
+          await bot.answerCallbackQuery(q.id, { text: 'Bekor qilindi' }).catch(() => { });
+          await db.from('broadcasts').delete().eq('id', bcId);
+          return res.status(200).json({ ok: true });
+        }
+
+        if (action === 'bc_send') {
+          const { data: bc, error: bErr } = await db.from('broadcasts').select('*').eq('id', bcId).maybeSingle();
+          if (bErr || !bc) {
+            await bot.answerCallbackQuery(q.id, { text: 'Xabar topilmadi yoki admin xatosi', show_alert: true });
+            return res.status(200).json({ ok: true });
+          }
+
+          await bot.editMessageText('⏳ Xabar barcha foydalanuvchilarga jo\'natilmoqda...', { chat_id: chatId, message_id: msgId }).catch(() => { });
+          await bot.answerCallbackQuery(q.id, { text: 'Yuborish boshlandi...' }).catch(() => { });
+
+          const { data: allUsers, error: fErr } = await db.from('users').select('user_id');
+          if (fErr || !allUsers?.length) {
+             await bot.editMessageText('⚠️ Foydalanuvchilarni olishda xatolik.', { chat_id: chatId, message_id: msgId }).catch(() => { });
+             return res.status(200).json({ ok: true });
+          }
+
+          let success = 0, failed = 0;
+          const sendOne = async (uid) => {
+            const opts = {
+              caption: bc.content,
+              entities: bc.entities,
+              caption_entities: bc.entities,
+              reply_markup: bc.reply_markup
+            };
+
+            try {
+              if (bc.msg_type === 'photo') await bot.sendPhoto(uid, bc.media_id, opts);
+              else if (bc.msg_type === 'video') await bot.sendVideo(uid, bc.media_id, opts);
+              else if (bc.msg_type === 'animation') await bot.sendAnimation(uid, bc.media_id, opts);
+              else if (bc.msg_type === 'document') await bot.sendDocument(uid, bc.media_id, opts);
+              else await bot.sendMessage(uid, bc.content, { entities: bc.entities, reply_markup: bc.reply_markup });
+              success++;
+            } catch { failed++; }
+          };
+
+          const batchSize = 25;
+          for (let i = 0; i < allUsers.length; i += batchSize) {
+            await Promise.allSettled(allUsers.slice(i, i + batchSize).map(u => sendOne(u.user_id)));
+            if (i + batchSize < allUsers.length) await new Promise(r => setTimeout(r, 1000));
+          }
+
+          await bot.editMessageText(
+            `✅ <b>Xabar yuborildi!</b>\n\nYetkazildi: <b>${success} ta</b>\nXato: ${failed} ta`,
+            { chat_id: chatId, message_id: msgId, parse_mode: 'HTML' }
+          ).catch(() => { });
+
+          await db.from('broadcasts').delete().eq('id', bcId);
+          return res.status(200).json({ ok: true });
+        }
+      }
+      return res.status(200).json({ ok: true });
+    }
+
     // ── Inline Query Handlers ──
     if (update.inline_query) {
       const q = update.inline_query;
@@ -374,20 +445,11 @@ module.exports = async (req, res) => {
         return res.status(200).json({ ok: true });
       }
 
-      const waitMsg = await bot.sendMessage(chatId, '⏳ Xabar barcha foydalanuvchilarga jo\'natilmoqda...');
-
-      const { data: allUsers, error: fErr } = await db.from('users').select('user_id');
-      if (fErr || !allUsers?.length) {
-        await bot.editMessageText('⚠️ Foydalanuvchilarni olishda xatolik.',
-          { chat_id: chatId, message_id: waitMsg.message_id }).catch(() => { });
-        return res.status(200).json({ ok: true });
-      }
-
       const rawText = msg.text || msg.caption || '';
       const entities = msg.entities || msg.caption_entities || [];
 
       const parts = rawText.split(/\s*\n--\n\s*/);
-      let broadcastText = parts[0].replace(/^\/message\s*/, '');
+      let broadcastText = parts[0].replace(/^\/message\s*/, '').trim();
       const prefixLen = rawText.indexOf(broadcastText);
 
       // Suffix/Buttons part
@@ -406,72 +468,56 @@ module.exports = async (req, res) => {
 
       // Shifting entities logic
       let shiftedEntities = null;
-      if (entities.length > 0) {
+      if (entities && entities.length > 0) {
         shiftedEntities = entities
           .map(e => ({ ...e, offset: e.offset - prefixLen }))
           .filter(e => e.offset >= 0 && e.offset + e.length <= broadcastText.length);
       }
 
-      // Fallback: Agar entity yo'q bo'lsa (yoki faqat bot_command bo'lsa), Markdown-ish ishlatamiz
-      let useHtml = false;
-      if (!shiftedEntities || shiftedEntities.length === 0 || (shiftedEntities.length === 1 && shiftedEntities[0].type === 'bot_command')) {
-        broadcastText = md2html(broadcastText);
-        useHtml = true;
-        shiftedEntities = null;
+      // Draft save
+      let msgType = 'text';
+      let mediaId = null;
+      if (msg.photo) { msgType = 'photo'; mediaId = msg.photo[msg.photo.length - 1].file_id; }
+      else if (msg.video) { msgType = 'video'; mediaId = msg.video.file_id; }
+      else if (msg.animation) { msgType = 'animation'; mediaId = msg.animation.file_id; }
+      else if (msg.document) { msgType = 'document'; mediaId = msg.document.file_id; }
+
+      if (!broadcastText && !mediaId) {
+        await bot.sendMessage(chatId, '⚠️ Xabar matni bo\'sh.').catch(() => { });
+        return res.status(200).json({ ok: true });
       }
 
-      let success = 0, failed = 0;
+      const { data: draft, error: drErr } = await db.from('broadcasts').insert({
+        admin_id: userId,
+        msg_type: msgType,
+        content: broadcastText,
+        media_id: mediaId,
+        reply_markup,
+        entities: shiftedEntities
+      }).select().single();
 
-      const sendOne = async (uid) => {
-        const opts = {
-          caption: broadcastText,
-          parse_mode: useHtml ? 'HTML' : undefined,
-          entities: useHtml ? undefined : shiftedEntities,
-          caption_entities: useHtml ? undefined : shiftedEntities,
-          reply_markup
-        };
+      if (drErr) {
+        logErr('draft-save', drErr);
+        await bot.sendMessage(chatId, '⚠️ Draft saqlashda xatolik.').catch(() => { });
+        return res.status(200).json({ ok: true });
+      }
 
-        try {
-          if (msg.reply_to_message) {
-            await bot.copyMessage(uid, chatId, msg.reply_to_message.message_id, { reply_markup });
-          } else if (msg.photo) {
-            const photoId = msg.photo[msg.photo.length - 1].file_id;
-            await bot.sendPhoto(uid, photoId, opts);
-          } else if (msg.video) {
-            await bot.sendVideo(uid, msg.video.file_id, opts);
-          } else if (msg.animation) {
-            await bot.sendAnimation(uid, msg.animation.file_id, opts);
-          } else if (msg.document) {
-            await bot.sendDocument(uid, msg.document.file_id, opts);
-          } else {
-            if (!broadcastText) throw new Error('Bo\'sh xabar');
-            await bot.sendMessage(uid, broadcastText, {
-              parse_mode: useHtml ? 'HTML' : undefined,
-              entities: useHtml ? undefined : shiftedEntities,
-              reply_markup
-            });
-          }
-          success++;
-        } catch (err) {
-          failed++;
-        }
+      // Preview send
+      const previewMarkup = {
+        inline_keyboard: [
+          ...(reply_markup?.inline_keyboard || []),
+          [{ text: '✅ Tasdiqlash', callback_data: `bc_send:${draft.id}` }, { text: '❌ Bekor qilish', callback_data: `bc_cancel:${draft.id}` }]
+        ]
       };
 
-      // Telegram rate limit: 30 msg/s max — batch: 25, 1s oraliq
-      const batchSize = 25;
-      for (let i = 0; i < allUsers.length; i += batchSize) {
-        await Promise.allSettled(allUsers.slice(i, i + batchSize).map(u => sendOne(u.user_id)));
-        if (i + batchSize < allUsers.length) {
-          await new Promise(r => setTimeout(r, 1000));
-        }
-      }
+      await bot.sendMessage(chatId, '📣 <b>BROADCAST PREVIEW</b>\n\nXabar foydalanuvchilarga shunday ko\'rinadi:', { parse_mode: 'HTML' });
 
-      await bot.editMessageText(
-        `✅ <b>Xabar yuborildi!</b>\n\nYetkazildi: <b>${success} ta</b>\nXato: ${failed} ta`,
-        { chat_id: chatId, message_id: waitMsg.message_id, parse_mode: 'HTML' }
-      ).catch(() => { });
+      if (msgType === 'photo') await bot.sendPhoto(chatId, mediaId, { caption: broadcastText, entities: shiftedEntities, reply_markup: previewMarkup });
+      else if (msgType === 'video') await bot.sendVideo(chatId, mediaId, { caption: broadcastText, entities: shiftedEntities, reply_markup: previewMarkup });
+      else if (msgType === 'animation') await bot.sendAnimation(chatId, mediaId, { caption: broadcastText, entities: shiftedEntities, reply_markup: previewMarkup });
+      else if (msgType === 'document') await bot.sendDocument(chatId, mediaId, { caption: broadcastText, entities: shiftedEntities, reply_markup: previewMarkup });
+      else await bot.sendMessage(chatId, broadcastText, { entities: shiftedEntities, reply_markup: previewMarkup });
 
-      log('broadcast', { userId, success, failed, total: allUsers.length });
       return res.status(200).json({ ok: true });
     }
 
