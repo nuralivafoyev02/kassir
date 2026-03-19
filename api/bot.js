@@ -376,25 +376,41 @@ module.exports = async (req, res) => {
         return res.status(200).json({ ok: true });
       }
 
-      const broadcastText = text.replace('/message', '').trim();
+      const parts = text.replace('/message', '').trim().split(/\s*\n--\n\s*/);
+      const broadcastText = parts[0].trim();
+      let reply_markup = null;
+
+      if (parts[1]) {
+        const lines = parts[1].split('\n').filter(l => l.includes('|'));
+        if (lines.length > 0) {
+          reply_markup = {
+            inline_keyboard: lines.map(line => {
+              const [btnText, btnUrl] = line.split('|').map(s => s.trim());
+              return [{ text: btnText, url: btnUrl }];
+            })
+          };
+        }
+      }
+
       let success = 0, failed = 0;
 
       const sendOne = async (uid) => {
+        const opts = { caption: broadcastText, parse_mode: 'HTML', reply_markup };
         try {
           if (msg.reply_to_message) {
-            await bot.copyMessage(uid, chatId, msg.reply_to_message.message_id);
+            await bot.copyMessage(uid, chatId, msg.reply_to_message.message_id, { reply_markup });
           } else if (msg.photo) {
             const photoId = msg.photo[msg.photo.length - 1].file_id;
-            await bot.sendPhoto(uid, photoId, { caption: broadcastText, parse_mode: 'HTML' });
+            await bot.sendPhoto(uid, photoId, opts);
           } else if (msg.video) {
-            await bot.sendVideo(uid, msg.video.file_id, { caption: broadcastText, parse_mode: 'HTML' });
+            await bot.sendVideo(uid, msg.video.file_id, opts);
           } else if (msg.animation) {
-            await bot.sendAnimation(uid, msg.animation.file_id, { caption: broadcastText, parse_mode: 'HTML' });
+            await bot.sendAnimation(uid, msg.animation.file_id, opts);
           } else if (msg.document) {
-            await bot.sendDocument(uid, msg.document.file_id, { caption: broadcastText, parse_mode: 'HTML' });
+            await bot.sendDocument(uid, msg.document.file_id, opts);
           } else {
             if (!broadcastText) throw new Error('Bo\'sh xabar');
-            await bot.sendMessage(uid, broadcastText, { parse_mode: 'HTML' });
+            await bot.sendMessage(uid, broadcastText, { parse_mode: 'HTML', reply_markup });
           }
           success++;
         } catch {
