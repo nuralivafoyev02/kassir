@@ -663,7 +663,7 @@ body {
 
 #view-add {
     /* Tugmalarni nav bar ustiga ko'tarish uchun ko'proq padding */
-    padding-bottom: calc(var(--nav) + var(--nav-bottom) + var(--safe-bottom) + 64px);
+    padding-bottom: calc(var(--nav) + var(--nav-bottom) + var(--safe-bottom) + 48px);
 }
 
 .add-hdr h2 {
