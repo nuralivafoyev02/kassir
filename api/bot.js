@@ -33,29 +33,31 @@ if (OAI_KEY && !OAI_KEY.startsWith('your-')) {
 // ─── CONSTANTS ───────────────────────────────────────────
 const KB = {
   keyboard: [
-    ['📊 Bugungi Hisobot'],
-    ['📅 Oylik Hisobot'],
+    ['📊 Bugungi Hisobot', '📅 Oylik Hisobot'],
     ['↩️ Oxirgisini O\'chirish', '❓ Qo\'llanma'],
   ],
   resize_keyboard: true,
 };
 
 const GUIDE = `<b>📖 Qo'llanma</b>
-Menga yozing:
 
-<b>Chiqim:</b>
-  · <i>50 ming tushlik</i>
-  · <i>-30000 Yandex</i>
-  · <i>Taksiga 20 ming berdim</i>
+Menga oddiy matn ko‘rinishida yozing — men avtomatik ravishda <b>kirim</b> yoki <b>chiqim</b> sifatida saqlayman.
 
-<b>Kirim:</b>
-  · <i>2 mln oylik</i>
-  · <i>100 dollar bonus tushdi</i>
-  · <i>Mijozdan 500 k oldim</i>
+<b>💸 Chiqim misollari:</b>
+  • <i>50 ming tushlik</i>
+  • <i>30000 Yandex</i>
+  • <i>Taksiga 20 ming berdim</i>
 
-· Chek rasmini izoh bilan yuboring
+<b>💰 Kirim misollari:</b>
+  • <i>2 mln oylik</i>
+  • <i>100 dollar bonus tushdi</i>
+  • <i>Mijozdan 500k oldim</i>
 
-Valyuta kursi App sozlamalaridan olinadi.`;
+<b>🧾 Chek qo‘shish:</b>
+Chek rasmini izoh bilan birga yuboring — summani va tavsifni o‘zim aniqlayman.
+
+<b>💱 Valyuta:</b>
+Valyuta kurslari ilova (<b>App</b>) sozlamalaridan avtomatik olinadi.`;
 
 const DEFAULT_RATE = 12200;
 
@@ -528,9 +530,7 @@ module.exports = async (req, res) => {
       const lastStr = user.last_start_date ? new Date(user.last_start_date).toDateString() : null;
       const isNew = lastStr !== todayStr;
 
-      const greeting = isNew
-        ? `☀️ Xush kelibsiz, ${esc(user.full_name || 'Foydalanuvchi')}!\nBugun qanday operatsiyalarni bajaramiz?`
-        : GUIDE;
+      const greeting = `<b>Xush kelibsiz, ${esc(user.full_name.first_name || 'Foydalanuvchi')}☺️!</b>\nQanday operatsiyalarni bajaramiz?`;
 
       await bot.sendMessage(chatId, greeting, { reply_markup: KB, parse_mode: 'HTML' }).catch(() => { });
 
