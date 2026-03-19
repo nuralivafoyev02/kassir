@@ -37,8 +37,8 @@ body {
         radial-gradient(circle at top left, rgba(26, 16, 51, 0.8) 0%, transparent 50%),
         radial-gradient(circle at bottom right, rgba(10, 26, 46, 0.6) 0%, transparent 50%);
     color: var(--text);
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', sans-serif;
-    -webkit-font-smoothing: antialiased;
+    font-family: "Plus Jakarta Sans", sans-serif;
+    -webkit-font-smoothing: auto;
     padding: 0;
     margin: 0;
     /* Safe-area uchun qo'shimcha xavfsizlik */
@@ -1051,15 +1051,9 @@ body {
     flex-direction: column;
     gap: 12px;
     flex-shrink: 0;
-    position: sticky;
-    top: -12px;
-    /* view padding-top ni qoplash uchun */
-    /* background: var(--bg); */
     padding: 12px 0 8px;
     z-index: 40;
     margin-top: -12px;
-    /* view paddingga aniq moslash */
-    border-radius: 14px;
 }
 
 .vh-top {
