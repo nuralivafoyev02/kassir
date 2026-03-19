@@ -1052,11 +1052,14 @@ body {
     gap: 12px;
     flex-shrink: 0;
     position: sticky;
-    top: -12px; /* view padding-top ni qoplash uchun */
-    background: var(--bg);
+    top: -12px;
+    /* view padding-top ni qoplash uchun */
+    /* background: var(--bg); */
     padding: 12px 0 8px;
     z-index: 40;
-    margin-top: -12px; /* view paddingga aniq moslash */
+    margin-top: -12px;
+    /* view paddingga aniq moslash */
+    border-radius: 14px;
 }
 
 .vh-top {
