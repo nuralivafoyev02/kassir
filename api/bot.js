@@ -383,11 +383,15 @@ module.exports = async (req, res) => {
         return res.status(200).json({ ok: true });
       }
 
-      const parts = text.replace('/message', '').trim().split(/\s*\n--\n\s*/);
-      const broadcastRaw = parts[0].trim();
-      const broadcastText = md2html(broadcastRaw);
-      let reply_markup = null;
+      const rawText = msg.text || msg.caption || '';
+      const entities = msg.entities || msg.caption_entities || [];
 
+      const parts = rawText.split(/\s*\n--\n\s*/);
+      let broadcastText = parts[0].replace(/^\/message\s*/, '');
+      const prefixLen = rawText.indexOf(broadcastText);
+
+      // Suffix/Buttons part
+      let reply_markup = null;
       if (parts[1]) {
         const lines = parts[1].split('\n').filter(l => l.includes('|'));
         if (lines.length > 0) {
@@ -400,10 +404,33 @@ module.exports = async (req, res) => {
         }
       }
 
+      // Shifting entities logic
+      let shiftedEntities = null;
+      if (entities.length > 0) {
+        shiftedEntities = entities
+          .map(e => ({ ...e, offset: e.offset - prefixLen }))
+          .filter(e => e.offset >= 0 && e.offset + e.length <= broadcastText.length);
+      }
+
+      // Fallback: Agar entity yo'q bo'lsa (yoki faqat bot_command bo'lsa), Markdown-ish ishlatamiz
+      let useHtml = false;
+      if (!shiftedEntities || shiftedEntities.length === 0 || (shiftedEntities.length === 1 && shiftedEntities[0].type === 'bot_command')) {
+        broadcastText = md2html(broadcastText);
+        useHtml = true;
+        shiftedEntities = null;
+      }
+
       let success = 0, failed = 0;
 
       const sendOne = async (uid) => {
-        const opts = { caption: broadcastText, parse_mode: 'HTML', reply_markup };
+        const opts = {
+          caption: broadcastText,
+          parse_mode: useHtml ? 'HTML' : undefined,
+          entities: useHtml ? undefined : shiftedEntities,
+          caption_entities: useHtml ? undefined : shiftedEntities,
+          reply_markup
+        };
+
         try {
           if (msg.reply_to_message) {
             await bot.copyMessage(uid, chatId, msg.reply_to_message.message_id, { reply_markup });
@@ -418,10 +445,14 @@ module.exports = async (req, res) => {
             await bot.sendDocument(uid, msg.document.file_id, opts);
           } else {
             if (!broadcastText) throw new Error('Bo\'sh xabar');
-            await bot.sendMessage(uid, broadcastText, { parse_mode: 'HTML', reply_markup });
+            await bot.sendMessage(uid, broadcastText, {
+              parse_mode: useHtml ? 'HTML' : undefined,
+              entities: useHtml ? undefined : shiftedEntities,
+              reply_markup
+            });
           }
           success++;
-        } catch {
+        } catch (err) {
           failed++;
         }
       };
