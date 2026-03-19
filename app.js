@@ -156,16 +156,8 @@ function hideLoader() {
 
   if (store.get('theme') === 'light') document.body.classList.add('light');
 
-  // Biometrics init
-  if (tg?.BiometricManager) {
-    tg.BiometricManager.init(() => {
-      console.log('BiometricManager inited');
-      updateSettingsUI();
-      if (pin) showPin('unlock');
-    });
-  } else if (pin) {
-    showPin('unlock');
-  }
+  bioAvail = await checkBioAvail();
+  if (pin) showPin('unlock');
 
   buildIconGrid();
 
@@ -196,8 +188,8 @@ function initRealtime() {
 
   // Tranzaksiyalar uchun realtime
   db.channel('tx-changes')
-    .on('postgres_changes', 
-      { event: '*', schema: 'public', table: 'transactions', filter: `user_id=eq.${UID}` }, 
+    .on('postgres_changes',
+      { event: '*', schema: 'public', table: 'transactions', filter: `user_id=eq.${UID}` },
       payload => {
         const { eventType, new: newRow, old: oldRow } = payload;
         if (eventType === 'INSERT') {
@@ -218,8 +210,8 @@ function initRealtime() {
 
   // Kategoriyalar uchun realtime
   db.channel('cat-changes')
-    .on('postgres_changes', 
-      { event: '*', schema: 'public', table: 'categories', filter: `user_id=eq.${UID}` }, 
+    .on('postgres_changes',
+      { event: '*', schema: 'public', table: 'categories', filter: `user_id=eq.${UID}` },
       payload => {
         const { eventType, new: newRow, old: oldRow } = payload;
         if (eventType === 'INSERT' || eventType === 'UPDATE') {
@@ -858,7 +850,10 @@ async function confirmDel() {
 
 // ─── PIN ─────────────────────────────────────────────────
 async function checkBioAvail() {
-  return tg?.BiometricManager?.isBiometricAvailable || false;
+  try {
+    if (!isSecureContext) return false;
+    return !!(await PublicKeyCredential?.isUserVerifyingPlatformAuthenticatorAvailable?.());
+  } catch { return false; }
 }
 
 function showPin(mode) {
@@ -877,8 +872,8 @@ function showPin(mode) {
   if (t) t.textContent = tt;
   if (s) s.textContent = ss;
   if (c) c.style.display = mode !== 'unlock' ? 'block' : 'none';
-  if (bio) bio.style.display = (mode === 'unlock' && tg?.BiometricManager?.isBiometricAvailable) ? 'flex' : 'none';
-  if (mode === 'unlock' && tg?.BiometricManager?.isBiometricTokenSaved) setTimeout(triggerBio, 300);
+  if (bio) bio.style.display = (mode === 'unlock' && bioOn && bioAvail) ? 'flex' : 'none';
+  if (mode === 'unlock' && bioOn && bioAvail) setTimeout(triggerBio, 300);
 }
 
 function pp(n) {
@@ -926,12 +921,13 @@ function checkPin() {
 }
 
 async function triggerBio() {
-  if (!tg?.BiometricManager?.isBiometricAvailable) return;
-  tg.BiometricManager.authenticate({ reason: 'Kassa-ga kirish' }, (success, token) => {
-    if (success) {
-      $('pin-screen')?.classList.remove('on');
-    }
-  });
+  if (!bioAvail) return;
+  try {
+    const ch = new Uint8Array(32);
+    crypto.getRandomValues(ch);
+    await navigator.credentials.get({ publicKey: { challenge: ch, timeout: 60000, userVerification: 'required' } });
+    $('pin-screen')?.classList.remove('on');
+  } catch { /* user cancelled */ }
 }
 
 function cancelPin() { $('pin-screen')?.classList.remove('on'); }
@@ -949,30 +945,9 @@ function removePin() {
 }
 
 function toggleBio() {
-  if (!tg?.BiometricManager?.isBiometricAvailable) {
-    showErr('Biometrika qurilmangizda mavjud emas');
-    return;
-  }
-  
-  if (tg.BiometricManager.isAccessRequested && !tg.BiometricManager.isAccessGranted) {
-    tg.BiometricManager.openSettings();
-    return;
-  }
-
-  if (!tg.BiometricManager.isAccessRequested) {
-    tg.BiometricManager.requestAccess({ reason: 'PIN kodni biometrika bilan almashtirish' }, (granted) => {
-      if (granted) {
-        tg.BiometricManager.updateBiometricToken('kassa-token', (updated) => {
-           updateSettingsUI();
-        });
-      }
-    });
-  } else {
-     // Toggle off: for simplicity, we'll just open settings or clear token
-     tg.BiometricManager.updateBiometricToken('', (updated) => {
-        updateSettingsUI();
-     });
-  }
+  bioOn = !bioOn;
+  store.set('bio', bioOn);
+  $('bio-tgl')?.classList.toggle('on', bioOn);
 }
 
 // ─── SETTINGS ────────────────────────────────────────────
@@ -984,8 +959,8 @@ function updateSettingsUI() {
   if (ps) ps.textContent = pin ? 'Faol ✅' : 'O\'rnatilmagan';
   if (rb) rb.style.display = pin ? 'block' : 'none';
   if (ri) ri.value = rate ? fmt(rate).replace(/\s/g, ' ') : '';
-  if (br) br.style.display = tg?.BiometricManager?.isBiometricAvailable ? 'flex' : 'none';
-  if (bt) bt.classList.toggle('on', tg?.BiometricManager?.isBiometricTokenSaved);
+  if (br) br.style.display = bioAvail ? 'flex' : 'none';
+  if (bt) bt.classList.toggle('on', bioOn);
 }
 
 async function saveRate(v) {
