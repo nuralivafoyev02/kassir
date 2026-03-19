@@ -44,6 +44,9 @@ body {
     /* iOS viewport-fit=cover bilan to'liq ekranni egallash */
     padding-top: var(--safe-top);
     padding-bottom: var(--safe-bottom);
+    /* Safe-area uchun qo'shimcha xavfsizlik */
+    min-height: 100vh;
+    min-height: 100dvh;
 }
 
 #app {
@@ -84,8 +87,11 @@ body {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 6px 2px;
+    /* Full screen da close button bilan to'qnashmaslik uchun */
+    padding: calc(6px + var(--safe-top)) 16px 6px;
     flex-shrink: 0;
+    margin-top: calc(-1 * var(--safe-top));
+    /* body paddingni qoplash uchun */
 }
 
 .header-left {
@@ -235,6 +241,12 @@ body {
 
 .add-ring svg {
     stroke: white !important;
+}
+
+.add-btn-txt {
+    font-size: 10px;
+    font-weight: 700;
+    margin-top: -12px;
 }
 
 /* ─── BALANCE CARD ────────────────────────────── */
@@ -648,9 +660,9 @@ body {
     background: rgba(16, 185, 129, 0.1);
 }
 
-/* ─── ADD VIEW ────────────────────────────────── */
 #view-add {
-    padding-bottom: calc(var(--nav) + var(--nav-bottom) + 16px);
+    /* Safe area bottom ni hisobga olgan holda padding */
+    padding-bottom: calc(var(--nav) + var(--nav-bottom) + var(--safe-bottom) + 24px);
 }
 
 .add-hdr h2 {
@@ -1194,7 +1206,7 @@ body {
     align-items: center;
     justify-content: center;
     gap: 24px;
-    padding: 40px 20px;
+    padding: calc(40px + var(--safe-top)) 20px calc(40px + var(--safe-bottom));
 }
 
 #pin-screen.on {
@@ -1352,7 +1364,8 @@ body {
     border-radius: 28px 28px 0 0;
     width: 100%;
     max-width: 430px;
-    padding: 20px 20px 40px;
+    /* Pastki safe-area ni hisobga olgan holda padding */
+    padding: 20px 20px calc(40px + var(--safe-bottom));
     max-height: 90vh;
     overflow-y: auto;
     box-shadow: 0 -8px 40px rgba(0, 0, 0, 0.5);
