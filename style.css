@@ -1049,8 +1049,20 @@ body {
 .view-hist-hdr {
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: 12px;
     flex-shrink: 0;
+    position: sticky;
+    top: -12px; /* view padding-top ni qoplash uchun */
+    background: var(--bg);
+    padding: 12px 0 8px;
+    z-index: 40;
+    margin-top: -12px; /* view paddingga aniq moslash */
+}
+
+.vh-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
 }
 
 .view-hist-hdr h2 {

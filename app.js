@@ -156,8 +156,16 @@ function hideLoader() {
 
   if (store.get('theme') === 'light') document.body.classList.add('light');
 
-  bioAvail = await checkBioAvail();
-  if (pin) showPin('unlock');
+  // Biometrics init
+  if (tg?.BiometricManager) {
+    tg.BiometricManager.init(() => {
+      console.log('Native BiometricManager inited');
+      updateSettingsUI();
+      if (pin) showPin('unlock');
+    });
+  } else if (pin) {
+    showPin('unlock');
+  }
 
   buildIconGrid();
 
@@ -850,10 +858,7 @@ async function confirmDel() {
 
 // ─── PIN ─────────────────────────────────────────────────
 async function checkBioAvail() {
-  try {
-    if (!isSecureContext) return false;
-    return !!(await PublicKeyCredential?.isUserVerifyingPlatformAuthenticatorAvailable?.());
-  } catch { return false; }
+  return tg?.BiometricManager?.isBiometricAvailable || false;
 }
 
 function showPin(mode) {
@@ -872,8 +877,9 @@ function showPin(mode) {
   if (t) t.textContent = tt;
   if (s) s.textContent = ss;
   if (c) c.style.display = mode !== 'unlock' ? 'block' : 'none';
-  if (bio) bio.style.display = (mode === 'unlock' && bioOn && bioAvail) ? 'flex' : 'none';
-  if (mode === 'unlock' && bioOn && bioAvail) setTimeout(triggerBio, 300);
+  const canBio = tg?.BiometricManager?.isBiometricAvailable && tg?.BiometricManager?.isAccessGranted;
+  if (bio) bio.style.display = (mode === 'unlock' && canBio) ? 'flex' : 'none';
+  if (mode === 'unlock' && tg?.BiometricManager?.isBiometricTokenSaved) setTimeout(triggerBio, 300);
 }
 
 function pp(n) {
@@ -921,13 +927,12 @@ function checkPin() {
 }
 
 async function triggerBio() {
-  if (!bioAvail) return;
-  try {
-    const ch = new Uint8Array(32);
-    crypto.getRandomValues(ch);
-    await navigator.credentials.get({ publicKey: { challenge: ch, timeout: 60000, userVerification: 'required' } });
-    $('pin-screen')?.classList.remove('on');
-  } catch { /* user cancelled */ }
+  if (!tg?.BiometricManager?.isBiometricAvailable) return;
+  tg.BiometricManager.authenticate({ reason: 'Kassa-ga xavfsiz kirish' }, (success, token) => {
+    if (success) {
+      $('pin-screen')?.classList.remove('on');
+    }
+  });
 }
 
 function cancelPin() { $('pin-screen')?.classList.remove('on'); }
@@ -945,9 +950,30 @@ function removePin() {
 }
 
 function toggleBio() {
-  bioOn = !bioOn;
-  store.set('bio', bioOn);
-  $('bio-tgl')?.classList.toggle('on', bioOn);
+  if (!tg?.BiometricManager?.isBiometricAvailable) {
+    showErr('Biometrika qurilmangizda mavjud emas');
+    return;
+  }
+  
+  if (tg.BiometricManager.isAccessRequested && !tg.BiometricManager.isAccessGranted) {
+    tg.BiometricManager.openSettings();
+    return;
+  }
+
+  if (!tg.BiometricManager.isAccessRequested) {
+    tg.BiometricManager.requestAccess({ reason: 'Xavfsizlik uchun biometrikadan foydalanish' }, (granted) => {
+      if (granted) {
+        tg.BiometricManager.updateBiometricToken('kassa-token', (updated) => {
+          updateSettingsUI();
+        });
+      }
+    });
+  } else {
+    // Access requested and granted, but user wants to toggle token (local lock)
+    tg.BiometricManager.updateBiometricToken('', (updated) => {
+      updateSettingsUI();
+    });
+  }
 }
 
 // ─── SETTINGS ────────────────────────────────────────────
@@ -959,8 +985,8 @@ function updateSettingsUI() {
   if (ps) ps.textContent = pin ? 'Faol ✅' : 'O\'rnatilmagan';
   if (rb) rb.style.display = pin ? 'block' : 'none';
   if (ri) ri.value = rate ? fmt(rate).replace(/\s/g, ' ') : '';
-  if (br) br.style.display = bioAvail ? 'flex' : 'none';
-  if (bt) bt.classList.toggle('on', bioOn);
+  if (br) br.style.display = tg?.BiometricManager?.isBiometricAvailable ? 'flex' : 'none';
+  if (bt) bt.classList.toggle('on', tg?.BiometricManager?.isBiometricTokenSaved);
 }
 
 async function saveRate(v) {
