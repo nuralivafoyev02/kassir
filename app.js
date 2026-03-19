@@ -1,24 +1,26 @@
 'use strict';
-// ═══════════════════════════════════════════════════════
-//  KASSA — app.js  (to'liq qayta ko'rib chiqilgan)
-// ═══════════════════════════════════════════════════════
 
 // ─── TELEGRAM ───────────────────────────────────────────
 const tg = window.Telegram?.WebApp;
 if (tg) {
   tg.expand();
+  tg.ready();
+
+  // Telegram ranglarini sozlash
   tg.setHeaderColor?.('#050508');
   tg.setBackgroundColor?.('#050508');
-  /* Telegram viewport o'zgarganda (mini-app ochilganda/yopilganda)
-     CSS safe-area o'zgaruvchisini qayta hisoblash */
-  tg.onEvent?.('viewportChanged', () => {
-    if (tg.isExpanded) {
-      document.documentElement.style.setProperty(
-        '--tg-header-offset',
-        (tg.viewportStableHeight ? (tg.viewportHeight - tg.viewportStableHeight) : 0) + 'px',
-      );
-    }
-  });
+
+  // Viewport o'zgarganda xavfsiz masofani qayta hisoblash
+  const updateSafeArea = () => {
+    // Agar Telegram headeri bo'lsa, uning balandligini hisobga olish
+    const offset = (tg.viewportHeight - tg.viewportStableHeight) > 0
+      ? (tg.viewportHeight - tg.viewportStableHeight)
+      : 0;
+    document.documentElement.style.setProperty('--tg-header-offset', offset + 'px');
+  };
+
+  tg.onEvent('viewportChanged', updateSafeArea);
+  updateSafeArea();
 }
 
 // ─── STORAGE ────────────────────────────────────────────
