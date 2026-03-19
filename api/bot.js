@@ -33,31 +33,31 @@ if (OAI_KEY && !OAI_KEY.startsWith('your-')) {
 // ─── CONSTANTS ───────────────────────────────────────────
 const KB = {
   keyboard: [
-    ['📊 Bugungi Hisobot', '📅 Oylik Hisobot'],
+    ['📊 Bugungi Hisobot'],
+    ['📅 Oylik Hisobot'],
     ['↩️ Oxirgisini O\'chirish', '❓ Qo\'llanma'],
   ],
   resize_keyboard: true,
 };
 
 const GUIDE = `<b>📖 Qo'llanma</b>
-
-Menga yozing yoki <b>ovozli xabar</b> yuboring 🎙
+Menga yozing:
 
 <b>Chiqim:</b>
   · <i>50 ming tushlik</i>
-  · <i>-30000 transport</i>
-  · 🎙 <i>"Taksiga 20 ming berdim"</i>
+  · <i>-30000 Yandex</i>
+  · <i>Taksiga 20 ming berdim</i>
 
 <b>Kirim:</b>
-  · <i>+2 mln oylik</i>
+  · <i>2 mln oylik</i>
   · <i>100 dollar bonus tushdi</i>
-  · 🎙 <i>"Mijozdan 500 ming oldim"</i>
+  · <i>Mijozdan 500 k oldim</i>
 
-<b>Rasm + matn:</b> Chek rasmini izoh bilan yuboring
+· Chek rasmini izoh bilan yuboring
 
-<b>Valyuta kursi</b> Kassa App sozlamalaridan olinadi.`;
+Valyuta kursi App sozlamalaridan olinadi.`;
 
-const DEFAULT_RATE = 12850;
+const DEFAULT_RATE = 12200;
 
 // ─── LOGGING ─────────────────────────────────────────────
 const log = (scope, data) => console.log(`[BOT:${scope}]`, JSON.stringify(data));
@@ -145,7 +145,7 @@ function parseText(raw) {
   if (/^\+/.test(lower)) type = 'income';
   else if (/^-/.test(lower)) type = 'expense';
   // Suffix override: "akamdan" "oylikdan" etc. should be income as per user request
-  else if (hasDan) type = 'income'; 
+  else if (hasDan) type = 'income';
   // Kalit so'zlar
   else if (incWords.some(w => lower.includes(w))) type = 'income';
   else if (expWords.some(w => lower.includes(w))) type = 'expense';
@@ -288,8 +288,8 @@ module.exports = async (req, res) => {
 
           const { data: allUsers, error: fErr } = await db.from('users').select('user_id');
           if (fErr || !allUsers?.length) {
-             await bot.editMessageText('⚠️ Foydalanuvchilarni olishda xatolik.', { chat_id: chatId, message_id: msgId }).catch(() => { });
-             return res.status(200).json({ ok: true });
+            await bot.editMessageText('⚠️ Foydalanuvchilarni olishda xatolik.', { chat_id: chatId, message_id: msgId }).catch(() => { });
+            return res.status(200).json({ ok: true });
           }
 
           let success = 0, failed = 0;
