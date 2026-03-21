@@ -71,7 +71,8 @@
             </div>
           </div>
           <div class="header-actions">
-            <button class="header-btn settings-btn" onclick="openSettings()" data-i18n-title="settings_title" title="Sozlamalar">
+            <button class="header-btn settings-btn" onclick="openSettings()" data-i18n-title="settings_title"
+              title="Sozlamalar">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
                 <circle cx="12" cy="12" r="3" />
                 <path
@@ -190,20 +191,20 @@
                 </svg><span data-i18n="add_new_cat">Yangi</span></button>
             </div>
             <div id="cat-grid"></div>
-            <button class="cflow-cancel" onclick="cancelFlow()">✕ <span data-i18n="add_cancel">Bekor qilish</span></button>
+            <button class="cflow-cancel" onclick="cancelFlow()">✕ <span data-i18n="add_cancel">Bekor
+                qilish</span></button>
           </div>
           <div id="flow-input">
             <div class="in-row">
               <button class="cur-btn" id="cur-btn" onclick="toggleCur()">UZS</button>
               <input id="amt-in" type="text" inputmode="decimal" data-i18n-placeholder="add_amount_placeholder"
-                placeholder="Summani kiriting..."
-                oninput="formatInputAmount(event)">
+                placeholder="Summani kiriting..." oninput="formatInputAmount(event)">
             </div>
             <div id="rec-area">
               <img id="rec-thumb" src="" alt="chek">
               <div>
-                <div style="font-size:13px;font-weight:600" data-i18n="add_receipt_attached">✅ Chek biriktirildi</div><button class="rec-del"
-                  onclick="clearRec()" data-i18n="add_receipt_remove">O'chirish</button>
+                <div style="font-size:13px;font-weight:600" data-i18n="add_receipt_attached">✅ Chek biriktirildi</div>
+                <button class="rec-del" onclick="clearRec()" data-i18n="add_receipt_remove">O'chirish</button>
               </div>
             </div>
             <div class="act-row">
@@ -249,7 +250,8 @@
             <path d="M8 21h8" />
             <path d="M12 17v4" />
           </svg>
-          <p data-i18n="hist_empty">Hali operatsiyalar yo'q</p><small data-i18n="hist_empty_sub">Qo'shish tabidan boshlang</small>
+          <p data-i18n="hist_empty">Hali operatsiyalar yo'q</p><small data-i18n="hist_empty_sub">Qo'shish tabidan
+            boshlang</small>
         </div>
       </div>
 
@@ -368,7 +370,11 @@
       <!-- PROFIL -->
       <div class="stg-profile">
         <div class="stg-avatar" id="stg-avatar">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"
+            stroke-linejoin="round">
+            <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+            <circle cx="12" cy="7" r="4" />
+          </svg>
         </div>
         <div class="stg-name" id="stg-user-name">—</div>
         <div class="stg-sub-info" id="stg-sub-info" data-i18n="stg_coming_soon">Tez orada</div>
@@ -400,10 +406,11 @@
           <div class="stg-txt" data-i18n="stg_balance">Balanslar</div>
           <div class="stg-arrow">›</div>
         </div>
-        <div class="stg-item" onclick="openStgSub('stg-sub-cats')">
+        <div class="stg-item stg-disabled" onclick="openStgSub('stg-sub-cats')">
           <div class="stg-ico">📂</div>
           <div class="stg-txt" data-i18n="stg_categories">Kategoriyalar</div>
-          <div class="stg-arrow">›</div>
+          <span class="stg-badge" data-i18n="stg_coming_soon">Tez orada</span>
+          <!-- <div class="stg-arrow">›</div> -->
         </div>
         <div class="stg-item stg-disabled">
           <div class="stg-ico">👥</div>
@@ -523,10 +530,14 @@
       <div class="sh-ttl" data-i18n="stg_edit_profile">Profilni tahrirlash</div>
       <div class="stg-profile">
         <div class="stg-avatar lg" id="stg-avatar-edit">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+            <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+            <circle cx="12" cy="7" r="4" />
+          </svg>
         </div>
       </div>
-      <div class="fld"><label data-i18n="new_cat_name">Ism</label><input id="stg-name-in" type="text" placeholder="Ismingiz..."></div>
+      <div class="fld"><label data-i18n="new_cat_name">Ism</label><input id="stg-name-in" type="text"
+          placeholder="Ismingiz..."></div>
       <button class="bpri" style="width:100%;margin-top:16px" onclick="saveProfile()" data-i18n="save">Saqlash</button>
     </div>
   </div>
@@ -538,8 +549,7 @@
       <div class="sh-ttl" data-i18n="stg_balance">💱 Balanslar</div>
       <div class="fld">
         <label data-i18n="stg_rate_sub">1 USD = ? UZS</label>
-        <input id="stg-rate-in" type="text" inputmode="decimal" placeholder="12850"
-          oninput="handleRateInput(this)">
+        <input id="stg-rate-in" type="text" inputmode="decimal" placeholder="12850" oninput="handleRateInput(this)">
       </div>
       <div class="mrow" style="margin-top:20px">
         <button class="bcl" onclick="closeStgRate(false)" data-i18n="cancel">Bekor qilish</button>
@@ -554,8 +564,10 @@
       <button class="sh-close" onclick="closeOv('stg-sub-cats')">✕</button>
       <div class="sh-ttl" data-i18n="stg_categories">📂 Kategoriyalar</div>
       <div class="stg-cat-tabs">
-        <button class="stg-cat-tab active" id="stg-cat-inc-tab" onclick="stgCatTab('income')">📈 <span data-i18n="income">Kirim</span></button>
-        <button class="stg-cat-tab" id="stg-cat-exp-tab" onclick="stgCatTab('expense')">📉 <span data-i18n="expense">Chiqim</span></button>
+        <button class="stg-cat-tab active" id="stg-cat-inc-tab" onclick="stgCatTab('income')">📈 <span
+            data-i18n="income">Kirim</span></button>
+        <button class="stg-cat-tab" id="stg-cat-exp-tab" onclick="stgCatTab('expense')">📉 <span
+            data-i18n="expense">Chiqim</span></button>
       </div>
       <div id="stg-cat-list"></div>
       <button class="bpri" style="width:100%;margin-top:16px" onclick="openAddCatFromStg()">
@@ -593,7 +605,8 @@
     <div class="sheet c" onclick="event.stopPropagation()" style="max-height:80vh;overflow-y:auto">
       <div class="sh-ttl" data-i18n="terms_title">📋 Bizning shartlar</div>
       <div class="stg-legal-text" id="stg-terms-text"></div>
-      <button class="bcl" style="width:100%;margin-top:16px" onclick="closeOv('stg-sub-terms')" data-i18n="stg_close">Yopish</button>
+      <button class="bcl" style="width:100%;margin-top:16px" onclick="closeOv('stg-sub-terms')"
+        data-i18n="stg_close">Yopish</button>
     </div>
   </div>
 
@@ -601,7 +614,8 @@
     <div class="sheet c" onclick="event.stopPropagation()" style="max-height:80vh;overflow-y:auto">
       <div class="sh-ttl" data-i18n="privacy_title">🛡️ Maxfiylik siyosati</div>
       <div class="stg-legal-text" id="stg-privacy-text"></div>
-      <button class="bcl" style="width:100%;margin-top:16px" onclick="closeOv('stg-sub-privacy')" data-i18n="stg_close">Yopish</button>
+      <button class="bcl" style="width:100%;margin-top:16px" onclick="closeOv('stg-sub-privacy')"
+        data-i18n="stg_close">Yopish</button>
     </div>
   </div>
 
@@ -610,13 +624,17 @@
       <div class="sh-ttl">📖 Foydalanish yo'riqnomasi</div>
       <div class="stg-legal-text">
         <p><strong>Kassa</strong> — shaxsiy moliyaviy boshqaruv ilovasi.</p>
-        <p>📌 <strong>Kirim/Chiqim qo'shish:</strong> Pastdagi "+" tugmasini bosing, turini tanlang, kategoriyani belgilang va summani kiriting.</p>
-        <p>📊 <strong>Hisobotlar:</strong> Bosh sahifada diagramma va trendlarni ko'ring. Sana filtri orqali ma'lum davr uchun ko'ring.</p>
-        <p>📱 <strong>Telegram bot:</strong> Botga xabar yozing (masalan: "500 ming ovqat chiqim") va tranzaksiya avtomatik saqlanadi.</p>
+        <p>📌 <strong>Kirim/Chiqim qo'shish:</strong> Pastdagi "+" tugmasini bosing, turini tanlang, kategoriyani
+          belgilang va summani kiriting.</p>
+        <p>📊 <strong>Hisobotlar:</strong> Bosh sahifada diagramma va trendlarni ko'ring. Sana filtri orqali ma'lum davr
+          uchun ko'ring.</p>
+        <p>📱 <strong>Telegram bot:</strong> Botga xabar yozing (masalan: "500 ming ovqat chiqim") va tranzaksiya
+          avtomatik saqlanadi.</p>
         <p>🔐 <strong>Xavfsizlik:</strong> PIN kod va Face ID/Touch ID orqali ilovangizni himoyalang.</p>
         <p>📤 <strong>Eksport:</strong> Ma'lumotlarni JSON formatida saqlash yoki PDF hisobot yaratish mumkin.</p>
       </div>
-      <button class="bcl" style="width:100%;margin-top:16px" onclick="closeOv('stg-sub-guide')" data-i18n="stg_close">Yopish</button>
+      <button class="bcl" style="width:100%;margin-top:16px" onclick="closeOv('stg-sub-guide')"
+        data-i18n="stg_close">Yopish</button>
     </div>
   </div>
 
