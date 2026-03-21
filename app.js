@@ -954,23 +954,26 @@ function toggleBio() {
     showErr('Biometrika qurilmangizda mavjud emas');
     return;
   }
-  
+
   if (tg.BiometricManager.isAccessRequested && !tg.BiometricManager.isAccessGranted) {
     tg.BiometricManager.openSettings();
     return;
   }
 
+  const tokenLabel = 'kassa-token';
+
   if (!tg.BiometricManager.isAccessRequested) {
     tg.BiometricManager.requestAccess({ reason: 'Xavfsizlik uchun biometrikadan foydalanish' }, (granted) => {
       if (granted) {
-        tg.BiometricManager.updateBiometricToken('kassa-token', (updated) => {
+        tg.BiometricManager.updateBiometricToken(tokenLabel, (updated) => {
           updateSettingsUI();
         });
       }
     });
   } else {
-    // Access requested and granted, but user wants to toggle token (local lock)
-    tg.BiometricManager.updateBiometricToken('', (updated) => {
+    // Access requested and granted
+    const newToken = tg.BiometricManager.isBiometricTokenSaved ? '' : tokenLabel;
+    tg.BiometricManager.updateBiometricToken(newToken, (updated) => {
       updateSettingsUI();
     });
   }
