@@ -156,7 +156,7 @@ function startLoaderMessages() {
       msgEl.textContent = msgs[idx];
       msgEl.classList.remove('fade');
     }, 300);
-  }, 2200);
+  }, 1300);
 }
 
 function hideLoader() {
@@ -1012,9 +1012,32 @@ function updateSettingsUI() {
 
 async function saveRate(v) {
   const n = Number(v);
-  if (!n || n <= 0) return;
-  rate = n; store.set('rate', rate);
-  if (db) await db.from('users').upsert({ user_id: UID, exchange_rate: rate }, { onConflict: 'user_id' });
+  if (!n || n <= 0) {
+    showErr('Noto\'g\'ri kurs qiymati!');
+    return;
+  }
+  
+  rate = n; 
+  store.set('rate', rate);
+  
+  // Update UI immediately (dashboard balances)
+  renderAll();
+  
+  if (db) {
+    try {
+      const { error } = await db.from('users').upsert(
+        { user_id: UID, exchange_rate: rate }, 
+        { onConflict: 'user_id' }
+      );
+      if (error) throw error;
+      showErr('Kurs saqlandi ✅');
+    } catch (e) {
+      console.error('[saveRate]', e);
+      showErr('Bazaga saqlashda xatolik: ' + (e.message || e));
+    }
+  } else {
+    showErr('Kurs saqlandi (Lokal) ✅');
+  }
 }
 
 function toggleTheme() {
