@@ -1205,7 +1205,7 @@ body {
 #pin-screen {
     position: fixed;
     inset: 0;
-    z-index: 100;
+    z-index: 250;
     background: var(--bg);
     background-image:
         radial-gradient(circle at top left, rgba(26, 16, 51, 0.8) 0%, transparent 50%),
@@ -1368,6 +1368,12 @@ body {
     pointer-events: auto;
     backdrop-filter: blur(8px);
     -webkit-backdrop-filter: blur(8px);
+}
+
+/* Yangi kategoriya modali boshqa overlaylar (masalan stg-sub-cats) ustida bo'lsin */
+#ov-addcat.ov.on,
+#ov-editcat.ov.on {
+    z-index: 85;
 }
 
 .ov.center {
@@ -1696,7 +1702,297 @@ body.light .sh-close:hover {
     filter: drop-shadow(0 0 5px rgba(255, 255, 255, 0.5));
 }
 
-/* ─── SETTINGS ────────────────────────────────── */
+/* ─── NEW SETTINGS ───────────────────────────── */
+/* Sozlamalar — butun ekran (Telegram WebApp) */
+#ov-settings.ov {
+    align-items: stretch;
+    justify-content: flex-start;
+    padding: 0;
+}
+
+#ov-settings .stg-sheet {
+    width: 100%;
+    max-width: none;
+    min-height: 100vh;
+    min-height: 100dvh;
+    max-height: none;
+    height: auto;
+    margin: 0;
+    padding-top: calc(12px + var(--safe-top));
+    padding-bottom: calc(40px + var(--safe-bottom));
+    box-shadow: none;
+}
+
+.stg-sheet {
+    padding-bottom: 40px;
+    max-height: 100vh;
+    height: 100vh;
+    overflow-y: auto;
+    border-radius: 0 !important;
+    border: none !important;
+}
+
+.stg-profile {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 16px 0 20px;
+    gap: 8px;
+}
+
+.stg-avatar {
+    width: 64px;
+    height: 64px;
+    border-radius: 50%;
+    background: rgba(139, 92, 246, 0.1);
+    border: 2px solid rgba(139, 92, 246, 0.3);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+}
+
+.stg-avatar.lg {
+    width: 80px;
+    height: 80px;
+}
+
+.stg-avatar svg {
+    width: 32px;
+    height: 32px;
+    stroke: var(--muted);
+}
+
+.stg-avatar.lg svg {
+    width: 40px;
+    height: 40px;
+}
+
+.stg-avatar img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.stg-name {
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--text);
+}
+
+.stg-sub-info {
+    font-size: 12px;
+    color: var(--muted);
+    background: rgba(139, 92, 246, 0.08);
+    padding: 4px 12px;
+    border-radius: 12px;
+    border: 1px solid rgba(139, 92, 246, 0.2);
+}
+
+.stg-group {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    margin-bottom: 12px;
+    overflow: hidden;
+}
+
+.stg-item {
+    display: flex;
+    align-items: center;
+    padding: 14px 16px;
+    gap: 12px;
+    cursor: pointer;
+    transition: background 0.15s;
+    border-bottom: 1px solid var(--border);
+}
+
+.stg-item:last-child {
+    border-bottom: none;
+}
+
+.stg-item:active {
+    background: rgba(139, 92, 246, 0.05);
+}
+
+.stg-item.stg-disabled {
+    opacity: 0.5;
+    cursor: default;
+    pointer-events: none;
+}
+
+.stg-ico {
+    font-size: 18px;
+    width: 24px;
+    text-align: center;
+    flex-shrink: 0;
+}
+
+.stg-txt {
+    flex: 1;
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--text);
+}
+
+.stg-info {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.stg-sub {
+    font-size: 12px;
+    color: var(--muted);
+}
+
+.stg-arrow {
+    font-size: 20px;
+    color: var(--muted);
+    font-weight: 300;
+    flex-shrink: 0;
+}
+
+.stg-badge {
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--accent);
+    background: rgba(139, 92, 246, 0.1);
+    padding: 4px 10px;
+    border-radius: 8px;
+    letter-spacing: 0.3px;
+    white-space: nowrap;
+    border: 1px solid rgba(139, 92, 246, 0.2);
+}
+
+.stg-danger {
+    color: var(--red) !important;
+}
+
+.stg-action-btn {
+    font-size: 12px;
+    font-weight: 700;
+    padding: 7px 14px;
+    border-radius: 10px;
+    border: 1px solid rgba(139, 92, 246, 0.3);
+    background: rgba(139, 92, 246, 0.08);
+    color: #a78bfa;
+    cursor: pointer;
+    white-space: nowrap;
+    font-family: inherit;
+    transition: all 0.15s;
+    flex-shrink: 0;
+}
+
+.stg-action-btn:active {
+    transform: scale(0.94);
+}
+
+.stg-check {
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--accent);
+    width: 24px;
+    text-align: center;
+    flex-shrink: 0;
+}
+
+.stg-cat-tabs {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 16px;
+}
+
+.stg-cat-tab {
+    flex: 1;
+    padding: 10px;
+    background: var(--surface2);
+    border: 1.5px solid var(--border);
+    border-radius: 12px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--muted);
+    cursor: pointer;
+    text-align: center;
+    transition: all 0.2s;
+    font-family: inherit;
+}
+
+.stg-cat-tab.active {
+    border-color: var(--accent);
+    color: var(--accent);
+    background: rgba(139, 92, 246, 0.08);
+}
+
+.stg-cat-item {
+    display: flex;
+    align-items: center;
+    padding: 12px 14px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    margin-bottom: 8px;
+    gap: 10px;
+}
+
+.stg-cat-item .sti-ico {
+    width: 32px;
+    height: 32px;
+    border-radius: 10px;
+    background: rgba(139, 92, 246, 0.1);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.stg-cat-item .sti-ico svg {
+    width: 16px;
+    height: 16px;
+    stroke: var(--accent);
+}
+
+.stg-cat-item .sti-name {
+    flex: 1;
+    font-size: 14px;
+    font-weight: 500;
+}
+
+.stg-cat-item .sti-del {
+    width: 28px;
+    height: 28px;
+    background: rgba(244, 63, 94, 0.1);
+    border: none;
+    border-radius: 8px;
+    color: var(--red);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    font-size: 14px;
+    transition: all 0.15s;
+}
+
+.stg-cat-item .sti-del:active {
+    transform: scale(0.9);
+}
+
+.stg-legal-text {
+    font-size: 14px;
+    line-height: 1.7;
+    color: var(--muted);
+    white-space: pre-wrap;
+}
+
+.stg-legal-text p {
+    margin-bottom: 10px;
+}
+
+.stg-legal-text strong {
+    color: var(--text);
+}
+
+/* ─── OLD SETTINGS (kept for compatibility) ──── */
 .si {
     display: flex;
     justify-content: space-between;
@@ -2112,6 +2408,70 @@ body.light .sheet {
 
 body.light .sh-ttl {
     color: #0f172a;
+}
+
+body.light .stg-group {
+    background: #ffffff;
+    border-color: rgba(0, 0, 0, 0.06);
+}
+
+body.light .stg-item {
+    border-bottom-color: rgba(0, 0, 0, 0.05);
+}
+
+body.light .stg-item:active {
+    background: rgba(99, 102, 241, 0.05);
+}
+
+body.light .stg-txt {
+    color: #1e293b;
+}
+
+body.light .stg-name {
+    color: #0f172a;
+}
+
+body.light .stg-sub-info {
+    color: #6366f1;
+    background: rgba(99, 102, 241, 0.06);
+    border-color: rgba(99, 102, 241, 0.15);
+}
+
+body.light .stg-badge {
+    color: #6366f1;
+    background: rgba(99, 102, 241, 0.06);
+    border-color: rgba(99, 102, 241, 0.15);
+}
+
+body.light .stg-cat-tab {
+    background: #f8fafc;
+    border-color: rgba(0, 0, 0, 0.08);
+    color: #64748b;
+}
+
+body.light .stg-cat-tab.active {
+    background: rgba(99, 102, 241, 0.06);
+    border-color: #6366f1;
+    color: #6366f1;
+}
+
+body.light .stg-cat-item {
+    background: #f8fafc;
+    border-color: rgba(0, 0, 0, 0.06);
+}
+
+body.light .stg-legal-text {
+    color: #475569;
+}
+
+body.light .stg-legal-text strong {
+    color: #0f172a;
+}
+
+body.light .stg-action-btn {
+    background: rgba(99, 102, 241, 0.06);
+    border-color: rgba(99, 102, 241, 0.2);
+    color: #6366f1;
 }
 
 /* ─── PAGINATION ──────────────────────────────── */

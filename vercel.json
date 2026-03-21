@@ -3,11 +3,14 @@
   "builds": [
     { "src": "api/*.js", "use": "@vercel/node" },
     { "src": "index.html", "use": "@vercel/static" },
-    { "src": "app.js",     "use": "@vercel/static" },
-    { "src": "style.css",  "use": "@vercel/static" }
+    { "src": "app.js", "use": "@vercel/static" },
+    { "src": "style.css", "use": "@vercel/static" },
+    { "src": "lang/uz.json", "use": "@vercel/static" },
+    { "src": "lang/ru.json", "use": "@vercel/static" },
+    { "src": "lang/en.json", "use": "@vercel/static" }
   ],
   "routes": [
     { "src": "/api/(.*)", "dest": "/api/$1.js" },
-    { "src": "/(.*)",     "dest": "/$1" }
+    { "src": "/(.*)", "dest": "/$1" }
   ]
 }

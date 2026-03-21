@@ -99,6 +99,10 @@ let inputCur = 'UZS';
 let pinMode = 'unlock';
 let pinBuf = '';
 let pinTemp = '';
+/** PIN oqimi sozlamalardan boshlanganida bekor qilganda asosiy sahifa yopilmasin */
+let pinContext = null;
+/** USD kursi tahriri — bekor qilishda qayta tiklash */
+let rateDraftStg = null;
 let bioAvail = false;
 let myChart = null;
 let histOffset = 0;
@@ -205,8 +209,13 @@ function hideLoader() {
     showErr("Telegram user_id topilmadi. URLga ?user_id=123 qo'shing.");
   }
 
+  // i18n tizimini yuklash
+  await loadLang(currentLang);
+  applyLang();
+
   renderAll();
   updateSettingsUI();
+  initSettingsUI();
   hideLoader();
   initSwipe();
 })();
@@ -420,7 +429,7 @@ function renderAll() {
         incEl.textContent = `+$${fmt(inc / rate)}`;
         expEl.textContent = `-$${fmt(exp / rate)}`;
       } else {
-        txt = `${fmt(bal)} so'm`;
+        txt = `${fmt(bal)} ${t('suffix_uzs')}`;
         incEl.textContent = `+${fmt(inc)}`;
         expEl.textContent = `-${fmt(exp)}`;
       }
@@ -541,23 +550,23 @@ function renderHistory() {
 
     if (empty) empty.style.display = filtered.length === 0 ? 'flex' : 'none';
 
-    list.innerHTML = filtered.map(t => {
-      const isI = t.type === 'income';
-      const dt = new Date(t.ms);
+    list.innerHTML = filtered.map(tx => {
+      const isI = tx.type === 'income';
+      const dt = new Date(tx.ms);
       const dateStr = dt.toLocaleDateString() + ' · ' + dt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-      const chek = (t.receipt || t.receipt_url) ? `<span class="chek-b">📎 Chek</span>` : '';
+      const chek = (tx.receipt || tx.receipt_url) ? `<span class="chek-b">📎 ${t('hist_receipt')}</span>` : '';
       const arrow = isI
         ? `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>`
         : `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 18 13.5 8.5 8.5 13.5 1 6"/><polyline points="17 18 23 18 23 12"/></svg>`;
-      return `<div class="txi" onclick="openAction(${t.id})">
+      return `<div class="txi" onclick="openAction(${tx.id})">
       <div class="txi-l">
         <div class="txi-ico ${isI ? 'i' : 'e'}">${arrow}</div>
         <div>
-          <div class="txi-cat">${t.category} ${chek}</div>
+          <div class="txi-cat">${tx.category} ${chek}</div>
           <div class="txi-dt">${dateStr}</div>
         </div>
       </div>
-      <div class="txi-amt ${isI ? 'i' : 'e'}">${isI ? '+' : '-'}${fmt(t.amount)}</div>
+      <div class="txi-amt ${isI ? 'i' : 'e'}">${isI ? '+' : '-'}${fmt(tx.amount)}</div>
     </div>`;
     }).join('');
   } catch (e) {
@@ -824,9 +833,10 @@ function buildIconGrid() {
   ICON_NAMES.forEach(name => {
     const d = document.createElement('div');
     d.className = 'io';
+    d.dataset.icon = name;
     d.innerHTML = svgIcon(name);
     d.onclick = () => {
-      document.querySelectorAll('.io').forEach(x => x.classList.remove('on'));
+      grid.querySelectorAll('.io').forEach(x => x.classList.remove('on'));
       d.classList.add('on');
       selIcon = name;
     };
@@ -834,23 +844,64 @@ function buildIconGrid() {
   });
 }
 
-function openAddCat() { $('nc-name').value = ''; selIcon = 'star'; showOv('ov-addcat'); }
+function openAddCat() {
+  $('nc-name').value = '';
+  selIcon = 'star';
+  buildIconGrid();
+  const grid = $('icon-grid');
+  if (grid) {
+    grid.querySelectorAll('.io').forEach(el => {
+      el.classList.toggle('on', el.dataset.icon === 'star');
+    });
+  }
+  showOv('ov-addcat');
+  setTimeout(() => { $('nc-name')?.focus(); }, 100);
+}
 
 async function saveNewCat() {
   const name = $('nc-name')?.value.trim();
-  if (!name || !draft.type) return;
+  if (!name) {
+    showErr(t('err_cat_name_required'));
+    return;
+  }
+  if (!draft.type) {
+    showErr(t('err_cat_type_missing'));
+    return;
+  }
   const payload = { user_id: UID, name, icon: selIcon, type: draft.type };
 
   if (db) {
-    const { data, error } = await db.from('categories').insert([payload]).select().single();
-    if (error) { showErr('Kategoriya saqlashda xatolik'); return; }
-    cats[draft.type].push(data);
+    // .single() RLS yoki 0 qator qaytishi bilan PGRST116 beradi; insert bo‘lsa ham xato ko‘rinadi
+    const { data, error } = await db.from('categories').insert([payload]).select();
+    if (error) {
+      console.warn('[saveNewCat]', error);
+      showErr(t('err_cat_save') + (error.message ? ': ' + error.message : ''));
+      return;
+    }
+    const row = Array.isArray(data) ? data[0] : data;
+    if (row) {
+      cats[draft.type].push(row);
+    } else {
+      const { data: cd, error: ce } = await db.from('categories').select('*')
+        .eq('user_id', UID).order('name');
+      if (ce) {
+        console.warn('[saveNewCat] refetch', ce);
+        showErr(t('err_cat_save'));
+        return;
+      }
+      if (cd?.length) {
+        cats.income = cd.filter(c => c.type === 'income');
+        cats.expense = cd.filter(c => c.type === 'expense');
+      }
+    }
   } else {
     cats[draft.type].push({ ...payload, id: Date.now() });
   }
   cats[draft.type].sort((a, b) => a.name.localeCompare(b.name));
   buildCatGrid(draft.type);
+  if ($('stg-sub-cats')?.classList.contains('on')) renderStgCats();
   closeOv('ov-addcat');
+  vib('light');
 }
 
 let ctxTimer;
@@ -966,24 +1017,34 @@ async function checkBioAvail() {
   return tg?.BiometricManager?.isBiometricAvailable || false;
 }
 
+function refreshPinIfOpen() {
+  if (!$('pin-screen')?.classList.contains('on')) return;
+  showPin(pinMode);
+}
+
 function showPin(mode) {
   pinMode = mode; pinBuf = '';
   updatePinDots();
   $('pin-screen')?.classList.add('on');
-  const t = $('pin-ttl'), s = $('pin-sub'), c = $('pin-cancel-b'), bio = $('pin-bio-b');
+  const ttl = $('pin-ttl'), sub = $('pin-sub'), c = $('pin-cancel-b'), bio = $('pin-bio-b');
 
   const msgs = {
-    unlock: ['PIN Kod', 'Kirish uchun 4 xonali kod'],
-    setup_new: ['Yangi PIN', '4 raqam kiriting'],
-    setup_confirm: ['Tasdiqlash', 'PIN ni qayta kiriting'],
-    change_old: ['Eski PIN', 'Avvalgi PIN ni kiriting'],
+    unlock: [t('pin_title'), t('pin_enter')],
+    setup_new: [t('pin_new'), t('pin_new_sub')],
+    setup_confirm: [t('pin_confirm'), t('pin_confirm_sub')],
+    change_old: [t('pin_old'), t('pin_old_sub')],
   };
   const [tt, ss] = msgs[mode] || msgs.unlock;
-  if (t) t.textContent = tt;
-  if (s) s.textContent = ss;
-  if (c) c.style.display = mode !== 'unlock' ? 'block' : 'none';
+  if (ttl) ttl.textContent = tt;
+  if (sub) sub.textContent = ss;
+  if (c) {
+    c.style.display = mode !== 'unlock' ? 'block' : 'none';
+    c.textContent = t('pin_cancel');
+  }
   const canBio = tg?.BiometricManager?.isBiometricAvailable && tg?.BiometricManager?.isAccessGranted;
   if (bio) bio.style.display = (mode === 'unlock' && canBio) ? 'flex' : 'none';
+  const bioTxt = $('pin-bio-txt');
+  if (bioTxt) bioTxt.textContent = t('pin_bio_btn');
   if (mode === 'unlock' && tg?.BiometricManager?.isBiometricTokenSaved) setTimeout(triggerBio, 300);
 }
 
@@ -1009,7 +1070,7 @@ function checkPin() {
   };
 
   if (pinMode === 'unlock') {
-    if (pinBuf === pin) $('pin-screen')?.classList.remove('on');
+    if (pinBuf === pin) hidePinScreen();
     else shake();
   } else if (pinMode === 'change_old') {
     if (pinBuf === pin) showPin('setup_new');
@@ -1021,7 +1082,7 @@ function checkPin() {
     if (pinBuf === pinTemp) {
       pin = pinTemp;
       store.set('pin', pin);
-      $('pin-screen')?.classList.remove('on');
+      hidePinScreen();
       updateSettingsUI();
       showErr('PIN o\'rnatildi ✅');
     } else {
@@ -1035,15 +1096,27 @@ async function triggerBio() {
   if (!tg?.BiometricManager?.isBiometricAvailable) return;
   tg.BiometricManager.authenticate({ reason: 'Kassa-ga xavfsiz kirish' }, (success, token) => {
     if (success) {
-      $('pin-screen')?.classList.remove('on');
+      hidePinScreen();
     }
   });
 }
 
-function cancelPin() { $('pin-screen')?.classList.remove('on'); }
+function hidePinScreen() {
+  $('pin-screen')?.classList.remove('on');
+  pinContext = null;
+}
+
+function cancelPin() {
+  $('pin-screen')?.classList.remove('on');
+  if (pinContext === 'settings') {
+    showOv('ov-settings');
+    updateSettingsUI();
+  }
+  pinContext = null;
+}
 
 function setupPin() {
-  closeOv('ov-settings');
+  pinContext = 'settings';
   pin ? showPin('change_old') : showPin('setup_new');
 }
 
@@ -1054,33 +1127,35 @@ function removePin() {
   updateSettingsUI();
 }
 
-function toggleBio() {
-  if (!tg?.BiometricManager?.isBiometricAvailable) {
+function toggleBio(ev) {
+  ev?.stopPropagation?.();
+  const bm = tg?.BiometricManager;
+  if (!bm?.isBiometricAvailable) {
     showErr('Biometrika qurilmangizda mavjud emas');
     return;
   }
 
-  if (tg.BiometricManager.isAccessRequested && !tg.BiometricManager.isAccessGranted) {
-    tg.BiometricManager.openSettings();
+  if (bm.isAccessRequested && !bm.isAccessGranted) {
+    bm.openSettings();
     return;
   }
 
   const tokenLabel = 'kassa-token';
 
-  if (!tg.BiometricManager.isAccessRequested) {
-    tg.BiometricManager.requestAccess({ reason: 'Xavfsizlik uchun biometrikadan foydalanish' }, (granted) => {
-      if (granted) {
-        tg.BiometricManager.updateBiometricToken(tokenLabel, (updated) => {
-          updateSettingsUI();
-        });
-      }
+  const afterTokenUpdate = (updated) => {
+    if (!updated) showErr('Biometrika holati yangilanmadi. Qayta urinib ko‘ring.');
+    else vib('light');
+    updateSettingsUI();
+  };
+
+  if (!bm.isAccessRequested) {
+    bm.requestAccess({ reason: 'Xavfsizlik uchun biometrikadan foydalanish' }, (granted) => {
+      if (!granted) return;
+      bm.updateBiometricToken(tokenLabel, afterTokenUpdate);
     });
   } else {
-    // Access requested and granted
-    const newToken = tg.BiometricManager.isBiometricTokenSaved ? '' : tokenLabel;
-    tg.BiometricManager.updateBiometricToken(newToken, (updated) => {
-      updateSettingsUI();
-    });
+    const newToken = bm.isBiometricTokenSaved ? '' : tokenLabel;
+    bm.updateBiometricToken(newToken, afterTokenUpdate);
   }
 }
 
@@ -1088,6 +1163,7 @@ function toggleBio() {
 function openSettings() { updateSettingsUI(); showOv('ov-settings'); }
 
 function updateSettingsUI() {
+  // Legacy check for old IDs (kept for compatibility)
   const ps = $('pin-status'), rb = $('pin-rm-b'), ri = $('rate-in');
   const br = $('bio-row'), bt = $('bio-tgl');
   if (ps) ps.textContent = pin ? 'Faol ✅' : 'O\'rnatilmagan';
@@ -1095,12 +1171,26 @@ function updateSettingsUI() {
   if (ri) ri.value = rate ? fmt(rate).replace(/\s/g, ' ') : '';
   if (br) br.style.display = tg?.BiometricManager?.isBiometricAvailable ? 'flex' : 'none';
   if (bt) bt.classList.toggle('on', tg?.BiometricManager?.isBiometricTokenSaved);
+  // Yangi sozlamalar: toggle holati faqat Telegram API (isBiometricTokenSaved) bo'yicha
+  const stgBioTgl = $('stg-bio-tgl');
+  const bm = tg?.BiometricManager;
+  if (bm?.isBiometricAvailable && stgBioTgl) {
+    const saved = !!bm.isBiometricTokenSaved;
+    stgBioTgl.classList.toggle('on', saved);
+    bioOn = saved;
+    store.set('bio', saved ? 'true' : 'false');
+  } else if (stgBioTgl && !bm?.isBiometricAvailable) {
+    stgBioTgl.classList.remove('on');
+  }
+  // New settings UI
+  updatePinUI();
+  updateThemeIcon();
 }
 
 async function saveRate(v) {
   const n = Number(v);
   if (!n || n <= 0) {
-    showErr('Noto\'g\'ri kurs qiymati!');
+    showErr(t('err_rate_invalid'));
     return;
   }
 
@@ -1127,13 +1217,40 @@ async function saveRate(v) {
   }
 }
 
+async function saveRateFromStg() {
+  const raw = $('stg-rate-in')?.value;
+  const n = getCleanAmount(raw);
+  if (!n || n <= 0) {
+    showErr(t('err_rate_invalid'));
+    return;
+  }
+  await saveRate(n);
+  rateDraftStg = fmt(rate);
+  closeOv('stg-sub-rate');
+}
+
+function closeStgRate(saved) {
+  if (!saved) {
+    const rateIn = $('stg-rate-in');
+    if (rateIn && rateDraftStg !== null) rateIn.value = rateDraftStg;
+  }
+  closeOv('stg-sub-rate');
+}
+
+function closeStgRateBackdrop(e) {
+  if (e) { const sh = e.currentTarget?.querySelector('.sheet'); if (sh && sh.contains(e.target)) return; }
+  closeStgRate(false);
+}
+
 function toggleTheme() {
   document.body.classList.toggle('light');
   store.set('theme', document.body.classList.contains('light') ? 'light' : 'dark');
+  updateThemeIcon();
 }
 
 // ─── EXPORT / IMPORT ─────────────────────────────────────
 function openExport() {
+  closeOv('ov-settings');
   const now = new Date(), first = new Date(now.getFullYear(), now.getMonth(), 1);
   $('ex-from').valueAsDate = first;
   $('ex-to').valueAsDate = now;
@@ -1242,6 +1359,200 @@ function resetData() {
   });
 }
 
+// ─── I18N (INTERNATIONALIZATION) ─────────────────────────
+let currentLang = store.get('lang') || 'uz';
+let T = {};
+
+async function loadLang(lang) {
+  try {
+    // Vercel / har qanday hostda doim ildizdan: /lang/uz.json (vercel.json static build)
+    const url = new URL(`/lang/${lang}.json`, window.location.origin);
+    const res = await fetch(url.toString(), { cache: 'no-store' });
+    if (!res.ok) throw new Error('Lang file not found');
+    T = await res.json();
+    currentLang = lang;
+    store.set('lang', lang);
+  } catch (e) {
+    console.warn('[i18n] Failed to load lang:', lang, e);
+  }
+}
+
+function t(key) {
+  return T[key] || key;
+}
+
+function applyLang() {
+  document.querySelectorAll('[data-i18n]').forEach(el => {
+    const key = el.dataset.i18n;
+    if (T[key]) el.textContent = T[key];
+  });
+  document.querySelectorAll('[data-i18n-placeholder]').forEach(el => {
+    const key = el.dataset.i18nPlaceholder;
+    if (T[key]) el.placeholder = T[key];
+  });
+  document.querySelectorAll('[data-i18n-title]').forEach(el => {
+    const key = el.dataset.i18nTitle;
+    if (T[key]) el.title = T[key];
+  });
+  ['uz', 'ru', 'en'].forEach(l => {
+    const check = $(`lang-check-${l}`);
+    if (check) check.textContent = l === currentLang ? '✓' : '';
+  });
+  document.documentElement.lang = currentLang === 'ru' ? 'ru' : currentLang === 'en' ? 'en' : 'uz';
+}
+
+async function changeLang(lang) {
+  await loadLang(lang);
+  applyLang();
+  refreshPinIfOpen();
+  renderAll();
+  renderHistory();
+  updateSettingsUI();
+  initSettingsUI();
+  closeOv('stg-sub-lang');
+  vib('light');
+}
+
+// ─── SETTINGS SUB-PAGES ─────────────────────────────────
+function openStgSub(id) {
+  showOv(id);
+  // Pre-fill data
+  if (id === 'stg-sub-profile') {
+    const nameIn = $('stg-name-in');
+    if (nameIn) nameIn.value = store.get('display_name') || tg?.initDataUnsafe?.user?.first_name || '';
+  }
+  if (id === 'stg-sub-rate') {
+    const rateIn = $('stg-rate-in');
+    if (rateIn) {
+      rateDraftStg = fmt(rate);
+      rateIn.value = rateDraftStg;
+    }
+  }
+  if (id === 'stg-sub-cats') {
+    stgCatTab('income');
+  }
+  if (id === 'stg-sub-terms') {
+    const el = $('stg-terms-text');
+    if (el) el.textContent = (T.terms_text || '').replace(/\\n/g, '\n');
+  }
+  if (id === 'stg-sub-privacy') {
+    const el = $('stg-privacy-text');
+    if (el) el.textContent = (T.privacy_text || '').replace(/\\n/g, '\n');
+  }
+}
+
+// ─── PROFILE ────────────────────────────────────────────
+function saveProfile() {
+  const name = $('stg-name-in')?.value.trim();
+  if (!name) return;
+  store.set('display_name', name);
+  const nameEl = $('stg-user-name');
+  if (nameEl) nameEl.textContent = name;
+  closeOv('stg-sub-profile');
+  vib('light');
+  if (db) {
+    db.from('users').update({ full_name: name }).eq('user_id', UID).then(({ error }) => {
+      if (error) console.error('[saveProfile]', error);
+    });
+  }
+}
+
+function initSettingsUI() {
+  // User name
+  const userName = store.get('display_name') || tg?.initDataUnsafe?.user?.first_name || '—';
+  const nameEl = $('stg-user-name');
+  if (nameEl) nameEl.textContent = userName;
+
+  // Theme icon
+  updateThemeIcon();
+
+  // PIN status
+  updatePinUI();
+
+  // Biometrik qatori — toggle holati updateSettingsUI / BiometricManager.init da sinxronlanadi
+  const canBio = tg?.BiometricManager?.isBiometricAvailable;
+  const bioRow = $('stg-bio-row');
+  if (bioRow) bioRow.style.display = canBio ? 'flex' : 'none';
+}
+
+function updatePinUI() {
+  const status = $('stg-pin-status');
+  const rmRow = $('stg-pin-rm-row');
+  if (pin) {
+    if (status) status.textContent = t('stg_pin_set');
+    if (rmRow) rmRow.style.display = 'flex';
+  } else {
+    if (status) status.textContent = t('stg_pin_not_set');
+    if (rmRow) rmRow.style.display = 'none';
+  }
+}
+
+function updateThemeIcon() {
+  const ico = $('stg-theme-ico');
+  if (ico) ico.textContent = document.body.classList.contains('light') ? '☀️' : '🌙';
+}
+
+// ─── CATEGORIES IN SETTINGS ─────────────────────────────
+let stgCatType = 'income';
+
+function stgCatTab(type) {
+  stgCatType = type;
+  $('stg-cat-inc-tab')?.classList.toggle('active', type === 'income');
+  $('stg-cat-exp-tab')?.classList.toggle('active', type === 'expense');
+  renderStgCats();
+}
+
+function renderStgCats() {
+  const list = $('stg-cat-list');
+  if (!list) return;
+  const items = cats[stgCatType] || [];
+  if (items.length === 0) {
+    list.innerHTML = `<div style="text-align:center;padding:24px;color:var(--muted);font-size:13px">${t('no_data')}</div>`;
+    return;
+  }
+  list.innerHTML = items.map((c, i) => `
+    <div class="stg-cat-item">
+      <div class="sti-ico">${svgIcon(c.icon || 'star')}</div>
+      <div class="sti-name">${esc(c.name)}</div>
+      <button class="sti-del" onclick="delStgCat(${i})">✕</button>
+    </div>
+  `).join('');
+}
+
+async function delStgCat(idx) {
+  const cat = cats[stgCatType]?.[idx];
+  if (!cat || !confirm(`"${cat.name}" ni o'chirasizmi?`)) return;
+  cats[stgCatType].splice(idx, 1);
+  renderStgCats();
+  if (db && cat.id) await db.from('categories').delete().eq('id', cat.id).eq('user_id', UID);
+}
+
+function openAddCatFromStg() {
+  draft.type = stgCatType;
+  openAddCat();
+}
+
+// ─── EXTERNAL LINKS ─────────────────────────────────────
+function openTgGroup() {
+  const url = 'https://t.me/meningkassam_community';
+  if (tg?.openTelegramLink) {
+    tg.openTelegramLink(url);
+  } else {
+    window.open(url, '_blank');
+  }
+}
+
+function openSupport() {
+  const url = 'https://t.me/uyqur_nurali';
+  if (tg?.openTelegramLink) {
+    tg.openTelegramLink(url);
+  } else {
+    window.open(url, '_blank');
+  }
+}
+
+
+
 // ─── GLOBAL ERROR HANDLER ────────────────────────────────
 window.addEventListener('unhandledrejection', e => {
   console.error('[unhandled]', e.reason);
@@ -1249,3 +1560,4 @@ window.addEventListener('unhandledrejection', e => {
 window.addEventListener('error', e => {
   console.error('[error]', e.message);
 });
+
