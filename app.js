@@ -284,7 +284,7 @@ async function ensureUser() {
   const name = [tg?.initDataUnsafe?.user?.first_name, tg?.initDataUnsafe?.user?.last_name]
     .filter(Boolean).join(' ').trim() || `User ${UID}`;
   const { error } = await db.from('users').upsert(
-    { user_id: UID, full_name: name, exchange_rate: rate },
+    { user_id: UID, full_name: name },
     { onConflict: 'user_id' }
   );
   if (error) throw error;
@@ -1016,17 +1016,17 @@ async function saveRate(v) {
     showErr('Noto\'g\'ri kurs qiymati!');
     return;
   }
-  
-  rate = n; 
+
+  rate = n;
   store.set('rate', rate);
-  
+
   // Update UI immediately (dashboard balances)
   renderAll();
-  
+
   if (db) {
     try {
       const { error } = await db.from('users').upsert(
-        { user_id: UID, exchange_rate: rate }, 
+        { user_id: UID, exchange_rate: rate },
         { onConflict: 'user_id' }
       );
       if (error) throw error;
