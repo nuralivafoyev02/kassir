@@ -1920,6 +1920,12 @@ body {
 #loader p {
     font-size: 14px;
     color: var(--muted);
+    transition: opacity 0.3s, transform 0.3s;
+}
+
+#loader p.fade {
+    opacity: 0;
+    transform: translateY(-5px);
 }
 
 /* ─── ERROR BAR ───────────────────────────────── */

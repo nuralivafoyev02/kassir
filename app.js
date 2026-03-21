@@ -143,15 +143,33 @@ function addMsg(text, isUser = false) {
 }
 
 // ─── LOADER ─────────────────────────────────────────────
+let loaderInterval;
+function startLoaderMessages() {
+  const msgEl = $('loader-msg');
+  if (!msgEl) return;
+  const msgs = ['Yuklanyapti...', 'Sozlanyapti...', 'Deyarli tayyor...', 'Yana bir soniya...'];
+  let idx = 0;
+  loaderInterval = setInterval(() => {
+    msgEl.classList.add('fade');
+    setTimeout(() => {
+      idx = (idx + 1) % msgs.length;
+      msgEl.textContent = msgs[idx];
+      msgEl.classList.remove('fade');
+    }, 300);
+  }, 2200);
+}
+
 function hideLoader() {
   const el = $('loader');
   if (!el) return;
+  clearInterval(loaderInterval);
   el.classList.add('out');
   setTimeout(() => { el.style.display = 'none'; }, 500);
 }
 
 // ─── INIT: entry point ──────────────────────────────────
 (async () => {
+  startLoaderMessages();
   // Avval loader ko'rinsin, faqat hamma narsa tayyor bo'lgach yopiladi
 
   if (store.get('theme') === 'light') document.body.classList.add('light');
