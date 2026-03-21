@@ -1,11 +1,9 @@
 {
   "app_name": "Kassa",
   "app_sub": "Moliyaviy boshqaruv",
-
   "nav_home": "Bosh",
   "nav_add": "Qo'shish",
   "nav_history": "Tarix",
-
   "balance_title": "Umumiy Qoldiq",
   "income": "Kirim",
   "expense": "Chiqim",
@@ -19,7 +17,6 @@
   "categories": "Kategoriyalar",
   "no_data": "Hozircha ma'lumot yo'q",
   "trends": "Trendlar",
-
   "add_title": "Tranzaksiya",
   "add_sub": "Kirim yoki chiqimni qo'shing",
   "add_hello": "👋 Salom! Kirim yoki chiqimni qo'shing.",
@@ -32,12 +29,10 @@
   "add_save": "Saqlash",
   "add_receipt_attached": "Chek biriktirildi",
   "add_receipt_remove": "O'chirish",
-
   "hist_title": "Tarix",
   "hist_all": "Barchasi",
   "hist_empty": "Hali operatsiyalar yo'q",
   "hist_empty_sub": "Qo'shish tabidan boshlang",
-
   "new_cat_title": "Yangi Kategoriya",
   "new_cat_name": "Nom",
   "new_cat_name_ph": "Kategoriya nomi...",
@@ -45,14 +40,12 @@
   "err_cat_name_required": "Kategoriya nomini kiriting",
   "err_cat_type_missing": "Avval kirim yoki chiqimni tanlang",
   "err_cat_save": "Kategoriya saqlashda xatolik",
-
   "settings_title": "Sozlamalar",
   "stg_profile": "Profil",
   "stg_edit_profile": "Profilni tahrirlash",
   "stg_subscription": "Obuna holati",
   "stg_coming_soon": "Tez kunda",
   "stg_days_left": "kun qoldi",
-
   "stg_general": "Umumiy",
   "stg_tg_group": "Telegram guruh",
   "stg_tg_group_sub": "Fikr va takliflar",
@@ -64,25 +57,21 @@
   "stg_friends_sub": "Taklif qiling va mukofot oling",
   "stg_notifications": "Bildirishnomalar",
   "stg_notifications_sub": "Ogohlantirishlar sozlash",
-
   "stg_reports": "Hisobotlar",
   "stg_download_report": "Hisobotni yuklab olish",
   "stg_clear_data": "Hisobotlarni tozalash",
   "stg_clear_confirm": "Barcha ma'lumotlarni o'chirishni tasdiqlaysizmi?",
-
   "stg_about": "Ilova haqida",
   "stg_guide": "Foydalanish yo'riqnomasi",
   "stg_language": "Tilni o'zgartirish",
   "stg_lang_uz": "O'zbek tili",
   "stg_lang_ru": "Русский",
   "stg_lang_en": "English",
-
   "stg_support_section": "Yordam",
   "stg_support": "Qo'llab-quvvatlash",
   "stg_support_sub": "Admin bilan bog'lanish",
   "stg_terms": "Bizning shartlar",
   "stg_privacy": "Maxfiylik siyosati",
-
   "stg_security": "Xavfsizlik",
   "stg_pin": "PIN Kod",
   "stg_pin_set": "O'rnatilgan",
@@ -95,12 +84,10 @@
   "stg_theme_sub": "Tungi / Kunduzgi",
   "stg_theme_toggle": "Almashtirish",
   "stg_rate_sub": "1 USD = ? UZS",
-
   "stg_close": "Yopish",
   "stg_export_json": "JSON Eksport",
   "stg_import_json": "JSON Import",
   "stg_delete_all": "Barcha ma'lumotlarni o'chirish",
-
   "action_edit": "Tahrirlash",
   "action_delete": "O'chirish",
   "action_view_receipt": "Chekni ko'rish",
@@ -121,7 +108,6 @@
   "pdf_receipts": "Cheklar",
   "pdf_create": "Yaratish",
   "no_data_error": "Hozircha ma'lumot yo'q",
-
   "pin_title": "PIN Kod",
   "pin_enter": "Kirish uchun 4 xonali kod",
   "pin_new": "Yangi PIN",
@@ -132,19 +118,18 @@
   "pin_old_sub": "Avvalgi PIN ni kiriting",
   "pin_bio_btn": "Biometrik",
   "pin_cancel": "Bekor qilish",
-
   "err_rate_invalid": "Noto'g'ri kurs qiymati!",
   "hist_receipt": "Chek",
   "suffix_uzs": "so'm",
-
   "loading_1": "Yuklanmoqda...",
   "loading_2": "Sozlanyapti...",
   "loading_3": "Deyarli tayyor...",
   "loading_4": "Yana bir soniya...",
-
   "privacy_title": "Maxfiylik Siyosati",
   "privacy_text": "Kassa ilovasi foydalanuvchilarning shaxsiy ma'lumotlarini himoya qiladi.\\n\\n1. Biz faqat ilovaning ishlashi uchun zarur bo'lgan ma'lumotlarni yig'amiz (Telegram ID, tranzaksiya ma'lumotlari).\\n2. Sizning ma'lumotlaringiz shifrlangan holda saqlanadi va uchinchi shaxslarga berilmaydi.\\n3. Siz istalgan vaqtda barcha ma'lumotlaringizni o'chirishingiz mumkin.\\n4. Biz cookie yoki kuzatuv texnologiyalaridan foydalanmaymiz.\\n5. Ma'lumotlar Supabase serverlarida xavfsiz saqlanadi.\\n\\nSavollar bo'lsa, @uyqur_nurali ga murojaat qiling.",
-
   "terms_title": "Foydalanish Shartlari",
-  "terms_text": "Kassa — bu shaxsiy moliyaviy boshqaruv ilovasi.\\n\\n1. Ilova faqat shaxsiy foydalanish uchun mo'ljallangan.\\n2. Foydalanuvchi o'z ma'lumotlarining to'g'riligiga javobgardir.\\n3. Biz ilovaning uzluksiz ishlashini kafolatlamaymiz, lekin eng yaxshi tajribani taqdim etishga harakat qilamiz.\\n4. Ilova bepul, lekin kelajakda premium xususiyatlar qo'shilishi mumkin.\\n5. Biz istalgan vaqtda shartlarni o'zgartirishimiz mumkin.\\n\\nSavollar bo'lsa, @uyqur_nurali ga murojaat qiling."
+  "terms_text": "Kassa — bu shaxsiy moliyaviy boshqaruv ilovasi.\\n\\n1. Ilova faqat shaxsiy foydalanish uchun mo'ljallangan.\\n2. Foydalanuvchi o'z ma'lumotlarining to'g'riligiga javobgardir.\\n3. Biz ilovaning uzluksiz ishlashini kafolatlamaymiz, lekin eng yaxshi tajribani taqdim etishga harakat qilamiz.\\n4. Ilova bepul, lekin kelajakda premium xususiyatlar qo'shilishi mumkin.\\n5. Biz istalgan vaqtda shartlarni o'zgartirishimiz mumkin.\\n\\nSavollar bo'lsa, @uyqur_nurali ga murojaat qiling.",
+  "err_profile_name_required": "Profil nomini kiriting",
+  "err_profile_save": "Profilni saqlashda xatolik",
+  "profile_saved": "Profil saqlandi ✅"
 }

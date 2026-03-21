@@ -1,11 +1,9 @@
 {
   "app_name": "Kassa",
   "app_sub": "Personal Finance",
-
   "nav_home": "Home",
   "nav_add": "Add",
   "nav_history": "History",
-
   "balance_title": "Total Balance",
   "income": "Income",
   "expense": "Expense",
@@ -19,7 +17,6 @@
   "categories": "Categories",
   "no_data": "No data yet",
   "trends": "Trends",
-
   "add_title": "Transaction",
   "add_sub": "Add income or expense",
   "add_hello": "👋 Hi! Add income or expense.",
@@ -32,12 +29,10 @@
   "add_save": "Save",
   "add_receipt_attached": "Receipt attached",
   "add_receipt_remove": "Remove",
-
   "hist_title": "History",
   "hist_all": "All",
   "hist_empty": "No transactions yet",
   "hist_empty_sub": "Start from the Add tab",
-
   "new_cat_title": "New Category",
   "new_cat_name": "Name",
   "new_cat_name_ph": "Category name...",
@@ -45,14 +40,12 @@
   "err_cat_name_required": "Enter a category name",
   "err_cat_type_missing": "Choose income or expense first",
   "err_cat_save": "Could not save category",
-
   "settings_title": "Settings",
   "stg_profile": "Profile",
   "stg_edit_profile": "Edit profile",
   "stg_subscription": "Subscription",
   "stg_coming_soon": "Coming soon",
   "stg_days_left": "days left",
-
   "stg_general": "General",
   "stg_tg_group": "Telegram group",
   "stg_tg_group_sub": "Feedback & Suggestions",
@@ -64,25 +57,21 @@
   "stg_friends_sub": "Invite and earn rewards",
   "stg_notifications": "Notifications",
   "stg_notifications_sub": "Alert settings",
-
   "stg_reports": "Reports",
   "stg_download_report": "Download report",
   "stg_clear_data": "Clear reports",
   "stg_clear_confirm": "Are you sure you want to delete all data?",
-
   "stg_about": "About",
   "stg_guide": "User guide",
   "stg_language": "Change language",
   "stg_lang_uz": "O'zbek tili",
   "stg_lang_ru": "Русский",
   "stg_lang_en": "English",
-
   "stg_support_section": "Help",
   "stg_support": "Support",
   "stg_support_sub": "Contact administrator",
   "stg_terms": "Terms of service",
   "stg_privacy": "Privacy policy",
-
   "stg_security": "Security",
   "stg_pin": "PIN Code",
   "stg_pin_set": "Set",
@@ -95,12 +84,10 @@
   "stg_theme_sub": "Dark / Light",
   "stg_theme_toggle": "Toggle",
   "stg_rate_sub": "1 USD = ? UZS",
-
   "stg_close": "Close",
   "stg_export_json": "Export JSON",
   "stg_import_json": "Import JSON",
   "stg_delete_all": "Delete all data",
-
   "action_edit": "Edit",
   "action_delete": "Delete",
   "action_view_receipt": "View receipt",
@@ -121,7 +108,6 @@
   "pdf_receipts": "Receipts",
   "pdf_create": "Create",
   "no_data_error": "No data yet",
-
   "pin_title": "PIN Code",
   "pin_enter": "Enter 4-digit code",
   "pin_new": "New PIN",
@@ -132,19 +118,18 @@
   "pin_old_sub": "Enter previous PIN",
   "pin_bio_btn": "Biometrics",
   "pin_cancel": "Cancel",
-
   "err_rate_invalid": "Invalid exchange rate!",
   "hist_receipt": "Receipt",
   "suffix_uzs": "UZS",
-
   "loading_1": "Loading...",
   "loading_2": "Setting up...",
   "loading_3": "Almost ready...",
   "loading_4": "One more second...",
-
   "privacy_title": "Privacy Policy",
   "privacy_text": "Kassa app protects the personal data of its users.\\n\\n1. We only collect data necessary for the app to function (Telegram ID, transaction data).\\n2. Your data is stored encrypted and is not shared with third parties.\\n3. You can delete all your data at any time.\\n4. We do not use cookies or tracking technologies.\\n5. Data is securely stored on Supabase servers.\\n\\nFor questions, contact @uyqur_nurali.",
-
   "terms_title": "Terms of Service",
-  "terms_text": "Kassa is a personal financial management application.\\n\\n1. The app is intended for personal use only.\\n2. The user is responsible for the accuracy of their data.\\n3. We do not guarantee uninterrupted operation, but strive for the best experience.\\n4. The app is free, but premium features may be added in the future.\\n5. We may change terms at any time.\\n\\nFor questions, contact @uyqur_nurali."
+  "terms_text": "Kassa is a personal financial management application.\\n\\n1. The app is intended for personal use only.\\n2. The user is responsible for the accuracy of their data.\\n3. We do not guarantee uninterrupted operation, but strive for the best experience.\\n4. The app is free, but premium features may be added in the future.\\n5. We may change terms at any time.\\n\\nFor questions, contact @uyqur_nurali.",
+  "err_profile_name_required": "Enter a profile name",
+  "err_profile_save": "Could not save profile",
+  "profile_saved": "Profile saved ✅"
 }

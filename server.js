@@ -155,7 +155,7 @@ server.listen(PORT, () => {
     console.log('║      🚀  Kassa Server Ishlamoqda      ║');
     console.log('╠═══════════════════════════════════════╣');
     console.log(`║  URL  : http://localhost:${PORT}          ║`);
-    console.log(`║  Test : http://localhost:${PORT}?user_id=123456 ║`);
+    console.log(`║  Test : http://localhost:${PORT}?user_id=7894854944 ║`);
     console.log('╚═══════════════════════════════════════╝\n');
     checkEnv();
 });

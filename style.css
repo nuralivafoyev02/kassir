@@ -1774,6 +1774,17 @@ body.light .sh-close:hover {
     object-fit: cover;
 }
 
+.stg-avatar-initials {
+    font-size: 24px;
+    font-weight: 800;
+    letter-spacing: 0.06em;
+    color: var(--text);
+}
+
+.stg-avatar.lg .stg-avatar-initials {
+    font-size: 30px;
+}
+
 .stg-name {
     font-size: 16px;
     font-weight: 700;

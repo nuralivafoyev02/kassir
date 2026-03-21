@@ -49,6 +49,21 @@ node api/bot.js
 
 ---
 
+
+### Admin buyruqlari
+- `/admin` — admin panel (statistika, userlar, broadcastlar, xatolar)
+- `/message <matn>` — broadcast draft yaratadi
+- `/message` uchun tugmali format:
+  ```
+  /message Assalomu alaykum
+  --
+  Kanal | https://t.me/username
+  ```
+- Broadcast yuborilgandan keyin yetib bormagan userlar `broadcast_failures` ga yoziladi va qayta yuborish tugmasi chiqadi.
+
+### Supabase migratsiya
+Yangi admin/broadcast funksiyalaridan oldin `supabase.sql` ni qayta ishga tushiring. Unda `broadcasts` jadvali uchun yangi ustunlar va `broadcast_failures` jadvali qo'shilgan.
+
 ## 🧠 Botdan qanday foydalanish
 Bot sizga moliyaviy tranzaksiyalarni tez kiritish imkonini beradi.
 
