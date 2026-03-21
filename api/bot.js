@@ -148,8 +148,9 @@ function parseText(raw) {
 
   let numStr = m[1].trim();
   numStr = numStr
-    .replace(/,(?=\d{3}(\D|$))/g, '') // minglik vergul
-    .replace(/\s/g, '');              // bo'shliqlar
+    .replace(/[. ](?=\d{3}(?:\D|$))/g, '') // minglik nuqta yoki bo'shliq: 500.000 -> 500000
+    .replace(/,/g, '.')                    // vergulni nuqtaga: 1,5 -> 1.5
+    .replace(/\s/g, '');                   // qolgan bo'shliqlar
 
   const amount = parseFloat(numStr);
   if (!amount || isNaN(amount) || !Number.isFinite(amount)) return null;
@@ -157,9 +158,19 @@ function parseText(raw) {
   // Suffix multiplier
   const suffix = (m[2] || '').replace(/\s/g, '').toLowerCase();
   let finalAmount = amount;
-  if (suffix === 'k' || suffix === 'ming') finalAmount = amount * 1_000;
-  else if (suffix === 'mln' || suffix === 'million' || suffix === 'm') finalAmount = amount * 1_000_000;
-  else if (suffix === 'mlrd' || suffix === 'milliard' || suffix === 'b') finalAmount = amount * 1_000_000_000;
+
+  // Redundancy check: if user wrote "500 000 ming", amount is 500000. 
+  // If amount >= 1000 and suffix is 'k'/'ming', we skip multiplication.
+  const isAlreadyBig = (suffix === 'k' || suffix === 'ming') && amount >= 1000;
+  const isAlreadyMln = (suffix === 'mln' || suffix === 'm' || suffix === 'million') && amount >= 1000000;
+
+  if (suffix === 'k' || suffix === 'ming') {
+    if (!isAlreadyBig) finalAmount = amount * 1_000;
+  } else if (suffix === 'mln' || suffix === 'million' || suffix === 'm') {
+    if (!isAlreadyMln) finalAmount = amount * 1_000_000;
+  } else if (suffix === 'mlrd' || suffix === 'milliard' || suffix === 'b') {
+    finalAmount = amount * 1_000_000_000;
+  }
 
   if (!Number.isFinite(finalAmount) || finalAmount <= 0) return null;
 

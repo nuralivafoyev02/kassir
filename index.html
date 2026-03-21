@@ -147,7 +147,7 @@
             <div id="no-data"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
                 <path d="M21.21 15.89A10 10 0 1 1 8 2.83" />
                 <path d="M22 12A10 10 0 0 0 12 2v10z" />
-              </svg>Ma'lumot yo'q</div>
+              </svg>Hozircha ma'lumot yo'q</div>
           </div>
           <div id="cat-table"></div>
         </div>
@@ -323,11 +323,17 @@
   <div class="ov" id="ov-addcat" onclick="closeOv('ov-addcat',event)">
     <div class="sheet" onclick="event.stopPropagation()">
       <div class="sh-hdl"></div>
+      <button class="sh-close" onclick="closeOv('ov-addcat')">✕</button>
       <div class="sh-ttl">Yangi Kategoriya</div>
-      <div class="fld"><label>Nom</label><input id="nc-name" type="text" placeholder="Kategoriya nomi..."></div>
-      <div class="fld"><label>Ikonka</label>
+      <div class="fld">
+        <label>Nom</label>
+        <input id="nc-name" type="text" placeholder="Kategoriya nomi...">
+      </div>
+      <div class="fld" style="margin-top:20px">
+        <label>Ikonka tanlang</label>
         <div id="icon-grid"></div>
-      </div><button class="bpri" style="margin-top:8px" onclick="saveNewCat()">Saqlash</button>
+      </div>
+      <button class="bpri" style="margin-top:24px;width:100%" onclick="saveNewCat()">Saqlash</button>
     </div>
   </div>
   <div class="ov center" id="ov-date" onclick="closeOv('ov-date',event)">
