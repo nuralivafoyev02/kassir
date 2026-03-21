@@ -1,16 +1,51 @@
 {
   "version": 2,
   "builds": [
-    { "src": "api/*.js", "use": "@vercel/node" },
-    { "src": "index.html", "use": "@vercel/static" },
-    { "src": "app.js", "use": "@vercel/static" },
-    { "src": "style.css", "use": "@vercel/static" },
-    { "src": "lang/uz.json", "use": "@vercel/static" },
-    { "src": "lang/ru.json", "use": "@vercel/static" },
-    { "src": "lang/en.json", "use": "@vercel/static" }
+    {
+      "src": "api/*.js",
+      "use": "@vercel/node"
+    },
+    {
+      "src": "index.html",
+      "use": "@vercel/static"
+    },
+    {
+      "src": "app.js",
+      "use": "@vercel/static"
+    },
+    {
+      "src": "style.css",
+      "use": "@vercel/static"
+    },
+    {
+      "src": "lang/uz.json",
+      "use": "@vercel/static"
+    },
+    {
+      "src": "lang/ru.json",
+      "use": "@vercel/static"
+    },
+    {
+      "src": "lang/en.json",
+      "use": "@vercel/static"
+    },
+    {
+      "src": "updates/release-1-0-1.html",
+      "use": "@vercel/static"
+    }
   ],
   "routes": [
-    { "src": "/api/(.*)", "dest": "/api/$1.js" },
-    { "src": "/(.*)", "dest": "/$1" }
+    {
+      "src": "/api/(.*)",
+      "dest": "/api/$1.js"
+    },
+    {
+      "src": "/updates/(.*)",
+      "dest": "/updates/$1"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "/$1"
+    }
   ]
 }
