@@ -85,8 +85,46 @@ const md2html = (t) => String(t ?? '')
 // Raqamni lokal formatda ko'rsatish
 const numFmt = n => Number(n || 0).toLocaleString('ru-RU');
 
+// GPT orkali matndan (ovozli xabardan) ma'lumotlarni olish
+async function gptParse(text) {
+  if (!openai || !text) return null;
+
+  try {
+    const prompt = `Ushbu o'zbek tilidagi moliyaviy xabardan summa (amount), tur (type: income yoki expense) va kategoriyani (category) JSON formatida aniqlab ber.
+Xabar: "${text}"
+
+Qoidalar:
+1. "yuz ming", "bir yarim mln" kabi so'zlarni raqamga aylantir.
+2. "berdim", "ketdi", "sotib oldim" so'zlari odatda chiqim (expense).
+3. "tushdi", "oldim", "keldi", "oylik", "bonus" so'zlari odatda kirim (income).
+4. Agar valyuta dollar ($) bo'lsa, isUSD: true qilib belgilang.
+5. Faqat JSON qaytaring: {"amount": number, "type": "income"|"expense", "category": "string", "isUSD": boolean}
+Agar tushunarsiz bo'lsa, null qaytaring.`;
+
+    const res = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [{ role: "user", content: prompt }],
+      response_format: { type: "json_object" },
+      temperature: 0,
+    });
+
+    const data = JSON.parse(res.choices[0].message.content);
+    if (!data || !data.amount) return null;
+
+    return {
+      amount: Math.round(data.amount),
+      type: data.type || 'expense',
+      category: data.category || (data.type === 'income' ? 'Kirim' : 'Xarajat'),
+      isUSD: !!data.isUSD
+    };
+  } catch (e) {
+    logErr('gpt-parse', e);
+    return null;
+  }
+}
+
 // ─── TEXT PARSER ──────────────────────────────────────────
-// Matndan summa, tur va kategoriyani ajratib olish
+// Matndan summa, tur va kategoriyani ajratib olish (Regex asosslangan fallback)
 function parseText(raw) {
   if (!raw) return null;
   const text = String(raw).trim();
@@ -105,22 +143,16 @@ function parseText(raw) {
     .trim();
 
   // Raqam va suffix topish
-  // Masalan: "50 ming", "2mln", "100 000", "30,000"
   const m = clean.match(/(\d[\d\s,.]*)(\s*(?:k|ming|mln|mlrd|million|milliard|m|b)\b)?/i);
   if (!m) return null;
 
-  // Raqamni tozalash: minglik ajratgichlarni olib tashlash
-  // "1 000 000" => "1000000", "1,000" => "1000", "12.5" => "12.5"
   let numStr = m[1].trim();
-
-  // Agar vergul minglik ajratgich bo'lsa yoki nuqta bo'lsa:
-  // "1,500" -> 1500; "1.5" -> 1.5; "1 500" -> 1500
   numStr = numStr
-    .replace(/,(?=\d{3}(\D|$))/g, '') // minglik vergul ajratgich
-    .replace(/\s/g, '');              // bo'shliqlarni olib tashlash
+    .replace(/,(?=\d{3}(\D|$))/g, '') // minglik vergul
+    .replace(/\s/g, '');              // bo'shliqlar
 
   const amount = parseFloat(numStr);
-  if (!amount || isNaN(amount) || !isFinite(amount)) return null;
+  if (!amount || isNaN(amount) || !Number.isFinite(amount)) return null;
 
   // Suffix multiplier
   const suffix = (m[2] || '').replace(/\s/g, '').toLowerCase();
@@ -129,50 +161,26 @@ function parseText(raw) {
   else if (suffix === 'mln' || suffix === 'million' || suffix === 'm') finalAmount = amount * 1_000_000;
   else if (suffix === 'mlrd' || suffix === 'milliard' || suffix === 'b') finalAmount = amount * 1_000_000_000;
 
-  if (!isFinite(finalAmount) || finalAmount <= 0) return null;
+  if (!Number.isFinite(finalAmount) || finalAmount <= 0) return null;
 
-  // Tur aniqlash (income / expense)
-  const incWords = ['kirim', 'tushdi', 'keldi', 'avans', 'oylik', 'bonus',
-    'qaytdi', 'foyda', 'oldim', 'topdi', 'yutdi', 'daromad'];
-  const expWords = ['chiqim', 'ketdi', 'berdim', 'sarfladim', 'xarajat',
-    'sotib', 'taksi', 'ovqat', 'toladi', 'toladim', 'tushlik', 'kechki'];
+  // Tur aniqlash
+  const incWords = ['kirim', 'tushdi', 'keldi', 'avans', 'oylik', 'bonus', 'oldim', 'daromad'];
+  const expWords = ['chiqim', 'ketdi', 'berdim', 'sarfladim', 'xarajat', 'taksi', 'ovqat', 'tushlik'];
 
-  // Suffix checks (Uzbek)
-  const hasDan = /\w+dan\b/i.test(lower); // from ... (usually income)
-  const hasGa = /\w+ga\b/i.test(lower);   // to ... (usually expense)
-
-  let type = 'expense'; // sukut bo'yicha chiqim
-
-  // Aniq belgilar
+  let type = 'expense';
   if (/^\+/.test(lower)) type = 'income';
   else if (/^-/.test(lower)) type = 'expense';
-  // Suffix override: "akamdan" "oylikdan" etc. should be income as per user request
-  else if (hasDan) type = 'income';
-  // Kalit so'zlar
+  else if (/\w+dan\b/i.test(lower)) type = 'income';
   else if (incWords.some(w => lower.includes(w))) type = 'income';
   else if (expWords.some(w => lower.includes(w))) type = 'expense';
-  else if (hasGa) type = 'expense';
+  else if (/\w+ga\b/i.test(lower)) type = 'expense';
 
-  // Kategoriya: raqam va suffixni olib tashlagan qoldiq
-  let catPart = clean
-    .replace(m[0], '')
-    .replace(/^\s*[+\-]\s*/, '')
-    .trim();
+  let catPart = clean.replace(m[0], '').replace(/^\s*[+\-]\s*/, '').trim();
+  if (!catPart || catPart.length < 2) catPart = type === 'income' ? 'kirim' : 'xarajat';
 
-  // Juda qisqa yoki bo'sh bo'lsa standart nom
-  if (!catPart || catPart.length < 2) {
-    catPart = type === 'income' ? 'kirim' : 'xarajat';
-  }
-
-  // Birinchi harfni katta
   const category = catPart.charAt(0).toUpperCase() + catPart.slice(1);
 
-  return {
-    amount: Math.round(finalAmount),
-    type,
-    category,
-    isUSD,
-  };
+  return { amount: Math.round(finalAmount), type, category, isUSD };
 }
 
 // ─── SAVE TRANSACTION ────────────────────────────────────
@@ -633,74 +641,70 @@ module.exports = async (req, res) => {
 
     // ── Ovozli xabar ──
     if (msg.voice) {
-      if (!openai) {
-        await bot.sendMessage(chatId,
-          '⚠️ Ovozli xabar uchun <b>OPENAI_API_KEY</b> sozlanmagan.\n\nMatn orqali yozib yuboring.',
-          { parse_mode: 'HTML', reply_markup: KB }
-        ).catch(() => { });
-        return res.status(200).json({ ok: true });
-      }
-
-      const proc = await bot.sendMessage(chatId, '🎙 Ovozli xabar tahlil qilinmoqda...').catch(() => null);
+      const proc = await bot.sendMessage(chatId, '🎙 Ovozli xabar qabul qilindi...').catch(() => null);
       const tmpPath = path.join('/tmp', `voice_${userId}_${Date.now()}.ogg`);
 
       try {
+        if (!openai) throw new Error('OpenAI configured emas');
+
+        if (proc) await bot.editMessageText('⏳ Ovoz tahlil qilinmoqda (Whisper)...', { chat_id: chatId, message_id: proc.message_id }).catch(() => { });
+
         const fileLink = await bot.getFileLink(msg.voice.file_id);
         const resp = await axios({ url: fileLink, method: 'GET', responseType: 'stream', timeout: 30000 });
         const writer = fs.createWriteStream(tmpPath);
         resp.data.pipe(writer);
+
         await new Promise((resolve, reject) => {
           writer.on('finish', resolve);
           writer.on('error', reject);
         });
 
+        // Whisper transcription
         const tr = await openai.audio.transcriptions.create({
           file: fs.createReadStream(tmpPath),
           model: 'whisper-1',
           language: 'uz',
         });
 
-        // Vaqtincha faylni tozalash
-        fs.unlink(tmpPath, () => { });
-
         const spoken = (tr.text || '').trim();
         if (!spoken) {
-          if (proc) await bot.editMessageText('Ovozdan matn ajrata olmadim. Qaytadan urinib ko\'ring.',
-            { chat_id: chatId, message_id: proc.message_id }).catch(() => { });
+          if (proc) await bot.editMessageText('❌ Ovoz matnga aylanmadi. Qaytadan aniqroq gapirib ko\'ring.', { chat_id: chatId, message_id: proc.message_id }).catch(() => { });
           return res.status(200).json({ ok: true });
         }
 
         log('voice-text', { userId, spoken });
 
-        const parsed = parseText(spoken);
+        if (proc) await bot.editMessageText(`📝 <b>Eshitdim:</b> "${esc(spoken)}"\n⏳ Tahlil qilinmoqda...`, { chat_id: chatId, message_id: proc.message_id, parse_mode: 'HTML' }).catch(() => { });
+
+        // Intent parsing (GPT first, then regex)
+        let parsed = await gptParse(spoken);
+        if (!parsed) parsed = parseText(spoken);
+
         if (!parsed) {
-          if (proc) await bot.editMessageText(
-            `🤷 <b>Tushundim:</b> "${esc(spoken)}"\n\nLekin summa topa olmadim.\n<i>Masalan: Taksiga 20 ming berdim</i>`,
-            { chat_id: chatId, message_id: proc.message_id, parse_mode: 'HTML' }
-          ).catch(() => { });
+          if (proc) await bot.editMessageText(`🤷 <b>Tushundim:</b> "${esc(spoken)}"\n\nLekin moliyaviy ma'lumot topa olmadim.\n<i>Masalan: "Taksiga 20 ming berdim" deb ayting.</i>`, { chat_id: chatId, message_id: proc.message_id, parse_mode: 'HTML' }).catch(() => { });
           return res.status(200).json({ ok: true });
         }
 
-        // Protsessing xabarini o'chirish
         if (proc) await bot.deleteMessage(chatId, proc.message_id).catch(() => { });
 
         await saveTx(userId, chatId, parsed, null, user.exchange_rate, msg.message_id);
 
       } catch (e) {
         logErr('voice', e, { userId });
-        fs.unlink(tmpPath, () => { });
-        if (proc) {
-          await bot.editMessageText(
-            '⚠️ Ovozli xabarni qayta ishlashda xatolik yuz berdi.',
-            { chat_id: chatId, message_id: proc.message_id }
-          ).catch(() => { });
-        }
+        if (proc) await bot.editMessageText('😕 Ovozli xabarni qayta ishlashda xatolik yuz berdi. Matn orqali yozib yuboring.', { chat_id: chatId, message_id: proc.message_id }).catch(() => { });
+      } finally {
+        if (fs.existsSync(tmpPath)) fs.unlink(tmpPath, () => { });
       }
       return res.status(200).json({ ok: true });
     }
 
     // ── Matn (rasm bilan yoki yolg'iz) ──
-    const parsed = parseText(text);
+    let parsed = parseText(text);
+
+    // Agar regex matnni taniy olmasa va OpenAI bo'lsa, GPT dan so'rab ko'ramiz
+    if (!parsed && text.length > 5 && openai) {
+      parsed = await gptParse(text);
+    }
 
     if (parsed) {
       let receiptUrl = null;

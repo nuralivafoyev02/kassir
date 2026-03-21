@@ -105,14 +105,14 @@ let myChart = null;
 // ─── HELPERS ────────────────────────────────────────────
 const fmt = n => {
   const v = Number(n);
-  if (!isFinite(v)) return '0';
+  if (!Number.isFinite(v)) return '0';
   return new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 2 }).format(v);
 };
 const isoNow = (ms = Date.now()) => new Date(ms).toISOString();
 const toMs = v => {
   if (typeof v === 'number') return v;
   const p = new Date(v).getTime();
-  return isFinite(p) ? p : Date.now();
+  return Number.isFinite(p) ? p : Date.now();
 };
 const normTx = r => ({ ...r, amount: Number(r.amount) || 0, ms: toMs(r.date), receipt_url: r.receipt_url || null });
 const normAll = rows => (rows || []).map(normTx);
