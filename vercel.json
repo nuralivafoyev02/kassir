@@ -32,6 +32,10 @@
     {
       "src": "updates/release-1-0-1.html",
       "use": "@vercel/static"
+    },
+    {
+      "src": "updates/release-1-0-1.png",
+      "use": "@vercel/static"
     }
   ],
   "routes": [
