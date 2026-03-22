@@ -1,16 +1,24 @@
 {
-  "name": "kassa-bot",
+  "name": "kassir-premium-vite-vue",
+  "private": true,
   "version": "1.0.0",
-  "description": "Telegram Mini App — shaxsiy moliya hisoblagich",
-  "main": "server.js",
+  "description": "Kassa Premium — original UI preserved, migrated to Vite + Vue with Vercel support",
   "scripts": {
+    "dev": "node server.js",
     "start": "node server.js",
-    "dev":   "node server.js"
+    "vite": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.84.0",
-    "axios":                 "^1.13.2",
+    "axios": "^1.13.2",
     "node-telegram-bot-api": "^0.61.0",
-    "openai":                "^6.9.1"
+    "openai": "^6.9.1",
+    "vue": "^3.5.13"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^5.2.1",
+    "vite": "^5.4.19"
   }
 }

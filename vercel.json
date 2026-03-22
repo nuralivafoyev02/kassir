@@ -1,59 +1,17 @@
 {
+  "$schema": "https://openapi.vercel.sh/vercel.json",
   "version": 2,
-  "builds": [
+  "framework": "vite",
+  "buildCommand": "npm run build",
+  "outputDirectory": "dist",
+  "rewrites": [
     {
-      "src": "api/*.js",
-      "use": "@vercel/node"
+      "source": "/api/(.*)",
+      "destination": "/api/$1"
     },
     {
-      "src": "index.html",
-      "use": "@vercel/static"
-    },
-    {
-      "src": "app.js",
-      "use": "@vercel/static"
-    },
-    {
-      "src": "style.css",
-      "use": "@vercel/static"
-    },
-    {
-      "src": "lang/uz.json",
-      "use": "@vercel/static"
-    },
-    {
-      "src": "lang/ru.json",
-      "use": "@vercel/static"
-    },
-    {
-      "src": "lang/en.json",
-      "use": "@vercel/static"
-    },
-    {
-      "src": "updates/release-1-0-1.html",
-      "use": "@vercel/static"
-    },
-    {
-      "src": "updates/release-1-0-1.png",
-      "use": "@vercel/static"
-    },
-    {
-      "src": "updates/release-1-0-2.html",
-      "use": "@vercel/static"
-    }
-  ],
-  "routes": [
-    {
-      "src": "/api/(.*)",
-      "dest": "/api/$1.js"
-    },
-    {
-      "src": "/updates/(.*)",
-      "dest": "/updates/$1"
-    },
-    {
-      "src": "/(.*)",
-      "dest": "/$1"
+      "source": "/(.*)",
+      "destination": "/"
     }
   ]
 }

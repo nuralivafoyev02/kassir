@@ -2,24 +2,41 @@
 
 // ─── TELEGRAM ───────────────────────────────────────────
 const tg = window.Telegram?.WebApp;
-if (tg) {
-  tg.expand();
-  tg.ready();
+const tgVersionAtLeast = (min) => {
+  if (!tg?.version) return false;
+  const a = String(tg.version).split('.').map(n => Number(n) || 0);
+  const b = String(min).split('.').map(n => Number(n) || 0);
+  const len = Math.max(a.length, b.length);
+  for (let i = 0; i < len; i++) {
+    const av = a[i] || 0;
+    const bv = b[i] || 0;
+    if (av > bv) return true;
+    if (av < bv) return false;
+  }
+  return true;
+};
 
-  // Telegram ranglarini sozlash
-  tg.setHeaderColor?.('#050508');
-  tg.setBackgroundColor?.('#050508');
+if (tg) {
+  tg.expand?.();
+  tg.ready?.();
+
+  // Unsupported warningsni kamaytirish uchun versiya tekshiruvi
+  if (tgVersionAtLeast('6.1')) {
+    tg.setHeaderColor?.('#050508');
+    tg.setBackgroundColor?.('#050508');
+  }
 
   // Viewport o'zgarganda xavfsiz masofani qayta hisoblash
   const updateSafeArea = () => {
-    // Agar Telegram headeri bo'lsa, uning balandligini hisobga olish
-    const offset = (tg.viewportHeight - tg.viewportStableHeight) > 0
-      ? (tg.viewportHeight - tg.viewportStableHeight)
+    const viewportHeight = Number(tg.viewportHeight || 0);
+    const stableHeight = Number(tg.viewportStableHeight || viewportHeight || 0);
+    const offset = (viewportHeight - stableHeight) > 0
+      ? (viewportHeight - stableHeight)
       : 0;
     document.documentElement.style.setProperty('--tg-header-offset', offset + 'px');
   };
 
-  tg.onEvent('viewportChanged', updateSafeArea);
+  tg.onEvent?.('viewportChanged', updateSafeArea);
   updateSafeArea();
 }
 
@@ -405,7 +422,7 @@ async function fetchAllTransactions() {
   return normAll(rows);
 }
 
-const vib = s => tg?.HapticFeedback?.impactOccurred(s);
+const vib = s => { if (tgVersionAtLeast('6.1')) tg?.HapticFeedback?.impactOccurred?.(s); };
 const $ = id => document.getElementById(id);
 const showOv = id => { const el = $(id); if (el) { el.classList.add('on'); } };
 const closeOv = (id, e) => {
@@ -672,9 +689,8 @@ function hideLoader() {
   if (store.get('theme') === 'light') document.body.classList.add('light');
 
   // Biometrics init
-  if (tg?.BiometricManager) {
+  if (tg?.BiometricManager && tgVersionAtLeast('7.2')) {
     tg.BiometricManager.init(() => {
-      console.log('Native BiometricManager inited');
       updateSettingsUI();
       if (pin) showPin('unlock');
     });
@@ -708,6 +724,8 @@ function hideLoader() {
   initSettingsUI();
   hideLoader();
   initSwipe();
+  const initialTab = routeBridge()?.getCurrentTab?.() || getActiveTabFromDom();
+  goTab(initialTab, { fromRouter: true, replace: true });
 })();
 
 // ─── REALTIME ───────────────────────────────────────────
@@ -870,10 +888,42 @@ async function seedCats() {
 }
 
 // ─── NAVIGATION ─────────────────────────────────────────
-function goTab(tab) {
+function routeBridge() {
+  return window.__KASSA_ROUTER__ || null;
+}
+
+function getActiveTabFromDom() {
+  const id = document.querySelector('.view.active')?.id || '';
+  return id.startsWith('view-') ? id.slice(5) : 'dash';
+}
+
+function syncLegacyRoute(tab, opts = {}) {
+  if (opts.fromRouter) return;
   try {
+    routeBridge()?.navigateToTab?.(tab, {
+      replace: !!opts.replace,
+      silent: true,
+      source: 'legacy',
+    });
+  } catch (e) {
+    console.warn('[route-bridge] Failed to sync route', e);
+  }
+}
+
+function bindRouteBridge() {
+  if (window.__kassaRouteBridgeBound) return;
+  window.__kassaRouteBridgeBound = true;
+  window.addEventListener('kassa:route-request', (event) => {
+    const tab = event?.detail?.tab;
+    if (!tab || tab === getActiveTabFromDom()) return;
+    goTab(tab, { fromRouter: true, replace: event?.detail?.source === 'location' });
+  });
+}
+
+function goTab(tab, opts = {}) {
+  try {
+    syncLegacyRoute(tab, opts);
     vib('light');
-    console.log('[goTab]', tab);
     document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
     document.querySelectorAll('.nb').forEach(b => b.classList.remove('active'));
 
@@ -891,6 +941,8 @@ function goTab(tab) {
     console.error('[goTab] Error:', e);
   }
 }
+
+bindRouteBridge();
 
 async function loadMore() {
   return;

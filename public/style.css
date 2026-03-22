@@ -1888,9 +1888,9 @@ body.light .sh-close:hover {
 .stg-sheet {
     padding-bottom: 40px;
     max-height: 100vh;
-    height: 95vh;
+    height: 93vh;
     overflow-y: auto;
-    border-radius: 20px;
+    border-radius: 20px 20px 0 0;
     border: none !important;
 }
 
