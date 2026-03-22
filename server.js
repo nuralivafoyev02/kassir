@@ -1,3 +1,9 @@
+/**
+ * server.js — Express/dotenv talab qilmaydigan dev server
+ * Faqat Node.js o'zi bilan ishlaydi.
+ * Ishga tushirish: node server.js
+ */
+
 'use strict';
 
 const http = require('http');

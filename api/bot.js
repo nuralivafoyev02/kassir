@@ -929,12 +929,12 @@ module.exports = async (req, res) => {
     // ── Yangi foydalanuvchi — telefon so'rash ──
     if (!user) {
       await bot.sendMessage(chatId, `👋 Assalomu alaykum!\nBotdan foydalanish uchun telefon raqamingizni tasdiqlang.`, {
-        reply_markup: {
-          keyboard: [[{ text: '📱 Telefon raqamni yuborish', request_contact: true }]],
-          resize_keyboard: true,
-          one_time_keyboard: true,
-        },
-      }
+          reply_markup: {
+            keyboard: [[{ text: '📱 Telefon raqamni yuborish', request_contact: true }]],
+            resize_keyboard: true,
+            one_time_keyboard: true,
+          },
+        }
       ).catch(() => { });
       return res.status(200).json({ ok: true });
     }

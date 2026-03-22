@@ -101,19 +101,50 @@ body {
     gap: 10px;
 }
 
+.header-user {
+    min-width: 0;
+}
+
 .header-logo {
-    font-size: 28px;
+    width: 46px;
+    height: 46px;
+    min-width: 46px;
+    border-radius: 50%;
+    background: rgba(139, 92, 246, 0.14);
+    border: 1px solid rgba(139, 92, 246, 0.28);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    font-size: 18px;
     line-height: 1;
+    color: var(--text);
+}
+
+.header-logo img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.header-logo .stg-avatar-initials {
+    font-size: 16px;
+    font-weight: 800;
+    letter-spacing: 0.04em;
 }
 
 .header-title {
-    font-size: 20px;
+    font-size: 18px;
     font-weight: 900;
-    letter-spacing: -0.5px;
+    letter-spacing: -0.3px;
     background: linear-gradient(135deg, #fff 0%, #a78bfa 100%);
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     background-clip: text;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 180px;
 }
 
 .header-sub {
@@ -1916,6 +1947,38 @@ body.light .sh-close:hover {
     font-size: 30px;
 }
 
+.profile-photo-actions {
+    display: flex;
+    gap: 10px;
+    width: 100%;
+    justify-content: center;
+    flex-wrap: wrap;
+}
+
+.profile-photo-btn {
+    min-width: 140px;
+}
+
+.profile-photo-btn.danger {
+    border-color: rgba(239, 68, 68, 0.28);
+    background: rgba(239, 68, 68, 0.1);
+    color: #f87171;
+}
+
+.profile-photo-btn.is-disabled,
+.profile-photo-btn:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+}
+
+.profile-photo-note {
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--muted);
+    text-align: center;
+    max-width: 280px;
+}
+
 .stg-name {
     font-size: 16px;
     font-weight: 700;
@@ -2710,4 +2773,122 @@ body.light .stg-action-btn {
 .bc-amount.xxs {
     font-size: 22px;
     letter-spacing: -0.5px;
+}
+
+/* ─── EXPORT MODAL ENHANCED ───────────────────── */
+.exp-modal {
+    max-width: min(100%, 560px);
+}
+
+.exp-hint {
+    margin: 8px 0 14px;
+    font-size: 13px;
+    line-height: 1.45;
+    color: var(--muted);
+}
+
+.exp-presets {
+    display: flex;
+    gap: 8px;
+    margin: 0 0 14px;
+    flex-wrap: wrap;
+}
+
+.exp-chip {
+    height: 34px;
+    padding: 0 12px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: var(--surface2);
+    color: var(--text);
+    font: inherit;
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: 0.18s ease;
+}
+
+.exp-chip.active {
+    border-color: rgba(124, 58, 237, 0.45);
+    background: rgba(124, 58, 237, 0.16);
+    color: #ddd6fe;
+}
+
+.exp-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+}
+
+.exp-cards {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+    margin: 14px 0;
+}
+
+.exp-card {
+    border: 1px solid var(--border);
+    background: rgba(255, 255, 255, 0.02);
+    border-radius: 16px;
+    padding: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.exp-card.wide {
+    grid-column: 1 / -1;
+}
+
+.exp-card.income strong {
+    color: var(--green);
+}
+
+.exp-card.expense strong {
+    color: var(--red);
+}
+
+.exp-card.balance strong {
+    color: var(--accent2);
+}
+
+.exp-label {
+    font-size: 12px;
+    color: var(--muted);
+}
+
+.exp-card strong {
+    font-size: 16px;
+    line-height: 1.25;
+}
+
+.exp-meta {
+    margin: 0 0 14px;
+}
+
+.exp-s {
+    display: flex;
+    justify-content: space-between;
+    gap: 14px;
+    padding: 12px 0;
+    border-bottom: 1px solid var(--border);
+    font-size: 13px;
+}
+
+.exp-s:last-child {
+    border-bottom: none;
+}
+
+.exp-s span:last-child {
+    font-weight: 700;
+    text-align: right;
+    word-break: break-word;
+}
+
+@media (max-width: 520px) {
+    .exp-grid,
+    .exp-cards {
+        grid-template-columns: 1fr;
+    }
 }

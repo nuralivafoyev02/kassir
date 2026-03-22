@@ -52,7 +52,7 @@
       <div></div><button class="pk" onclick="pp('0')">0</button>
       <button class="pk" onclick="pd()" style="font-size:16px">⌫</button>
     </div>
-    <button type="button" id="pin-cancel-b" onclick="cancelPin()">Bekor qilish</button>
+    <button type="button" id="pin-cancel-b" onclick="cancelPin()" data-i18n="pin_cancel">Bekor qilish</button>
   </div>
 
   <!-- APP -->
@@ -64,10 +64,10 @@
         <!-- Header -->
         <div class="app-header">
           <div class="header-left">
-            <div class="header-logo">💰</div>
-            <div>
-              <div class="header-title" data-i18n="app_name">Kassa</div>
-              <div class="header-sub" data-i18n="app_sub">Moliyaviy boshqaruv</div>
+            <div class="header-logo" id="dash-avatar">💰</div>
+            <div class="header-user">
+              <div class="header-title" id="dash-user-name" data-i18n="app_name">Kassa</div>
+              <div class="header-sub" id="dash-user-sub" data-i18n="app_sub">Moliyaviy boshqaruv</div>
             </div>
           </div>
           <div class="header-actions">
@@ -196,8 +196,8 @@
           </div>
           <div id="flow-input">
             <div class="flow-meta">
-              <span id="flow-type-badge" class="flow-type-badge income">Kirim</span>
-              <span id="flow-cat-pill" class="flow-cat-pill">Kategoriya tanlanmagan</span>
+              <span id="flow-type-badge" class="flow-type-badge income" data-i18n="income">Kirim</span>
+              <span id="flow-cat-pill" class="flow-cat-pill" data-i18n="flow_cat_unselected">Kategoriya tanlanmagan</span>
             </div>
             <div class="in-row">
               <button class="cur-btn" id="cur-btn" onclick="toggleCur()">UZS</button>
@@ -217,8 +217,7 @@
                   <path
                     d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
                 </svg><input type="file" accept="image/*" style="display:none" onchange="handleFile(event)"></label>
-              <button class="save-b" id="flow-save-btn" onclick="submitFlow()">💾 <span
-                  data-i18n="add_save">Saqlash</span></button>
+              <button class="save-b" id="flow-save-btn" onclick="submitFlow()">💾 <span data-i18n="add_save">Saqlash</span></button>
               <button class="cancel-x" onclick="cancelFlow()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
                   stroke-linecap="round" stroke-linejoin="round">
                   <line x1="18" y1="6" x2="6" y2="18" />
@@ -300,70 +299,100 @@
           <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
         </svg></div>
       <div style="text-align:center">
-        <div style="font-size:17px;font-weight:800">O'chirishni tasdiqlang</div>
-        <div style="font-size:13px;color:var(--muted);margin-top:6px">Bu operatsiya bazadan o'chiriladi</div>
+        <div style="font-size:17px;font-weight:800" data-i18n="confirm_delete">O'chirishni tasdiqlang</div>
+        <div style="font-size:13px;color:var(--muted);margin-top:6px" data-i18n="confirm_delete_sub">Bu operatsiya bazadan o'chiriladi</div>
       </div>
-      <div class="mrow"><button class="bcl" onclick="closeOv('ov-delete')">Bekor</button><button class="bdng"
-          onclick="confirmDel()">O'chirish</button></div>
+      <div class="mrow"><button class="bcl" onclick="closeOv('ov-delete')" data-i18n="cancel">Bekor</button><button class="bdng"
+          onclick="confirmDel()" data-i18n="action_delete">O'chirish</button></div>
     </div>
   </div>
   <div class="ov center" id="ov-edit" onclick="closeOv('ov-edit',event)">
     <div class="sheet c" onclick="event.stopPropagation()">
-      <div class="sh-ttl">✏️ Tahrirlash</div>
-      <div class="fld"><label>Kategoriya</label><input id="ed-cat" type="text"></div>
-      <div class="fld"><label>Summa (so'm)</label><input id="ed-amt" type="text" inputmode="decimal"></div>
-      <div class="fld"><label>Turi</label><select id="ed-type">
-          <option value="income">📈 Kirim</option>
-          <option value="expense">📉 Chiqim</option>
+      <div class="sh-ttl">✏️ <span data-i18n="edit_title">Tahrirlash</span></div>
+      <div class="fld"><label data-i18n="edit_category">Kategoriya</label><input id="ed-cat" type="text"></div>
+      <div class="fld"><label data-i18n="edit_amount">Summa (so'm)</label><input id="ed-amt" type="text" inputmode="decimal"></div>
+      <div class="fld"><label data-i18n="edit_type">Turi</label><select id="ed-type">
+          <option value="income" data-i18n="edit_type_income">📈 Kirim</option>
+          <option value="expense" data-i18n="edit_type_expense">📉 Chiqim</option>
         </select></div>
-      <div class="mrow"><button class="bcl" onclick="closeOv('ov-edit')">Bekor</button><button class="bpri"
-          onclick="saveEdit()">Saqlash</button></div>
+      <div class="mrow"><button class="bcl" onclick="closeOv('ov-edit')" data-i18n="cancel">Bekor</button><button class="bpri"
+          onclick="saveEdit()" data-i18n="save">Saqlash</button></div>
     </div>
   </div>
   <div class="ov center" id="ov-editcat" onclick="closeOv('ov-editcat',event)">
     <div class="sheet c" onclick="event.stopPropagation()">
-      <div class="sh-ttl">✏️ Kategoriya nomi</div>
-      <div class="fld"><label>Yangi nom</label><input id="ec-name" type="text" placeholder="Nom..."></div>
-      <div class="mrow"><button class="bcl" onclick="closeOv('ov-editcat')">Bekor</button><button class="bpri"
-          onclick="saveEditCat()">Saqlash</button></div>
+      <div class="sh-ttl">✏️ <span data-i18n="edit_cat_title">Kategoriya nomi</span></div>
+      <div class="fld"><label data-i18n="edit_cat_new_name">Yangi nom</label><input id="ec-name" type="text" data-i18n-placeholder="new_cat_name_ph" placeholder="Nom..."></div>
+      <div class="mrow"><button class="bcl" onclick="closeOv('ov-editcat')" data-i18n="cancel">Bekor</button><button class="bpri"
+          onclick="saveEditCat()" data-i18n="save">Saqlash</button></div>
     </div>
   </div>
   <div class="ov" id="ov-addcat" onclick="closeOv('ov-addcat',event)">
     <div class="sheet" onclick="event.stopPropagation()">
       <div class="sh-hdl"></div>
       <button class="sh-close" onclick="closeOv('ov-addcat')">✕</button>
-      <div class="sh-ttl">Yangi Kategoriya</div>
+      <div class="sh-ttl" data-i18n="new_cat_title">Yangi Kategoriya</div>
       <div class="fld">
-        <label>Nom</label>
-        <input id="nc-name" type="text" placeholder="Kategoriya nomi...">
+        <label data-i18n="new_cat_name">Nom</label>
+        <input id="nc-name" type="text" data-i18n-placeholder="new_cat_name_ph" placeholder="Kategoriya nomi...">
       </div>
       <div class="fld" style="margin-top:20px">
-        <label>Ikonka tanlang</label>
+        <label data-i18n="new_cat_icon">Ikonka tanlang</label>
         <div id="icon-grid"></div>
       </div>
-      <button class="bpri" style="margin-top:24px;width:100%" onclick="saveNewCat()">Saqlash</button>
+      <button class="bpri" style="margin-top:24px;width:100%" onclick="saveNewCat()" data-i18n="save">Saqlash</button>
     </div>
   </div>
   <div class="ov center" id="ov-date" onclick="closeOv('ov-date',event)">
     <div class="sheet c" onclick="event.stopPropagation()">
-      <div class="sh-ttl">📅 Sana oralig'i</div>
-      <div class="fld"><label>Boshlanish</label><input id="d-from" type="date"></div>
-      <div class="fld"><label>Tugash</label><input id="d-to" type="date"></div>
-      <div class="mrow"><button class="bcl" onclick="closeOv('ov-date')">Bekor</button><button class="bpri"
-          onclick="applyDate()">Qo'llash</button></div>
+      <div class="sh-ttl">📅 <span data-i18n="date_range">Sana oralig'i</span></div>
+      <div class="fld"><label data-i18n="date_start">Boshlanish</label><input id="d-from" type="date"></div>
+      <div class="fld"><label data-i18n="date_end">Tugash</label><input id="d-to" type="date"></div>
+      <div class="mrow"><button class="bcl" onclick="closeOv('ov-date')" data-i18n="cancel">Bekor</button><button class="bpri"
+          onclick="applyDate()" data-i18n="date_apply">Qo'llash</button></div>
     </div>
   </div>
   <div class="ov center" id="ov-export" onclick="closeOv('ov-export',event)">
-    <div class="sheet c" onclick="event.stopPropagation()">
-      <div class="sh-ttl">📄 PDF Hisobot</div>
-      <div class="fld"><label>Boshlanish</label><input id="ex-from" type="date"></div>
-      <div class="fld"><label>Tugash</label><input id="ex-to" type="date"></div>
-      <div class="panel" style="margin:12px 0">
-        <div class="exp-s"><span>Operatsiyalar</span><span id="ex-cnt">0 ta</span></div>
-        <div class="exp-s"><span>Cheklar</span><span id="ex-rec">0 ta</span></div>
+    <div class="sheet c exp-modal" onclick="event.stopPropagation()">
+      <div class="sh-ttl">📄 <span data-i18n="pdf_title">PDF Hisobot</span></div>
+      <div class="exp-hint" data-i18n="pdf_modal_hint">PDF hisobot Unicode formatda yaratiladi va kirill matnlar to‘g‘ri chiqadi.</div>
+      <div class="exp-presets">
+        <button class="exp-chip" type="button" data-exp-preset="today" onclick="setExportPreset('today')" data-i18n="pdf_preset_today">Bugun</button>
+        <button class="exp-chip" type="button" data-exp-preset="month" onclick="setExportPreset('month')" data-i18n="pdf_preset_month">Shu oy</button>
+        <button class="exp-chip" type="button" data-exp-preset="last30" onclick="setExportPreset('last30')" data-i18n="pdf_preset_last30">So‘nggi 30 kun</button>
       </div>
-      <div class="mrow"><button class="bcl" onclick="closeOv('ov-export')">Bekor</button><button class="bpri"
-          onclick="makePDF()">Yaratish</button></div>
+      <div class="exp-grid">
+        <div class="fld"><label data-i18n="date_start">Boshlanish</label><input id="ex-from" type="date"></div>
+        <div class="fld"><label data-i18n="date_end">Tugash</label><input id="ex-to" type="date"></div>
+      </div>
+      <div class="exp-cards panel">
+        <div class="exp-card">
+          <span class="exp-label" data-i18n="pdf_ops">Operatsiyalar</span>
+          <strong id="ex-cnt">0</strong>
+        </div>
+        <div class="exp-card">
+          <span class="exp-label" data-i18n="pdf_receipts">Cheklar</span>
+          <strong id="ex-rec">0</strong>
+        </div>
+        <div class="exp-card income">
+          <span class="exp-label" data-i18n="income">Kirim</span>
+          <strong id="ex-inc">0</strong>
+        </div>
+        <div class="exp-card expense">
+          <span class="exp-label" data-i18n="expense">Chiqim</span>
+          <strong id="ex-exp">0</strong>
+        </div>
+        <div class="exp-card balance wide">
+          <span class="exp-label" data-i18n="balance_title">Qoldiq</span>
+          <strong id="ex-bal">0</strong>
+        </div>
+      </div>
+      <div class="exp-meta panel">
+        <div class="exp-s"><span data-i18n="pdf_period_label">Davr</span><span id="ex-period">—</span></div>
+        <div class="exp-s"><span data-i18n="pdf_file_label">Fayl nomi</span><span id="ex-file">Kassa.pdf</span></div>
+      </div>
+      <div class="mrow"><button class="bcl" onclick="closeOv('ov-export')" data-i18n="cancel">Bekor</button><button class="bpri"
+          id="ex-create-btn" onclick="makePDF()" data-i18n="pdf_create">Yaratish</button></div>
     </div>
   </div>
   <div class="ov" id="ov-settings" onclick="closeOv('ov-settings',event)">
@@ -496,7 +525,7 @@
             <div class="stg-txt" data-i18n="stg_biometric">Biometrik</div>
             <div class="stg-sub" data-i18n="stg_biometric_sub">Face ID / Touch ID</div>
           </div>
-          <div class="tgl" id="stg-bio-tgl" onclick="toggleBio(event)" role="switch" aria-label="Biometrik"></div>
+          <div class="tgl" id="stg-bio-tgl" onclick="toggleBio(event)" role="switch" data-i18n-aria-label="stg_biometric"></div>
         </div>
         <div class="stg-item">
           <div class="stg-ico" id="stg-theme-ico">🌙</div>
@@ -540,9 +569,15 @@
             <circle cx="12" cy="7" r="4" />
           </svg>
         </div>
+        <input id="profile-photo-input" type="file" accept="image/*" hidden onchange="handleProfilePhotoInput(event)">
+        <div class="profile-photo-actions">
+          <button type="button" class="stg-action-btn profile-photo-btn" id="profile-photo-pick-btn" onclick="pickProfilePhoto()" data-i18n="profile_photo_upload">Rasm yuklash</button>
+          <button type="button" class="stg-action-btn profile-photo-btn danger" id="profile-photo-remove-btn" onclick="removeProfilePhoto()" data-i18n="profile_photo_remove">O'chirish</button>
+        </div>
+        <div class="profile-photo-note" id="profile-photo-note" data-i18n="profile_photo_hint">Profil rasmi bosh sahifa va sozlamalarda ko'rinadi.</div>
       </div>
       <div class="fld"><label data-i18n="new_cat_name">Ism</label><input id="stg-name-in" type="text"
-          placeholder="Ismingiz..."></div>
+          data-i18n-placeholder="profile_name_placeholder" placeholder="Ismingiz..."></div>
       <button class="bpri" style="width:100%;margin-top:16px" onclick="saveProfile()" data-i18n="save">Saqlash</button>
     </div>
   </div>
@@ -626,15 +661,12 @@
 
   <div class="ov center" id="stg-sub-guide" onclick="closeOv('stg-sub-guide',event)">
     <div class="sheet c" onclick="event.stopPropagation()" style="max-height:80vh;overflow-y:auto">
-      <div class="sh-ttl">📖 Foydalanish yo'riqnomasi</div>
-      <div class="stg-legal-text">
+      <div class="sh-ttl">📖 <span data-i18n="guide_title">Foydalanish yo'riqnomasi</span></div>
+      <div class="stg-legal-text" data-i18n-html="guide_html">
         <p><strong>Kassa</strong> — shaxsiy moliyaviy boshqaruv ilovasi.</p>
-        <p>📌 <strong>Kirim/Chiqim qo'shish:</strong> Pastdagi "+" tugmasini bosing, turini tanlang, kategoriyani
-          belgilang va summani kiriting.</p>
-        <p>📊 <strong>Hisobotlar:</strong> Bosh sahifada diagramma va trendlarni ko'ring. Sana filtri orqali ma'lum davr
-          uchun ko'ring.</p>
-        <p>📱 <strong>Telegram bot:</strong> Botga xabar yozing (masalan: "500 ming ovqat chiqim") va tranzaksiya
-          avtomatik saqlanadi.</p>
+        <p>📌 <strong>Kirim/Chiqim qo'shish:</strong> Pastdagi "+" tugmasini bosing, turini tanlang, kategoriyani belgilang va summani kiriting.</p>
+        <p>📊 <strong>Hisobotlar:</strong> Bosh sahifada diagramma va trendlarni ko'ring. Sana filtri orqali ma'lum davr uchun ko'ring.</p>
+        <p>📱 <strong>Telegram bot:</strong> Botga xabar yozing (masalan: "500 ming ovqat chiqim") va tranzaksiya avtomatik saqlanadi.</p>
         <p>🔐 <strong>Xavfsizlik:</strong> PIN kod va Face ID/Touch ID orqali ilovangizni himoyalang.</p>
         <p>📤 <strong>Eksport:</strong> Ma'lumotlarni JSON formatida saqlash yoki PDF hisobot yaratish mumkin.</p>
       </div>
@@ -647,32 +679,32 @@
         stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
         <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
         <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
-      </svg>Tahrirlash</button>
+      </svg><span data-i18n="action_edit">Tahrirlash</span></button>
     <div class="ctx-div"></div><button class="ctx-i red" onclick="ctxDel()"><svg viewBox="0 0 24 24" fill="none"
         stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
         <polyline points="3 6 5 6 21 6" />
         <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
-      </svg>O'chirish</button>
+      </svg><span data-i18n="action_delete">O'chirish</span></button>
   </div>
   <div id="rec-view" onclick="closeReceiptViewer(event)">
     <div class="rec-shell" onclick="event.stopPropagation()">
       <div class="rec-toolbar">
-        <button type="button" class="rec-tool" id="rec-open-btn" onclick="openReceiptExternal()">↗ Ochish</button>
-        <button type="button" class="rec-tool primary" id="rec-save-btn" onclick="downloadReceipt()">⬇ Saqlash</button>
+        <button type="button" class="rec-tool" id="rec-open-btn" onclick="openReceiptExternal()">↗ <span data-i18n="receipt_open">Ochish</span></button>
+        <button type="button" class="rec-tool primary" id="rec-save-btn" onclick="downloadReceipt()">⬇ <span data-i18n="receipt_save">Saqlash</span></button>
         <button type="button" class="rec-tool" onclick="closeReceiptViewer()">✕</button>
       </div>
       <div class="rec-stage">
-        <div id="rec-loader" class="rec-loader">Chek yuklanmoqda...</div>
+        <div id="rec-loader" class="rec-loader" data-i18n="receipt_loading">Chek yuklanmoqda...</div>
         <div id="rec-error" class="rec-error"></div>
-        <img id="rec-img" src="" alt="chek">
+        <img id="rec-img" src="" alt="chek" data-i18n-alt="hist_receipt">
       </div>
     </div>
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.2.10/pdfmake.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.2.10/vfs_fonts.min.js"></script>
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
   <script src="app.js"></script>
 </body>
