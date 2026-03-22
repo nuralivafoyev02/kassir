@@ -195,6 +195,10 @@
                 qilish</span></button>
           </div>
           <div id="flow-input">
+            <div class="flow-meta">
+              <span id="flow-type-badge" class="flow-type-badge income">Kirim</span>
+              <span id="flow-cat-pill" class="flow-cat-pill">Kategoriya tanlanmagan</span>
+            </div>
             <div class="in-row">
               <button class="cur-btn" id="cur-btn" onclick="toggleCur()">UZS</button>
               <input id="amt-in" type="text" inputmode="decimal" data-i18n-placeholder="add_amount_placeholder"
@@ -213,7 +217,8 @@
                   <path
                     d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
                 </svg><input type="file" accept="image/*" style="display:none" onchange="handleFile(event)"></label>
-              <button class="save-b" onclick="submitFlow()">💾 <span data-i18n="add_save">Saqlash</span></button>
+              <button class="save-b" id="flow-save-btn" onclick="submitFlow()">💾 <span
+                  data-i18n="add_save">Saqlash</span></button>
               <button class="cancel-x" onclick="cancelFlow()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
                   stroke-linecap="round" stroke-linejoin="round">
                   <line x1="18" y1="6" x2="6" y2="18" />
@@ -649,7 +654,20 @@
         <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
       </svg>O'chirish</button>
   </div>
-  <div id="rec-view" onclick="this.classList.remove('on')"><img id="rec-img" src="" alt="chek"></div>
+  <div id="rec-view" onclick="closeReceiptViewer(event)">
+    <div class="rec-shell" onclick="event.stopPropagation()">
+      <div class="rec-toolbar">
+        <button type="button" class="rec-tool" id="rec-open-btn" onclick="openReceiptExternal()">↗ Ochish</button>
+        <button type="button" class="rec-tool primary" id="rec-save-btn" onclick="downloadReceipt()">⬇ Saqlash</button>
+        <button type="button" class="rec-tool" onclick="closeReceiptViewer()">✕</button>
+      </div>
+      <div class="rec-stage">
+        <div id="rec-loader" class="rec-loader">Chek yuklanmoqda...</div>
+        <div id="rec-error" class="rec-error"></div>
+        <img id="rec-img" src="" alt="chek">
+      </div>
+    </div>
+  </div>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>

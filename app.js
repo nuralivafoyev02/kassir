@@ -109,8 +109,13 @@ let histOffset = 0;
 let hasMoreTx = true;
 let loadingMore = false;
 let txSourceColumnSupported = null;
+let currentReceipt = { src: '', name: '' };
+let receiptBlobUrl = null;
 
 const TX_FETCH_BATCH = 500;
+const RECEIPT_MAX_EDGE = 1480;
+const RECEIPT_PREVIEW_QUALITY = 0.68;
+const RECEIPT_UPLOAD_QUALITY = 0.78;
 
 const profileState = {
   fullName: store.get('display_name') || '',
@@ -133,6 +138,205 @@ const toMs = v => {
 };
 const normTx = r => ({ ...r, amount: Number(r.amount) || 0, ms: toMs(r.date), receipt_url: r.receipt_url || null });
 const normAll = rows => (rows || []).map(normTx);
+
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+}
+
+function localeTag() {
+  return currentLang === 'ru' ? 'ru-RU' : currentLang === 'en' ? 'en-US' : 'uz-UZ';
+}
+
+function getHistoryDayKey(ms) {
+  const d = new Date(ms);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+function getDayStartMs(ms) {
+  const d = new Date(ms);
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+}
+
+function isSameDay(a, b) {
+  const da = new Date(a);
+  const db = new Date(b);
+  return da.getFullYear() === db.getFullYear() && da.getMonth() === db.getMonth() && da.getDate() === db.getDate();
+}
+
+function formatHistoryDayLabel(ms) {
+  const now = Date.now();
+  if (isSameDay(ms, now)) return currentLang === 'ru' ? 'Сегодня' : currentLang === 'en' ? 'Today' : 'Bugun';
+  if (isSameDay(ms, now - 86400000)) return currentLang === 'ru' ? 'Вчера' : currentLang === 'en' ? 'Yesterday' : 'Kecha';
+  const d = new Date(ms);
+  const day = String(d.getDate()).padStart(2, '0');
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const year = d.getFullYear();
+  return `${day}.${month}.${year}`;
+}
+
+function formatHistoryTime(ms) {
+  return new Intl.DateTimeFormat(localeTag(), { hour: '2-digit', minute: '2-digit' }).format(new Date(ms));
+}
+
+function receiptDownloadName(tx = null, fallback = '') {
+  const base = String((tx?.category || fallback || 'receipt')).toLowerCase().replace(/[^a-z0-9-_]+/gi, '-').replace(/^-+|-+$/g, '') || 'receipt';
+  const stamp = new Date(tx?.ms || Date.now()).toISOString().slice(0, 19).replace(/[T:]/g, '-');
+  return `${base}-${stamp}.jpg`;
+}
+
+function revokeReceiptBlobUrl() {
+  if (receiptBlobUrl) {
+    try { URL.revokeObjectURL(receiptBlobUrl); } catch { }
+    receiptBlobUrl = null;
+  }
+}
+
+async function compressReceipt(file) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const blobUrl = URL.createObjectURL(file);
+    img.onload = async () => {
+      try {
+        const scale = Math.min(1, RECEIPT_MAX_EDGE / Math.max(img.width, img.height));
+        const w = Math.max(1, Math.round(img.width * scale));
+        const h = Math.max(1, Math.round(img.height * scale));
+        const c = document.createElement('canvas');
+        c.width = w;
+        c.height = h;
+        const ctx = c.getContext('2d');
+        ctx.drawImage(img, 0, 0, w, h);
+        const preview = c.toDataURL('image/jpeg', RECEIPT_PREVIEW_QUALITY);
+        c.toBlob(blob => {
+          URL.revokeObjectURL(blobUrl);
+          if (!blob) return reject(new Error("Chekni siqib bo'lmadi"));
+          resolve({
+            blob,
+            preview,
+            width: w,
+            height: h
+          });
+        }, 'image/jpeg', RECEIPT_UPLOAD_QUALITY);
+      } catch (err) {
+        URL.revokeObjectURL(blobUrl);
+        reject(err);
+      }
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(blobUrl);
+      reject(new Error("Rasmni o'qib bo'lmadi"));
+    };
+    img.src = blobUrl;
+  });
+}
+
+function updateFlowMeta() {
+  const wrap = $('flow-input');
+  const typeEl = $('flow-type-badge');
+  const catEl = $('flow-cat-pill');
+  const saveBtn = $('flow-save-btn');
+  const recArea = $('rec-area');
+  const isIncome = draft.type === 'income';
+
+  if (wrap) wrap.classList.toggle('income-mode', isIncome);
+  if (wrap) wrap.classList.toggle('expense-mode', draft.type === 'expense');
+  if (recArea) recArea.classList.toggle('income-mode', isIncome);
+  if (recArea) recArea.classList.toggle('expense-mode', draft.type === 'expense');
+
+  if (typeEl) {
+    typeEl.className = `flow-type-badge ${isIncome ? 'income' : 'expense'}`;
+    typeEl.textContent = isIncome ? t('income') : t('expense');
+  }
+  if (catEl) catEl.textContent = draft.category || (currentLang === 'ru' ? 'Категория не выбрана' : currentLang === 'en' ? 'Category not selected' : 'Kategoriya tanlanmagan');
+  if (saveBtn) {
+    saveBtn.classList.toggle('income-mode', isIncome);
+    saveBtn.classList.toggle('expense-mode', draft.type === 'expense');
+  }
+}
+
+function setReceiptViewerState(state = 'loading', errorText = '') {
+  const view = $('rec-view');
+  const loader = $('rec-loader');
+  const err = $('rec-error');
+  const img = $('rec-img');
+  const saveBtn = $('rec-save-btn');
+  const openBtn = $('rec-open-btn');
+  if (!view) return;
+  view.dataset.state = state;
+  if (loader) loader.style.display = state === 'loading' ? 'flex' : 'none';
+  if (err) {
+    err.textContent = errorText || '';
+    err.style.display = state === 'error' ? 'flex' : 'none';
+  }
+  if (img) img.style.opacity = state === 'ready' ? '1' : '0';
+  if (saveBtn) saveBtn.disabled = state === 'loading' || !currentReceipt.src;
+  if (openBtn) openBtn.disabled = state === 'loading' || !currentReceipt.src;
+}
+
+function closeReceiptViewer(event) {
+  if (event) {
+    const shell = event.target.closest('.rec-shell');
+    if (shell) return;
+  }
+  const view = $('rec-view');
+  const img = $('rec-img');
+  if (img) {
+    img.onload = null;
+    img.onerror = null;
+    img.removeAttribute('src');
+  }
+  if (view) view.classList.remove('on');
+  currentReceipt = { src: '', name: '' };
+  setReceiptViewerState('loading');
+  revokeReceiptBlobUrl();
+}
+
+function openReceiptViewer(src, tx = null) {
+  if (!src) return;
+  const view = $('rec-view');
+  const img = $('rec-img');
+  if (!view || !img) return;
+  currentReceipt = { src, name: receiptDownloadName(tx, 'receipt') };
+  setReceiptViewerState('loading');
+  view.classList.add('on');
+  img.onload = () => setReceiptViewerState('ready');
+  img.onerror = () => setReceiptViewerState('error', currentLang === 'ru' ? 'Чек не загрузился' : currentLang === 'en' ? 'Receipt failed to load' : 'Chek yuklanmadi');
+  img.src = src;
+}
+
+async function downloadReceipt() {
+  if (!currentReceipt.src) return;
+  try {
+    let href = currentReceipt.src;
+    if (!/^data:/i.test(currentReceipt.src)) {
+      const res = await fetch(currentReceipt.src);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const blob = await res.blob();
+      revokeReceiptBlobUrl();
+      receiptBlobUrl = URL.createObjectURL(blob);
+      href = receiptBlobUrl;
+    }
+    const a = document.createElement('a');
+    a.href = href;
+    a.download = currentReceipt.name || 'receipt.jpg';
+    a.rel = 'noopener';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  } catch (err) {
+    console.warn('[downloadReceipt]', err);
+    openReceiptExternal();
+    showErr(currentLang === 'ru' ? 'Скачать не удалось, открыт оригинал' : currentLang === 'en' ? 'Download failed, original opened instead' : "Yuklab bo'lmadi, asl fayl ochildi");
+  }
+}
+
+function openReceiptExternal() {
+  if (!currentReceipt.src) return;
+  if (tg?.openLink && /^https?:/i.test(currentReceipt.src)) {
+    tg.openLink(currentReceipt.src);
+    return;
+  }
+  window.open(currentReceipt.src, '_blank', 'noopener,noreferrer');
+}
 
 function isMissingColumnError(error, column) {
   const msg = String(error?.message || error?.details || '');
@@ -681,26 +885,69 @@ function renderHistory() {
     const filtered = histFilt === 'all' ? sorted : sorted.filter(t => t.type === histFilt);
 
     if (empty) empty.style.display = filtered.length === 0 ? 'flex' : 'none';
+    if (!filtered.length) {
+      list.innerHTML = '';
+      return;
+    }
 
-    list.innerHTML = filtered.map(tx => {
-      const isI = tx.type === 'income';
-      const dt = new Date(tx.ms);
-      const dateStr = dt.toLocaleDateString() + ' · ' + dt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-      const chek = (tx.receipt || tx.receipt_url) ? `<span class="chek-b">📎 ${t('hist_receipt')}</span>` : '';
-      const arrow = isI
-        ? `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>`
-        : `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 18 13.5 8.5 8.5 13.5 1 6"/><polyline points="17 18 23 18 23 12"/></svg>`;
-      return `<div class="txi" onclick="openAction(${tx.id})">
-      <div class="txi-l">
-        <div class="txi-ico ${isI ? 'i' : 'e'}">${arrow}</div>
-        <div>
-          <div class="txi-cat">${tx.category} ${chek}</div>
-          <div class="txi-dt">${dateStr}</div>
-        </div>
-      </div>
-      <div class="txi-amt ${isI ? 'i' : 'e'}">${isI ? '+' : '-'}${fmt(tx.amount)}</div>
-    </div>`;
-    }).join('');
+    const groups = [];
+    const byKey = new Map();
+    filtered.forEach(tx => {
+      const key = getHistoryDayKey(tx.ms);
+      if (!byKey.has(key)) {
+        const group = {
+          key,
+          dayMs: getDayStartMs(tx.ms),
+          label: formatHistoryDayLabel(tx.ms),
+          income: 0,
+          expense: 0,
+          items: []
+        };
+        byKey.set(key, group);
+        groups.push(group);
+      }
+      const group = byKey.get(key);
+      group.items.push(tx);
+      if (tx.type === 'income') group.income += tx.amount;
+      else group.expense += tx.amount;
+    });
+
+    const html = groups
+      .sort((a, b) => b.dayMs - a.dayMs)
+      .map(group => {
+        const sums = [];
+        if (group.income > 0) sums.push(`<span class="tx-day-sum-inc">+${fmt(group.income)}</span>`);
+        if (group.expense > 0) sums.push(`<span class="tx-day-sum-exp">-${fmt(group.expense)}</span>`);
+        const head = `
+          <div class="tx-day-head">
+            <div class="tx-day-date">${escapeHtml(group.label)}</div>
+            <div class="tx-day-sums">${sums.join('<span class="tx-day-sep">/</span>')}</div>
+          </div>`;
+
+        const items = group.items.map(tx => {
+          const isI = tx.type === 'income';
+          const chek = (tx.receipt || tx.receipt_url) ? `<span class="chek-b">📎 ${escapeHtml(t('hist_receipt'))}</span>` : '';
+          const arrow = isI
+            ? `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>`
+            : `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 18 13.5 8.5 8.5 13.5 1 6"/><polyline points="17 18 23 18 23 12"/></svg>`;
+          const typeBadge = `<span class="txi-type ${isI ? 'i' : 'e'}">${escapeHtml(isI ? t('income') : t('expense'))}</span>`;
+          return `<div class="txi" onclick="openAction(${Number(tx.id)})">
+            <div class="txi-l">
+              <div class="txi-ico ${isI ? 'i' : 'e'}">${arrow}</div>
+              <div>
+                <div class="txi-cat">${escapeHtml(tx.category)} ${typeBadge} ${chek}</div>
+                <div class="txi-dt">${escapeHtml(formatHistoryTime(tx.ms))}</div>
+              </div>
+            </div>
+            <div class="txi-amt ${isI ? 'i' : 'e'}">${isI ? '+' : '-'}${fmt(tx.amount)}</div>
+          </div>`;
+        }).join('');
+
+        return `<section class="tx-day">${head}<div class="tx-day-list">${items}</div></section>`;
+      })
+      .join('');
+
+    list.innerHTML = html;
   } catch (e) {
     console.error('[renderHistory] Error:', e);
   }
@@ -823,10 +1070,11 @@ function handleRateInput(input) {
 
 // ─── BOT FLOW ────────────────────────────────────────────
 function startFlow(type) {
-  draft = { type, category: '', receipt: null, rawFile: null };
+  draft = { type, category: '', receipt: null, rawFile: null, receiptBlob: null };
   $('flow-start').style.display = 'none';
   $('flow-cats').style.display = 'flex';
   $('flow-input').style.display = 'none';
+  updateFlowMeta();
   buildCatGrid(type);
   vib('light');
 }
@@ -843,6 +1091,7 @@ function buildCatGrid(type) {
       draft.category = c.name;
       $('flow-cats').style.display = 'none';
       $('flow-input').style.display = 'flex';
+      updateFlowMeta();
       const amtIn = $('amt-in');
       if (amtIn) { amtIn.value = ''; amtIn.focus(); }
       vib('light');
@@ -860,6 +1109,8 @@ function cancelFlow() {
   $('flow-cats').style.display = 'none';
   $('flow-input').style.display = 'none';
   clearRec();
+  draft = {};
+  updateFlowMeta();
 }
 
 function toggleCur() {
@@ -872,32 +1123,34 @@ function toggleCur() {
   vib('light');
 }
 
-function handleFile(e) {
+async function handleFile(e) {
   const file = e.target.files?.[0];
   if (!file) return;
-  draft.rawFile = file;
-  const reader = new FileReader();
-  reader.onload = ev => {
-    const img = new Image();
-    img.src = ev.target.result;
-    img.onload = () => {
-      const c = document.createElement('canvas');
-      const s = Math.min(1, 800 / img.width);
-      c.width = img.width * s; c.height = img.height * s;
-      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
-      draft.receipt = c.toDataURL('image/jpeg', 0.7);
-      const ra = $('rec-area'), th = $('rec-thumb');
-      if (ra) ra.style.display = 'flex';
-      if (th) th.src = draft.receipt;
-    };
-  };
-  reader.readAsDataURL(file);
+  try {
+    const prepared = await compressReceipt(file);
+    draft.rawFile = file;
+    draft.receiptBlob = prepared.blob;
+    draft.receipt = prepared.preview;
+    const ra = $('rec-area'), th = $('rec-thumb');
+    if (ra) ra.style.display = 'flex';
+    if (th) th.src = draft.receipt;
+    updateFlowMeta();
+  } catch (err) {
+    console.warn('[handleFile]', err);
+    showErr(currentLang === 'ru' ? 'Чек не обработан' : currentLang === 'en' ? 'Receipt could not be processed' : "Chekni tayyorlab bo'lmadi");
+  } finally {
+    if (e.target) e.target.value = '';
+  }
 }
 
 function clearRec() {
-  draft.receipt = null; draft.rawFile = null;
+  draft.receipt = null;
+  draft.rawFile = null;
+  draft.receiptBlob = null;
   const ra = $('rec-area');
+  const th = $('rec-thumb');
   if (ra) ra.style.display = 'none';
+  if (th) th.removeAttribute('src');
 }
 
 async function submitFlow() {
@@ -914,9 +1167,9 @@ async function submitFlow() {
   if (inputCur === 'USD') { amount = Math.round(raw * rate); note = ` ($${raw})`; }
 
   let recUrl = null;
-  if (draft.rawFile && db) {
-    try { recUrl = await uploadReceipt(draft.rawFile); }
-    catch { /* continue without receipt */ }
+  if ((draft.receiptBlob || draft.rawFile) && db) {
+    try { recUrl = await uploadReceipt(draft.receiptBlob || draft.rawFile); }
+    catch (err) { console.warn('[submitFlow:receipt]', err); }
   }
 
   const newTx = {
@@ -951,8 +1204,13 @@ async function submitFlow() {
 }
 
 async function uploadReceipt(file) {
-  const name = `${UID}/${Date.now()}.jpg`;
-  const { error } = await db.storage.from('receipts').upload(name, file, { contentType: 'image/jpeg' });
+  const ext = String(file?.type || '').includes('png') ? 'png' : 'jpg';
+  const name = `${UID}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+  const { error } = await db.storage.from('receipts').upload(name, file, {
+    contentType: file?.type || 'image/jpeg',
+    cacheControl: '31536000',
+    upsert: false
+  });
   if (error) throw error;
   const { data: { publicUrl } } = db.storage.from('receipts').getPublicUrl(name);
   return publicUrl;
@@ -1089,7 +1347,7 @@ function openAction(id) {
     const b = document.createElement('button');
     b.className = 'as-b green';
     b.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" style="width:18px;height:18px"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>Chekni ko'rish`;
-    b.onclick = () => { const src = t.receipt_url || t.receipt; $('rec-img').src = src; $('rec-view').classList.add('on'); closeOv('ov-action'); };
+    b.onclick = () => { openReceiptViewer(t.receipt_url || t.receipt, t); closeOv('ov-action'); };
     btns.appendChild(b);
   }
 
