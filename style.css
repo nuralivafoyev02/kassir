@@ -1888,9 +1888,9 @@ body.light .sh-close:hover {
 .stg-sheet {
     padding-bottom: 40px;
     max-height: 100vh;
-    height: 100vh;
+    height: 95vh;
     overflow-y: auto;
-    border-radius: 0 !important;
+    border-radius: 20px;
     border: none !important;
 }
 
@@ -2887,6 +2887,7 @@ body.light .stg-action-btn {
 }
 
 @media (max-width: 520px) {
+
     .exp-grid,
     .exp-cards {
         grid-template-columns: 1fr;
