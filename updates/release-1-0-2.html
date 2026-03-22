@@ -1,0 +1,450 @@
+<!DOCTYPE html>
+<html lang="uz">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta property="og:title" content="Mening Kassam — Yangilanishlar va hisobot qo‘llanmasi" />
+  <meta property="og:description" content="Hisobot yuklash bo‘yicha qo‘llanma, yangi funksiyalar va foydali eslatmalar" />
+  <meta property="og:image" content="https://appkassir.vercel.app/updates/release-report-guide.png" />
+  <meta property="og:url" content="https://appkassir.vercel.app/updates/release-report-guide.html" />
+  <title>Mening Kassam — Yangilanishlar va hisobot qo‘llanmasi</title>
+  <style>
+    :root {
+      --bg: #06193a;
+      --panel: rgba(10, 28, 63, 0.84);
+      --panel-2: rgba(255, 255, 255, 0.04);
+      --text: #eef2ff;
+      --muted: #b9c3df;
+      --border: rgba(255, 255, 255, 0.09);
+      --accent: #7c5cff;
+      --accent-2: #d946ef;
+      --success: #22c55e;
+      --warn: #f59e0b;
+      --info: #38bdf8;
+      --danger: #fb7185;
+      --shadow: 0 24px 70px rgba(0, 0, 0, 0.28);
+    }
+
+    @media (prefers-color-scheme: light) {
+      :root {
+        --bg: #f7f9fc;
+        --panel: rgba(255, 255, 255, 0.9);
+        --panel-2: rgba(10, 28, 63, 0.04);
+        --text: #101828;
+        --muted: #475467;
+        --border: rgba(16, 24, 40, 0.08);
+        --shadow: 0 20px 50px rgba(16, 24, 40, 0.08);
+      }
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+      background:
+        radial-gradient(circle at top left, rgba(124, 92, 255, 0.18), transparent 28%),
+        radial-gradient(circle at top right, rgba(217, 70, 239, 0.14), transparent 25%),
+        var(--bg);
+      color: var(--text);
+      line-height: 1.7;
+    }
+
+    .wrap {
+      max-width: 920px;
+      margin: 0 auto;
+      padding: 40px 20px 72px;
+    }
+
+    .hero {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 28px;
+      padding: 32px;
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(10px);
+    }
+
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 14px;
+      border-radius: 999px;
+      background: var(--panel-2);
+      border: 1px solid var(--border);
+      color: var(--muted);
+      font-size: 14px;
+      margin-bottom: 14px;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: clamp(34px, 5vw, 52px);
+      line-height: 1.08;
+      letter-spacing: -0.03em;
+    }
+
+    .lead {
+      margin: 18px 0 0;
+      font-size: 20px;
+      color: var(--muted);
+      max-width: 760px;
+    }
+
+    .hero-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 14px;
+      margin-top: 28px;
+    }
+
+    .metric {
+      background: var(--panel-2);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 18px;
+    }
+
+    .metric b {
+      display: block;
+      font-size: 15px;
+      margin-bottom: 4px;
+    }
+
+    .metric span {
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .section {
+      margin-top: 22px;
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 28px;
+      padding: 28px;
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(10px);
+    }
+
+    h2 {
+      margin: 0 0 16px;
+      font-size: 28px;
+      letter-spacing: -0.02em;
+    }
+
+    .sub {
+      margin: -2px 0 18px;
+      color: var(--muted);
+      font-size: 16px;
+    }
+
+    .cards {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    .card {
+      background: var(--panel-2);
+      border: 1px solid var(--border);
+      border-radius: 22px;
+      padding: 18px;
+    }
+
+    .card h3 {
+      margin: 0 0 10px;
+      font-size: 20px;
+    }
+
+    .card p,
+    .card li,
+    .section p,
+    .section li {
+      color: var(--muted);
+      font-size: 16px;
+    }
+
+    ol,
+    ul {
+      margin: 0;
+      padding-left: 20px;
+    }
+
+    .steps {
+      display: grid;
+      gap: 12px;
+      margin-top: 12px;
+    }
+
+    .step {
+      display: grid;
+      grid-template-columns: 52px 1fr;
+      gap: 14px;
+      align-items: flex-start;
+      background: var(--panel-2);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 16px;
+    }
+
+    .num {
+      width: 52px;
+      height: 52px;
+      border-radius: 16px;
+      display: grid;
+      place-items: center;
+      font-size: 20px;
+      font-weight: 800;
+      background: linear-gradient(135deg, rgba(124, 92, 255, 0.25), rgba(217, 70, 239, 0.2));
+      border: 1px solid var(--border);
+    }
+
+    .step h3 {
+      margin: 0 0 6px;
+      font-size: 19px;
+    }
+
+    .callout {
+      margin-top: 18px;
+      border-radius: 22px;
+      padding: 18px 20px;
+      border: 1px solid var(--border);
+      background: linear-gradient(135deg, rgba(56, 189, 248, 0.12), rgba(124, 92, 255, 0.08));
+    }
+
+    .callout strong {
+      display: block;
+      margin-bottom: 6px;
+    }
+
+    .chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 16px;
+    }
+
+    .chip {
+      padding: 9px 13px;
+      border-radius: 999px;
+      background: var(--panel-2);
+      border: 1px solid var(--border);
+      color: var(--text);
+      font-size: 14px;
+    }
+
+    .status-list {
+      display: grid;
+      gap: 12px;
+    }
+
+    .status-item {
+      display: flex;
+      gap: 12px;
+      padding: 14px 16px;
+      background: var(--panel-2);
+      border: 1px solid var(--border);
+      border-radius: 18px;
+    }
+
+    .status-icon {
+      width: 38px;
+      height: 38px;
+      border-radius: 12px;
+      display: grid;
+      place-items: center;
+      flex: 0 0 auto;
+      font-size: 18px;
+    }
+
+    .ok { background: rgba(34, 197, 94, 0.14); }
+    .warn { background: rgba(245, 158, 11, 0.14); }
+    .info { background: rgba(56, 189, 248, 0.14); }
+
+    code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+      padding: 3px 7px;
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid var(--border);
+      font-size: 14px;
+    }
+
+    .footer {
+      margin-top: 24px;
+      padding: 20px 8px 0;
+      color: var(--muted);
+      font-size: 14px;
+      text-align: center;
+    }
+
+    @media (max-width: 760px) {
+      .wrap { padding: 18px 14px 48px; }
+      .hero, .section { border-radius: 24px; padding: 22px; }
+      .hero-grid, .cards { grid-template-columns: 1fr; }
+      .lead { font-size: 18px; }
+      .step { grid-template-columns: 44px 1fr; }
+      .num { width: 44px; height: 44px; border-radius: 14px; }
+      h2 { font-size: 24px; }
+    }
+  </style>
+</head>
+
+<body>
+  <main class="wrap">
+    <section class="hero">
+      <div class="eyebrow">📢 Yangilanish sahifasi</div>
+      <h1>💸 Mening Kassam — hisobot yuklash qo‘llanmasi va yangi imkoniyatlar</h1>
+      <p class="lead">Botdan va mini app’dan yanada qulay foydalanishingiz uchun hisobot yuklash bo‘yicha qisqa qo‘llanma, foydali eslatmalar va eng so‘nggi yaxshilanishlar bir joyga jamlandi.</p>
+
+      <div class="hero-grid">
+        <div class="metric">
+          <b>📄 Hisobotlar</b>
+          <span>PDF ko‘rinishida yuklab olish, ko‘rish va ulashish imkoniyati</span>
+        </div>
+        <div class="metric">
+          <b>⚡ Tezroq ishlash</b>
+          <span>Cheklar va tarix bo‘limi barqarorroq va silliqroq ishlaydi</span>
+        </div>
+        <div class="metric">
+          <b>🌍 Ko‘p tilli tizim</b>
+          <span>O‘zbek, rus va ingliz tillarida foydalanish mumkin</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>📘 Hisobot yuklash bo‘yicha qo‘llanma</h2>
+      <p class="sub">Hisobotni to‘g‘ri shakllantirish uchun quyidagi oddiy bosqichlarni bajaring.</p>
+
+      <div class="steps">
+        <div class="step">
+          <div class="num">1</div>
+          <div>
+            <h3>Monitoring yoki tarix bo‘limiga o‘ting</h3>
+            <p>Hisobot chiqariladigan davr va tranzaksiyalar aynan shu yerda ko‘rinadi. Avval kerakli ma’lumotlar to‘liq kiritilganini tekshirib oling.</p>
+          </div>
+        </div>
+        <div class="step">
+          <div class="num">2</div>
+          <div>
+            <h3>Hisobot oynasini oching</h3>
+            <p><code>Hisobot</code> yoki <code>PDF export</code> tugmasi orqali hisobot oynasini oching. Shu yerda davrni tanlaysiz: bugun, shu oy yoki kerakli sanalar oralig‘i.</p>
+          </div>
+        </div>
+        <div class="step">
+          <div class="num">3</div>
+          <div>
+            <h3>Davrni va tarkibni tekshiring</h3>
+            <p>Yuklashdan oldin jami kirim, jami chiqim, qoldiq, tranzaksiya soni va kerak bo‘lsa cheklar sonini ko‘rib chiqing. Noto‘g‘ri ma’lumot bo‘lsa, avval tarixni tahrirlang.</p>
+          </div>
+        </div>
+        <div class="step">
+          <div class="num">4</div>
+          <div>
+            <h3>PDF yaratib yuklab oling</h3>
+            <p>Hammasi to‘g‘ri bo‘lsa, hisobotni PDF ko‘rinishida yuklab oling. Tayyor faylni telefoningizga saqlashingiz, yuborishingiz yoki arxiv qilib saqlab qo‘yishingiz mumkin.</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="callout">
+        <strong>💡 Maslahat</strong>
+        Hisobot chiqarishdan oldin kategoriyalar, kirim-chiqim turi va sanalar to‘g‘ri ekanini tekshirib chiqsangiz, PDF ancha tartibli va tushunarli chiqadi.
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>✨ So‘nggi yangiliklar</h2>
+      <div class="cards">
+        <div class="card">
+          <h3>👤 Profil bo‘limi kengaydi</h3>
+          <p>Endi foydalanuvchi rasmi, ism va profil ma’lumotlarini yangilash, almashtirish yoki olib tashlash ancha qulayroq.</p>
+        </div>
+        <div class="card">
+          <h3>🧾 Cheklar bilan ishlash yaxshilandi</h3>
+          <p>Yuklangan cheklar tezroq ochiladi, ko‘rish osonlashdi va saqlash oqimi yanada barqaror qilindi.</p>
+        </div>
+        <div class="card">
+          <h3>📅 Tarix sanalar bo‘yicha guruhlandi</h3>
+          <p>Endi tranzaksiyalar sanalar bo‘yicha ajratib ko‘rsatiladi. Shu sabab monitoring va tahlil qilish ancha osonlashadi.</p>
+        </div>
+        <div class="card">
+          <h3>🏷 Kategoriya tizimi soddalashtirildi</h3>
+          <p>Kirim va chiqim kategoriyalarini boshqarish yaxshilandi. Qo‘shish, ko‘rish va tanlash jarayoni tushunarliroq bo‘ldi.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>🛠 Foydali bo‘limlar</h2>
+      <p class="sub">Ilovada quyidagi yordamchi bo‘limlar orqali kerakli ma’lumotlarni tez topishingiz mumkin.</p>
+      <div class="chips">
+        <div class="chip">Yordam</div>
+        <div class="chip">Telegram guruh</div>
+        <div class="chip">Foydalanish qoidalari</div>
+        <div class="chip">Maxfiylik siyosati</div>
+        <div class="chip">Qo‘llanma</div>
+        <div class="chip">Yangilanishlar</div>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>📌 Muhim eslatmalar</h2>
+      <div class="status-list">
+        <div class="status-item">
+          <div class="status-icon ok">✅</div>
+          <div>
+            <strong>Tranzaksiyalarni to‘liq kiriting</strong>
+            <p>Kirim, chiqim, kategoriya va sana to‘g‘ri bo‘lsa, hisobotlar ham aniq va chiroyli chiqadi.</p>
+          </div>
+        </div>
+        <div class="status-item">
+          <div class="status-icon info">📎</div>
+          <div>
+            <strong>Cheklarni iloji boricha sifatli yuklang</strong>
+            <p>Tiniq rasm yoki hujjat ko‘rinishidagi chek keyinroq topish va tekshirish uchun qulay bo‘ladi.</p>
+          </div>
+        </div>
+        <div class="status-item">
+          <div class="status-icon warn">🔄</div>
+          <div>
+            <strong>Yangilanishlardan keyin ilovani qayta oching</strong>
+            <p>Agar yangi funksiya ko‘rinmasa, mini app yoki botni qayta ochib ko‘ring. Ba’zi o‘zgarishlar faqat qayta yuklangandan keyin chiqadi.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>🚀 Tez orada qo‘shiladigan imkoniyatlar</h2>
+      <p class="sub">Loyiha bosqichma-bosqich rivojlantirilmoqda. Yaqin yangilanishlarda quyidagilar rejalashtirilgan.</p>
+      <ul>
+        <li>Hisobotlarni yanada chiroyliroq formatda eksport qilish</li>
+        <li>Qo‘shimcha analytics va diagrammalar</li>
+        <li>Kategoriya boshqaruvini yanada mukammallashtirish</li>
+        <li>Cheklar bilan ishlashni yanada qulayroq qilish</li>
+      </ul>
+    </section>
+
+    <section class="section">
+      <h2>🔁 Yangilanishlarni ko‘rish</h2>
+      <p>Botdagi eng so‘nggi o‘zgarishlarni ko‘rish uchun mini appni qayta oching yoki botda quyidagi buyruqdan foydalaning:</p>
+      <p><code>/start</code></p>
+      <div class="callout">
+        <strong>📬 Taklif va xatolar</strong>
+        Agar sizda taklif, savol yoki texnik muammo bo‘lsa, bot ichidagi yordam bo‘limi yoki Telegram guruh orqali yozishingiz mumkin.
+      </div>
+    </section>
+
+    <div class="footer">
+      Ushbu sahifa yangilanishlar, qo‘llanmalar va foydali ma’lumotlarni foydalanuvchilarga sodda va tushunarli ko‘rsatish uchun tayyorlandi.
+    </div>
+  </main>
+</body>
+
+</html>
