@@ -1167,20 +1167,6 @@ const HANDLER_LOADERS = {
   bot: () => import("../api/bot.js"),
 };
 
-async function getLegacyHandler(name) {
-  const loader = HANDLER_LOADERS[name];
-  if (!loader) throw new Error(`Unknown legacy handler: ${name}`);
-
-  const mod = await loader();
-  const handler = mod?.default || mod?.handler || mod;
-
-  if (typeof handler !== "function") {
-    throw new Error(`Legacy handler is not a function: ${name}`);
-  }
-
-  return handler;
-}
-
 async function buildLegacyReq(request, env) {
   const url = new URL(request.url);
   const contentType = request.headers.get("content-type") || "";
@@ -1286,14 +1272,21 @@ function createLegacyRes(resolve) {
 }
 
 async function invokeLegacyHandler(name, request, env) {
-  const handler = await getLegacyHandler(name);
+  const resolved = await getLegacyHandler(name);
+
+  // Worker-style handler bo'lsa original Request bilan ishlatamiz
+  if (resolved.type === "fetch") {
+    return await resolved.handler(request, env);
+  }
+
+  // Express/Vercel-style handler bo'lsa req/res adapter ishlatamiz
   const req = await buildLegacyReq(request, env);
 
   return await new Promise(async (resolve, reject) => {
     const res = createLegacyRes(resolve);
 
     try {
-      const maybeResult = await handler(req, res, env);
+      const maybeResult = await resolved.handler(req, res, env);
 
       if (res.finished) return;
 
