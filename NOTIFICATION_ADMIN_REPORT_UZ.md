@@ -46,8 +46,9 @@ markaziy ravishda saqlanadi.
 - `scheduled_queue` o'chirilgan bo'lsa queue notification yubormaydi
 - yuborilgan va yiqilgan notificationlarni `notification_logs` ga yozadi
 
-### 5. Vercel fallback cron ham moslashtirildi
-`api/cron-reminders.js` ham xuddi shu admin sozlamalarni o'qiydi.
+### 5. Wrangler asosiy cron, Node handler fallback sifatida qoldi
+Asosiy scheduled run `wrangler.jsonc` dagi Worker cron orqali ishlaydi.
+`api/cron-reminders.js` esa lokal/manual fallback sifatida xuddi shu admin sozlamalarni o'qiydi.
 
 ---
 

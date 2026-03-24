@@ -13,6 +13,20 @@ function applyPath(pathname) {
   return routeState.tab
 }
 
+function consumeFallbackRoute() {
+  if (typeof window === 'undefined') return normalizePath('/')
+  const url = new URL(window.location.href)
+  const fallbackPath = url.searchParams.get('__kassa_route')
+  if (!fallbackPath) return normalizePath(window.location.pathname)
+
+  url.searchParams.delete('__kassa_route')
+  const normalized = normalizePath(fallbackPath)
+  const cleanSearch = url.searchParams.toString()
+  const nextUrl = `${normalized}${cleanSearch ? `?${cleanSearch}` : ''}${url.hash || ''}`
+  window.history.replaceState({}, '', nextUrl)
+  return normalized
+}
+
 function dispatchRouteRequest(tab, meta = {}) {
   if (typeof window === 'undefined') return
   window.dispatchEvent(new CustomEvent('kassa:route-request', {
@@ -26,7 +40,7 @@ function dispatchRouteRequest(tab, meta = {}) {
 
 export function syncRouteFromLocation(meta = {}) {
   if (typeof window === 'undefined') return 'dash'
-  const tab = applyPath(window.location.pathname)
+  const tab = applyPath(consumeFallbackRoute())
   dispatchRouteRequest(tab, { source: 'location', ...meta })
   return tab
 }
@@ -47,7 +61,7 @@ export function navigateToTab(tab, options = {}) {
 export function installRouteBridge() {
   if (typeof window === 'undefined' || window.__KASSA_ROUTER_INSTALLED__) return
   window.__KASSA_ROUTER_INSTALLED__ = true
-  applyPath(window.location.pathname)
+  applyPath(consumeFallbackRoute())
   window.__KASSA_ROUTER__ = {
     navigateToTab,
     syncFromLocation: syncRouteFromLocation,

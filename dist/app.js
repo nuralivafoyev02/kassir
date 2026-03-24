@@ -16,6 +16,11 @@ const tgVersionAtLeast = (min) => {
   return true;
 };
 
+function tgInsetValue(source, key) {
+  const raw = Number(source?.[key]);
+  return Number.isFinite(raw) && raw > 0 ? raw : 0;
+}
+
 const syncViewportMetrics = () => {
   const vv = window.visualViewport;
   const viewportHeight = Number(tg?.viewportHeight || 0);
@@ -29,10 +34,36 @@ const syncViewportMetrics = () => {
   const rawBottomGap = Math.max(0, winHeight - vvHeight - vvTop);
   const bottomGap = rawBottomGap > 120 ? 0 : rawBottomGap;
   const appHeight = Math.max(0, stableHeight || vvHeight || winHeight || 0);
+  const tgSafeTop = tgInsetValue(tg?.safeAreaInset, 'top');
+  const tgSafeBottom = tgInsetValue(tg?.safeAreaInset, 'bottom');
+  const tgSafeLeft = tgInsetValue(tg?.safeAreaInset, 'left');
+  const tgSafeRight = tgInsetValue(tg?.safeAreaInset, 'right');
+  const tgContentSafeTop = tgInsetValue(tg?.contentSafeAreaInset, 'top');
+  const tgContentSafeBottom = tgInsetValue(tg?.contentSafeAreaInset, 'bottom');
+  const tgContentSafeLeft = tgInsetValue(tg?.contentSafeAreaInset, 'left');
+  const tgContentSafeRight = tgInsetValue(tg?.contentSafeAreaInset, 'right');
+  const topReserve = Math.max(tgSafeTop, tgContentSafeTop, headerOffset + vvTop, vvTop);
+  const bottomReserve = Math.max(tgSafeBottom, tgContentSafeBottom, bottomGap);
+  const sideLeftReserve = Math.max(tgSafeLeft, tgContentSafeLeft);
+  const sideRightReserve = Math.max(tgSafeRight, tgContentSafeRight);
 
   document.documentElement.style.setProperty('--tg-header-offset', headerOffset + 'px');
   document.documentElement.style.setProperty('--vv-top', vvTop + 'px');
   document.documentElement.style.setProperty('--vv-bottom', bottomGap + 'px');
+  document.documentElement.style.setProperty('--tg-safe-top', tgSafeTop + 'px');
+  document.documentElement.style.setProperty('--tg-safe-bottom', tgSafeBottom + 'px');
+  document.documentElement.style.setProperty('--tg-safe-left', tgSafeLeft + 'px');
+  document.documentElement.style.setProperty('--tg-safe-right', tgSafeRight + 'px');
+  document.documentElement.style.setProperty('--tg-content-safe-top', tgContentSafeTop + 'px');
+  document.documentElement.style.setProperty('--tg-content-safe-bottom', tgContentSafeBottom + 'px');
+  document.documentElement.style.setProperty('--tg-content-safe-left', tgContentSafeLeft + 'px');
+  document.documentElement.style.setProperty('--tg-content-safe-right', tgContentSafeRight + 'px');
+  document.documentElement.style.setProperty('--app-top-reserve', topReserve + 'px');
+  document.documentElement.style.setProperty('--app-bottom-reserve', bottomReserve + 'px');
+  document.documentElement.style.setProperty('--app-side-left-reserve', sideLeftReserve + 'px');
+  document.documentElement.style.setProperty('--app-side-right-reserve', sideRightReserve + 'px');
+  document.documentElement.style.setProperty('--overlay-top-reserve', topReserve + 'px');
+  document.documentElement.style.setProperty('--overlay-bottom-reserve', bottomReserve + 'px');
   if (appHeight) {
     document.documentElement.style.setProperty('--app-height', appHeight + 'px');
   }
@@ -53,6 +84,8 @@ if (tg) {
 
 window.addEventListener('resize', syncViewportMetrics, { passive: true });
 window.addEventListener('orientationchange', syncViewportMetrics, { passive: true });
+window.addEventListener('focusin', syncViewportMetrics, { passive: true });
+window.addEventListener('focusout', syncViewportMetrics, { passive: true });
 window.visualViewport?.addEventListener?.('resize', syncViewportMetrics, { passive: true });
 window.visualViewport?.addEventListener?.('scroll', syncViewportMetrics, { passive: true });
 syncViewportMetrics();
@@ -470,10 +503,24 @@ async function fetchAllTransactions() {
 
 const vib = s => { if (tgVersionAtLeast('6.1')) tg?.HapticFeedback?.impactOccurred?.(s); };
 const $ = id => document.getElementById(id);
-const showOv = id => { const el = $(id); if (el) { el.classList.add('on'); } };
+function refreshOverlayMetrics() {
+  syncViewportMetrics();
+  requestAnimationFrame(syncViewportMetrics);
+}
+const showOv = id => {
+  const el = $(id);
+  if (el) {
+    el.classList.add('on');
+    refreshOverlayMetrics();
+  }
+};
 const closeOv = (id, e) => {
   if (e) { const sh = e.currentTarget?.querySelector('.sheet'); if (sh && sh.contains(e.target)) return; }
-  $(id)?.classList.remove('on');
+  const el = $(id);
+  if (el?.classList.contains('on')) {
+    el.classList.remove('on');
+    refreshOverlayMetrics();
+  }
 };
 
 function showErr(msg, dur = 4000) {
@@ -2430,7 +2477,7 @@ function resetData() {
 
 async function loadLang(lang) {
   try {
-    // Vercel / har qanday hostda doim ildizdan: /lang/uz.json (vercel.json static build)
+    // Har qanday hostda doim ildizdan: /lang/uz.json
     const url = new URL(`/lang/${lang}.json`, window.location.origin);
     const res = await fetch(url.toString(), { cache: 'no-store' });
     if (!res.ok) throw new Error('Lang file not found');
@@ -2667,4 +2714,3 @@ window.addEventListener('unhandledrejection', e => {
 window.addEventListener('error', e => {
   console.error('[error]', e.message);
 });
-

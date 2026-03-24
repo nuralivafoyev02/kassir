@@ -179,6 +179,8 @@ function sbMissingColumn(error, column) {
 
 const TASHKENT_TIME_ZONE = "Asia/Tashkent";
 const DEFAULT_CRON_INTERVAL_MINUTES = 30;
+const DEBT_REMINDER_BATCH_SIZE = 300;
+const DEBT_REMINDER_SCAN_LIMIT = 5000;
 
 const NOTIFICATION_DEFAULTS = {
   daily_reminder: {
@@ -194,6 +196,21 @@ Bugungi xarajatlarni kiritib borishni unutmang.
 
 📅 Bugun: {{today}}
 🤝 <i>24/7 xizmatingizda man!</i>`,
+    config: { window_minutes: 5, batch_size: 100, per_run_limit: 10000 },
+  },
+  daily_report: {
+    key: "daily_report",
+    title: "Kunlik hisobot",
+    enabled: true,
+    send_time: "22:00",
+    timezone: TASHKENT_TIME_ZONE,
+    message_template: `🌙 <b>Kunlik hisobotingiz{{name_block}}</b>
+
+Bugungi kirim-chiqimlaringizni yakunlab, kunlik hisobotingizni tekshirib chiqing.
+💸 Agar hali kiritmagan bo'lsangiz, bugungi yozuvlarni hozir qo'shib qo'ying.
+
+📅 Bugun: {{today}}
+✅ <i>Kunlik hisobotingizni yopishni unutmang.</i>`,
     config: { window_minutes: 5, batch_size: 100, per_run_limit: 10000 },
   },
   debt_reminder: {
@@ -220,6 +237,97 @@ Bugungi xarajatlarni kiritib borishni unutmang.
     config: {},
   },
 };
+
+function mergeNotificationSetting(rowOrKey, patch = null) {
+  const row = typeof rowOrKey === "string" ? { key: rowOrKey } : (rowOrKey || {});
+  const base = NOTIFICATION_DEFAULTS[row.key] || null;
+  if (!base) return null;
+  return {
+    ...base,
+    ...row,
+    ...(patch || {}),
+    key: base.key,
+    enabled: (patch && typeof patch.enabled === "boolean") ? patch.enabled : (typeof row.enabled === "boolean" ? row.enabled : base.enabled),
+    send_time: (patch && Object.prototype.hasOwnProperty.call(patch, "send_time"))
+      ? (patch.send_time ? normalizeNotifTime(patch.send_time, base.send_time || "09:00") : null)
+      : (row.send_time ? normalizeNotifTime(row.send_time, base.send_time || "09:00") : base.send_time),
+    timezone: String((patch && patch.timezone) ?? row.timezone ?? base.timezone),
+    message_template: (patch && Object.prototype.hasOwnProperty.call(patch, "message_template"))
+      ? patch.message_template
+      : (row.message_template == null ? base.message_template : row.message_template),
+    config: {
+      ...(base.config || {}),
+      ...(row.config || {}),
+      ...((patch && patch.config) || {}),
+    },
+  };
+}
+
+function normalizeNotifTime(value, fallback = "09:00") {
+  const raw = String(value || "").trim();
+  if (!raw) return fallback;
+  const match = raw.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/) || raw.match(/(?:T|\s)(\d{1,2}):(\d{2})(?::(\d{2}))?/);
+  if (!match) return fallback;
+  const hh = Number(match[1]);
+  const mm = Number(match[2]);
+  const ss = match[3] == null ? 0 : Number(match[3]);
+  if (!Number.isInteger(hh) || !Number.isInteger(mm) || !Number.isInteger(ss) || hh < 0 || hh > 23 || mm < 0 || mm > 59 || ss < 0 || ss > 59) return fallback;
+  return `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}`;
+}
+
+async function sbGetNotificationSettings(env) {
+  try {
+    const rows = await sbFetch(env, `/notification_settings?select=key,title,enabled,send_time,timezone,message_template,config,last_sent_at,updated_at`);
+    const list = Array.isArray(rows) ? rows : [];
+    const latestByKey = new Map();
+    list.forEach((row) => {
+      const prev = latestByKey.get(row.key);
+      const prevTs = new Date(prev?.updated_at || prev?.last_sent_at || 0).getTime() || 0;
+      const nextTs = new Date(row?.updated_at || row?.last_sent_at || 0).getTime() || 0;
+      if (!prev || nextTs >= prevTs) latestByKey.set(row.key, row);
+    });
+    return Object.fromEntries(
+      Object.keys(NOTIFICATION_DEFAULTS).map((key) => [key, mergeNotificationSetting(latestByKey.get(key) || key)])
+    );
+  } catch (error) {
+    if (sbMissingTable(error, "notification_settings")) {
+      return Object.fromEntries(
+        Object.keys(NOTIFICATION_DEFAULTS).map((key) => [key, mergeNotificationSetting(key)])
+      );
+    }
+    throw error;
+  }
+}
+
+async function sbTouchNotificationSetting(env, key, payload = {}) {
+  try {
+    await sbFetch(env, `/notification_settings?key=eq.${encodeURIComponent(key)}`, {
+      method: "PATCH",
+      headers: {
+        "content-type": "application/json",
+        Prefer: "return=minimal",
+      },
+      body: JSON.stringify(payload),
+    });
+  } catch (error) {
+    if (!sbMissingTable(error, "notification_settings")) throw error;
+  }
+}
+
+async function sbInsertNotificationLog(env, row) {
+  try {
+    await sbFetch(env, `/notification_logs`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        Prefer: "return=minimal",
+      },
+      body: JSON.stringify(row),
+    });
+  } catch (error) {
+    if (!sbMissingTable(error, "notification_logs")) throw error;
+  }
+}
 
 function getTimeZoneParts(value = new Date(), timeZone = TASHKENT_TIME_ZONE) {
   const safeTimeZone = String(timeZone || TASHKENT_TIME_ZONE);
@@ -322,6 +430,11 @@ function isDailyReminderWindow(value = new Date(), sendTime = "09:00", windowMin
   return currentMinutes >= targetMinutes && currentMinutes < targetMinutes + Math.max(1, Number(windowMinutes || 5));
 }
 
+function timeInZoneLabel(value = new Date(), timeZone = TASHKENT_TIME_ZONE) {
+  const p = getTimeZoneParts(value, timeZone);
+  return `${String(p.hour).padStart(2, "0")}:${String(p.minute).padStart(2, "0")}`;
+}
+
 function toUzDateTime(value, timeZone = TASHKENT_TIME_ZONE) {
   if (!value) return "belgilangan vaqt";
   try {
@@ -341,6 +454,16 @@ function uzDayStartUtcIso(value = new Date(), timeZone = TASHKENT_TIME_ZONE) {
 
 function buildDailyReminderText(setting, fullName = "", now = new Date()) {
   const template = setting?.message_template || NOTIFICATION_DEFAULTS.daily_reminder.message_template;
+  const timeZone = setting?.timezone || TASHKENT_TIME_ZONE;
+
+  return renderTemplate(template, {
+    name_block: String(fullName || "").trim() ? `, <b>${esc(fullName)}</b>` : "",
+    today: esc(new Date(now).toLocaleDateString("uz-UZ", { timeZone })),
+  });
+}
+
+function buildDailyReportText(setting, fullName = "", now = new Date()) {
+  const template = setting?.message_template || NOTIFICATION_DEFAULTS.daily_report.message_template;
   const timeZone = setting?.timezone || TASHKENT_TIME_ZONE;
 
   return renderTemplate(template, {
@@ -598,6 +721,49 @@ async function markDailyReminderSent(env, userId, nowIso) {
   }
 }
 
+async function fetchUsersForDailyReportPage(env, dayStartIso, { afterUserId = null, limit = 100 } = {}) {
+  const encodedOr = encodeURIComponent(`(last_daily_report_at.is.null,last_daily_report_at.lt.${dayStartIso})`);
+  const cursor = afterUserId != null ? `&user_id=gt.${encodeURIComponent(afterUserId)}` : "";
+
+  try {
+    const rows = await sbFetch(
+      env,
+      `/users?select=user_id,full_name,daily_reminder_enabled,last_daily_report_at&or=${encodedOr}${cursor}&order=user_id.asc&limit=${limit}`
+    );
+    return { rows, migrationRequired: null };
+  } catch (error) {
+    if (sbMissingColumn(error, "daily_reminder_enabled")) {
+      const rows = await sbFetch(
+        env,
+        `/users?select=user_id,full_name,last_daily_report_at&or=${encodedOr}${cursor}&order=user_id.asc&limit=${limit}`
+      );
+      return { rows, migrationRequired: null };
+    }
+
+    if (sbMissingColumn(error, "last_daily_report_at")) {
+      return { rows: [], migrationRequired: "users.last_daily_report_at missing" };
+    }
+
+    throw error;
+  }
+}
+
+async function markDailyReportSent(env, userId, nowIso) {
+  try {
+    await sbFetch(env, `/users?user_id=eq.${encodeURIComponent(userId)}`, {
+      method: "PATCH",
+      headers: {
+        "content-type": "application/json",
+        Prefer: "return=minimal",
+      },
+      body: JSON.stringify({ last_daily_report_at: nowIso }),
+    });
+  } catch (error) {
+    if (sbMissingColumn(error, "last_daily_report_at")) return;
+    throw error;
+  }
+}
+
 async function processDailyReminders(env, now = new Date(), meta = {}) {
   const settings = await sbGetNotificationSettings(env);
   const dailySetting = settings.daily_reminder || mergeNotificationSetting("daily_reminder");
@@ -614,6 +780,8 @@ async function processDailyReminders(env, now = new Date(), meta = {}) {
     sent: 0,
     failed: [],
     todayKey: uzDateKey(now, timeZone),
+    local_now: timeInZoneLabel(now, timeZone),
+    time_zone: timeZone,
     scheduled_for: `${sendTime} ${timeZone}`,
     window_open: isDailyReminderWindow(now, sendTime, windowMinutes, timeZone),
     batch_size: batchSize,
@@ -633,6 +801,7 @@ async function processDailyReminders(env, now = new Date(), meta = {}) {
 
   const nowIso = new Date(now).toISOString();
   const dayStartIso = uzDayStartUtcIso(now, timeZone);
+  result.day_start_utc = dayStartIso;
 
   let lastUserId = null;
   let totalScanned = 0;
@@ -728,6 +897,182 @@ async function processDailyReminders(env, now = new Date(), meta = {}) {
   return result;
 }
 
+async function processDailyReports(env, now = new Date(), meta = {}) {
+  const settings = await sbGetNotificationSettings(env);
+  const reportSetting = settings.daily_report || mergeNotificationSetting("daily_report");
+
+  const timeZone = reportSetting?.timezone || TASHKENT_TIME_ZONE;
+  const sendTime = reportSetting?.send_time || "22:00";
+  const windowMinutes = resolveDailyWindowMinutes(reportSetting, meta);
+
+  const batchSize = Math.max(1, Math.min(1000, Number(reportSetting?.config?.batch_size || 100)));
+  const perRunLimit = Math.max(batchSize, Math.min(50000, Number(reportSetting?.config?.per_run_limit || 10000)));
+
+  const result = {
+    checked: 0,
+    sent: 0,
+    failed: [],
+    todayKey: uzDateKey(now, timeZone),
+    local_now: timeInZoneLabel(now, timeZone),
+    time_zone: timeZone,
+    scheduled_for: `${sendTime} ${timeZone}`,
+    window_open: isDailyReminderWindow(now, sendTime, windowMinutes, timeZone),
+    batch_size: batchSize,
+    per_run_limit: perRunLimit,
+    effective_window_minutes: windowMinutes,
+  };
+
+  if (reportSetting.enabled === false) {
+    result.note = "daily report disabled";
+    return result;
+  }
+
+  if (!result.window_open) {
+    result.note = "outside daily report window";
+    return result;
+  }
+
+  const nowIso = new Date(now).toISOString();
+  const dayStartIso = uzDayStartUtcIso(now, timeZone);
+  result.day_start_utc = dayStartIso;
+
+  let lastUserId = null;
+  let totalScanned = 0;
+
+  while (totalScanned < perRunLimit) {
+    const pageLimit = Math.min(batchSize, perRunLimit - totalScanned);
+
+    let page;
+    try {
+      page = await fetchUsersForDailyReportPage(env, dayStartIso, {
+        afterUserId: lastUserId,
+        limit: pageLimit,
+      });
+    } catch (error) {
+      if (sbMissingTable(error, "users")) {
+        result.note = "users table missing";
+        return result;
+      }
+      throw error;
+    }
+
+    if (page?.migrationRequired) {
+      result.note = page.migrationRequired;
+      return result;
+    }
+
+    const rawRows = Array.isArray(page?.rows) ? page.rows : [];
+    if (!rawRows.length) break;
+
+    totalScanned += rawRows.length;
+    lastUserId = rawRows[rawRows.length - 1]?.user_id ?? lastUserId;
+
+    const candidates = rawRows.filter(
+      (row) => row && toSafeChatId(row.user_id) && row.daily_reminder_enabled !== false
+    );
+
+    result.checked += candidates.length;
+
+    for (const row of candidates) {
+      const html = buildDailyReportText(reportSetting, row.full_name, now);
+
+      try {
+        await tgSendMessage(env, row.user_id, html);
+        await markDailyReportSent(env, row.user_id, nowIso);
+
+        await sbInsertNotificationLog(env, {
+          setting_key: "daily_report",
+          user_id: row.user_id,
+          status: "sent",
+          message_text: html,
+          sent_at: nowIso,
+          meta: {
+            send_time: sendTime,
+            source: meta.source || "scheduled",
+            batch_size: batchSize,
+          },
+        });
+
+        result.sent += 1;
+      } catch (error) {
+        result.failed.push({
+          user_id: row.user_id,
+          error: error?.message || String(error),
+        });
+
+        await sbInsertNotificationLog(env, {
+          setting_key: "daily_report",
+          user_id: row.user_id,
+          status: "failed",
+          message_text: html,
+          error_text: error?.message || String(error),
+          sent_at: nowIso,
+          meta: {
+            send_time: sendTime,
+            source: meta.source || "scheduled",
+            batch_size: batchSize,
+          },
+        });
+      }
+    }
+
+    if (rawRows.length < pageLimit) break;
+  }
+
+  if (result.sent > 0) {
+    await sbTouchNotificationSetting(env, "daily_report", { last_sent_at: nowIso });
+  }
+
+  if (totalScanned >= perRunLimit) {
+    result.note = `per_run_limit reached (${perRunLimit})`;
+  }
+
+  return result;
+}
+
+async function sbFetchDebtReminderPage(env, { limit = DEBT_REMINDER_BATCH_SIZE, offset = 0 } = {}) {
+  return sbFetch(
+    env,
+    `/debts?select=id,user_id,person_name,amount,direction,due_at,remind_at,note,reminder_sent_at,status,created_at` +
+    `&status=eq.open` +
+    `&order=created_at.asc,id.asc` +
+    `&limit=${limit}` +
+    `&offset=${offset}`
+  );
+}
+
+async function sbClaimDebtReminder(env, debt, claimIso) {
+  const claimed = await sbFetch(
+    env,
+    `/debts?id=eq.${encodeURIComponent(debt.id)}&user_id=eq.${encodeURIComponent(debt.user_id)}&reminder_sent_at=is.null&select=id`,
+    {
+      method: "PATCH",
+      headers: {
+        "content-type": "application/json",
+        Prefer: "return=representation",
+      },
+      body: JSON.stringify({ reminder_sent_at: claimIso }),
+    }
+  );
+
+  return Array.isArray(claimed) ? claimed[0] || null : null;
+}
+
+async function sbReleaseDebtReminder(env, debt, claimIso) {
+  return sbFetch(
+    env,
+    `/debts?id=eq.${encodeURIComponent(debt.id)}&user_id=eq.${encodeURIComponent(debt.user_id)}&reminder_sent_at=eq.${encodeURIComponent(claimIso)}`,
+    {
+      method: "PATCH",
+      headers: {
+        "content-type": "application/json",
+        Prefer: "return=minimal",
+      },
+      body: JSON.stringify({ reminder_sent_at: null }),
+    }
+  );
+}
+
 async function processDebtReminders(env, now = new Date(), meta = {}) {
   const settings = await sbGetNotificationSettings(env);
   const debtSetting = settings.debt_reminder || mergeNotificationSetting("debt_reminder");
@@ -736,6 +1081,7 @@ async function processDebtReminders(env, now = new Date(), meta = {}) {
     checked: 0,
     due: 0,
     sent: 0,
+    skipped: 0,
     failed: [],
   };
 
@@ -744,78 +1090,91 @@ async function processDebtReminders(env, now = new Date(), meta = {}) {
     return result;
   }
 
-  let debts;
-  try {
-    debts = await sbFetch(
-      env,
-      `/debts?select=id,user_id,person_name,amount,direction,due_at,remind_at,note,reminder_sent_at,status,created_at&status=eq.open&order=created_at.asc&limit=300`
-    );
-  } catch (error) {
-    if (sbMissingTable(error, "debts")) {
-      result.note = "debts table missing";
-      return result;
-    }
-    throw error;
-  }
+  const nowIso = new Date(now).toISOString();
+  let offset = 0;
+  let scanned = 0;
 
-  const items = Array.isArray(debts) ? debts : [];
-  result.checked = items.length;
-
-  const dueItems = items.filter((debt) => {
-    if (!debt || debt.status !== "open") return false;
-    if (debt.reminder_sent_at) return false;
-    const target = debt.remind_at || debt.due_at || null;
-    if (!target) return false;
-    const ts = new Date(target).getTime();
-    return Number.isFinite(ts) && ts <= new Date(now).getTime();
-  });
-
-  result.due = dueItems.length;
-
-  for (const debt of dueItems) {
-    const target = debt.remind_at || debt.due_at || null;
-    const targetDate = target ? new Date(target) : null;
-    const text = buildDebtReminderText(debtSetting, debt, targetDate, now);
-
+  while (scanned < DEBT_REMINDER_SCAN_LIMIT) {
+    let debts;
     try {
-      await tgSendMessage(env, debt.user_id, text);
-      await sbFetch(env, `/debts?id=eq.${encodeURIComponent(debt.id)}&user_id=eq.${encodeURIComponent(debt.user_id)}`, {
-        method: "PATCH",
-        headers: {
-          "content-type": "application/json",
-          Prefer: "return=minimal",
-        },
-        body: JSON.stringify({ reminder_sent_at: new Date(now).toISOString() }),
-      });
-      await sbInsertNotificationLog(env, {
-        setting_key: "debt_reminder",
-        user_id: debt.user_id,
-        status: "sent",
-        message_text: text,
-        sent_at: isoNow(),
-        meta: { debt_id: debt.id, due_at: debt.due_at || null, remind_at: debt.remind_at || null },
-      });
-      result.sent += 1;
+      debts = await sbFetchDebtReminderPage(env, { limit: DEBT_REMINDER_BATCH_SIZE, offset });
     } catch (error) {
-      result.failed.push({
-        id: debt.id,
-        user_id: debt.user_id,
-        error: error?.message || String(error),
-      });
-      await sbInsertNotificationLog(env, {
-        setting_key: "debt_reminder",
-        user_id: debt.user_id,
-        status: "failed",
-        message_text: text,
-        error_text: error?.message || String(error),
-        sent_at: isoNow(),
-        meta: { debt_id: debt.id, due_at: debt.due_at || null, remind_at: debt.remind_at || null },
-      });
+      if (sbMissingTable(error, "debts")) {
+        result.note = "debts table missing";
+        return result;
+      }
+      throw error;
     }
+
+    const items = Array.isArray(debts) ? debts : [];
+    if (!items.length) break;
+
+    scanned += items.length;
+    result.checked += items.length;
+
+    const dueItems = items.filter((debt) => {
+      if (!debt || debt.status !== "open") return false;
+      if (debt.reminder_sent_at) return false;
+      const target = debt.remind_at || debt.due_at || null;
+      if (!target) return false;
+      const ts = new Date(target).getTime();
+      return Number.isFinite(ts) && ts <= new Date(now).getTime();
+    });
+
+    result.due += dueItems.length;
+
+    for (const debt of dueItems) {
+      const target = debt.remind_at || debt.due_at || null;
+      const targetDate = target ? new Date(target) : null;
+      const text = buildDebtReminderText(debtSetting, debt, targetDate, now);
+
+      try {
+        const claimed = await sbClaimDebtReminder(env, debt, nowIso);
+        if (!claimed) {
+          result.skipped += 1;
+          continue;
+        }
+
+        await tgSendMessage(env, debt.user_id, text);
+        await sbInsertNotificationLog(env, {
+          setting_key: "debt_reminder",
+          user_id: debt.user_id,
+          status: "sent",
+          message_text: text,
+          sent_at: nowIso,
+          meta: { debt_id: debt.id, due_at: debt.due_at || null, remind_at: debt.remind_at || null },
+        });
+        result.sent += 1;
+      } catch (error) {
+        result.failed.push({
+          id: debt.id,
+          user_id: debt.user_id,
+          error: error?.message || String(error),
+        });
+        try {
+          await sbReleaseDebtReminder(env, debt, nowIso);
+        } catch (_) {}
+        await sbInsertNotificationLog(env, {
+          setting_key: "debt_reminder",
+          user_id: debt.user_id,
+          status: "failed",
+          message_text: text,
+          error_text: error?.message || String(error),
+          sent_at: nowIso,
+          meta: { debt_id: debt.id, due_at: debt.due_at || null, remind_at: debt.remind_at || null },
+        });
+      }
+    }
+
+    if (items.length < DEBT_REMINDER_BATCH_SIZE) break;
+    offset += DEBT_REMINDER_BATCH_SIZE;
   }
 
   if (result.sent > 0) {
-    await sbTouchNotificationSetting(env, "debt_reminder", { last_sent_at: isoNow() });
+    await sbTouchNotificationSetting(env, "debt_reminder", { last_sent_at: nowIso });
+  }
+  if (scanned >= DEBT_REMINDER_SCAN_LIMIT) {
+    result.note = `scan limit reached (${DEBT_REMINDER_SCAN_LIMIT})`;
   }
 
   return result;
@@ -823,9 +1182,10 @@ async function processDebtReminders(env, now = new Date(), meta = {}) {
 
 async function runAllCronJobs(env, meta = {}) {
   const now = new Date();
-  const [notifications, daily, debts] = await Promise.all([
+  const [notifications, daily, report, debts] = await Promise.all([
     processDueNotifications(env, meta),
     processDailyReminders(env, now, meta),
+    processDailyReports(env, now, meta),
     processDebtReminders(env, now, meta),
   ]);
 
@@ -837,6 +1197,7 @@ async function runAllCronJobs(env, meta = {}) {
     scheduledTime: meta.scheduledTime || null,
     notifications,
     daily,
+    report,
     debts,
   };
 }
@@ -865,6 +1226,10 @@ function seedLegacyProcessEnv(env) {
     "CRON_SECRET",
     "CRON_SCHEDULE",
     "CRON_INTERVAL_MINUTES",
+    "TELEGRAM_WEBHOOK_SECRET",
+    "TELEGRAM_WEBHOOK_SECRET_TOKEN",
+    "BOT_WEBHOOK_SECRET",
+    "WEBHOOK_SECRET",
     "WEBAPP_URL",
   ];
 
@@ -1268,6 +1633,38 @@ async function handleManualCronRun(request, env) {
   }
 }
 
+function requestWantsHtml(request) {
+  const accept = request.headers.get("accept") || "";
+  return request.method === "GET" && accept.includes("text/html");
+}
+
+async function serveAppAsset(request, env) {
+  const assetHandler = env?.ASSETS;
+  const wantsHtml = requestWantsHtml(request);
+
+  if (assetHandler?.fetch) {
+    const assetResponse = await assetHandler.fetch(request);
+    if (!wantsHtml || assetResponse.status !== 404) {
+      return assetResponse;
+    }
+
+    const indexUrl = new URL("/index.html", request.url);
+    return assetHandler.fetch(new Request(indexUrl.toString(), request));
+  }
+
+  if (wantsHtml) {
+    const url = new URL(request.url);
+    if (url.pathname !== "/index.html") {
+      const redirectUrl = new URL("/index.html", request.url);
+      const route = `${url.pathname}${url.search || ""}`;
+      redirectUrl.searchParams.set("__kassa_route", route);
+      return Response.redirect(redirectUrl.toString(), 302);
+    }
+  }
+
+  throw new Error("ASSETS binding mavjud emas");
+}
+
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
@@ -1330,7 +1727,7 @@ export default {
         return new Response(null, { status: 204 });
       }
 
-      return env.ASSETS.fetch(request);
+      return serveAppAsset(request, env);
     } catch (error) {
       console.error("[worker.fetch] unhandled", error);
       return json(

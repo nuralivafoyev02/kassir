@@ -395,6 +395,21 @@ Bugungi xarajatlarni kiritib borishni unutmang.
 🤝 <i>24/7 xizmatingizda man!</i>`,
     config: { window_minutes: 5 }
   },
+  daily_report: {
+    key: 'daily_report',
+    title: '🌙 Kunlik hisobot',
+    enabled: true,
+    send_time: '22:00',
+    timezone: 'Asia/Tashkent',
+    message_template: `🌙 <b>Kunlik hisobotingiz{{name_block}}</b>
+
+Bugungi kirim-chiqimlaringizni yakunlab, kunlik hisobotingizni tekshirib chiqing.
+💸 Agar hali kiritmagan bo'lsangiz, bugungi yozuvlarni hozir qo'shib qo'ying.
+
+📅 Bugun: {{today}}
+✅ <i>Kunlik hisobotingizni yopishni unutmang.</i>`,
+    config: { window_minutes: 5 }
+  },
   debt_reminder: {
     key: 'debt_reminder',
     title: '⏰ Qarz eslatmasi',
@@ -420,15 +435,17 @@ Bugungi xarajatlarni kiritib borishni unutmang.
   }
 };
 
-const NOTIFICATION_SETTING_ORDER = ['daily_reminder', 'debt_reminder', 'scheduled_queue'];
+const NOTIFICATION_SETTING_ORDER = ['daily_reminder', 'daily_report', 'debt_reminder', 'scheduled_queue'];
 
 function normalizeNotifTime(value, fallback = '09:00') {
   const raw = String(value || '').trim();
-  const match = raw.match(/^(\d{1,2}):(\d{2})$/);
+  if (!raw) return fallback;
+  const match = raw.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/) || raw.match(/(?:T|\s)(\d{1,2}):(\d{2})(?::(\d{2}))?/);
   if (!match) return fallback;
   const hh = Number(match[1]);
   const mm = Number(match[2]);
-  if (!Number.isInteger(hh) || !Number.isInteger(mm) || hh < 0 || hh > 23 || mm < 0 || mm > 59) return fallback;
+  const ss = match[3] == null ? 0 : Number(match[3]);
+  if (!Number.isInteger(hh) || !Number.isInteger(mm) || !Number.isInteger(ss) || hh < 0 || hh > 23 || mm < 0 || mm > 59 || ss < 0 || ss > 59) return fallback;
   return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
 }
 
@@ -498,7 +515,14 @@ async function listNotificationSettings() {
       .order('key', { ascending: true });
     if (error) throw error;
     const rows = Array.isArray(data) ? data : [];
-    return NOTIFICATION_SETTING_ORDER.map((key) => mergeNotificationSetting(rows.find((row) => row.key === key) || key));
+    const latestByKey = new Map();
+    rows.forEach((row) => {
+      const prev = latestByKey.get(row.key);
+      const prevTs = new Date(prev?.updated_at || prev?.last_sent_at || 0).getTime() || 0;
+      const nextTs = new Date(row?.updated_at || row?.last_sent_at || 0).getTime() || 0;
+      if (!prev || nextTs >= prevTs) latestByKey.set(row.key, row);
+    });
+    return NOTIFICATION_SETTING_ORDER.map((key) => mergeNotificationSetting(latestByKey.get(key) || key));
   } catch (error) {
     if (isMissingTableError(error, 'notification_settings')) {
       const e = new Error('notification_settings jadvali topilmadi. Supabase SQL migratsiyasini ishga tushiring.');
@@ -530,7 +554,7 @@ async function saveNotificationSetting(key, patch = {}) {
     };
     const { data, error } = await db.from('notification_settings').upsert(payload, { onConflict: 'key' }).select().single();
     if (error) throw error;
-    return mergeNotificationSetting(data || key);
+    return await getNotificationSetting(merged.key) || mergeNotificationSetting(data || key);
   } catch (error) {
     if (isMissingTableError(error, 'notification_settings')) {
       const e = new Error('notification_settings jadvali topilmadi. Avval yangi SQL migratsiyani ishlating.');
@@ -549,7 +573,7 @@ function buildNotificationPanelText(settings) {
     return `• <b>${esc(item.title)}</b>\n   ${status}${timePart}${lastSent}`;
   }).join('\n\n');
 
-  return `🔔 <b>NOTIFICATION BOSHQARUVI</b>\n\n${rows}\n\n<i>Daily/debt notificationlarni shu yerdan boshqarasiz. Matn yoki custom vaqtni o'zgartirish uchun <b>/notif</b> buyruqlaridan foydalaning.</i>`;
+  return `🔔 <b>NOTIFICATION BOSHQARUVI</b>\n\n${rows}\n\n<i>Daily reminder, daily report va debt notificationlarni shu yerdan boshqarasiz. Matn yoki custom vaqtni o'zgartirish uchun <b>/notif</b> buyruqlaridan foydalaning.</i>`;
 }
 
 function buildNotificationPanelMarkup(settings = []) {
@@ -560,7 +584,20 @@ function buildNotificationPanelMarkup(settings = []) {
 
 function buildNotificationHelpText(key) {
   const sample = key || 'daily_reminder';
-  return `🧭 <b>Notification buyruqlari</b>\n\n<b>/notif</b> — notification panel\n<b>/notif list</b> — barcha sozlamalar\n<b>/notif on ${sample}</b> — yoqish\n<b>/notif off ${sample}</b> — o'chirish\n<b>/notif time daily_reminder 08:30</b> — daily reminder vaqtini o'zgartirish\n<b>/notif text daily_reminder Assalomu aleykum...</b> — matnni yangilash\n<b>/notif reset daily_reminder</b> — default matnni qaytarish\n<b>/notif test daily_reminder</b> — test yuborish\n\nMavjud keylar: <code>daily_reminder</code>, <code>debt_reminder</code>, <code>scheduled_queue</code>`;
+  return `🧭 <b>Notification buyruqlari</b>
+
+<b>/notif</b> — notification panel
+<b>/notif list</b> — barcha sozlamalar
+<b>/notif on ${sample}</b> — yoqish
+<b>/notif off ${sample}</b> — o'chirish
+<b>/notif time daily_reminder 08:30</b> — ertalabgi eslatma vaqtini o'zgartirish
+<b>/notif time daily_report 22:00</b> — kunlik hisobot vaqtini o'zgartirish
+<b>/notif text daily_reminder Assalomu aleykum...</b> — matnni yangilash
+<b>/notif text daily_report Kunlik hisobotingiz...</b> — matnni yangilash
+<b>/notif reset daily_report</b> — default matnni qaytarish
+<b>/notif test daily_report</b> — test yuborish
+
+Mavjud keylar: <code>daily_reminder</code>, <code>daily_report</code>, <code>debt_reminder</code>, <code>scheduled_queue</code>`;
 }
 
 function buildNotificationDetailText(setting) {
@@ -581,16 +618,16 @@ function buildNotificationDetailMarkup(setting) {
     ]
   ];
 
-  if (setting.key === 'daily_reminder') {
+  if (setting.key === 'daily_reminder' || setting.key === 'daily_report') {
     rows.push([
       { text: '➖ 30m', callback_data: `notif_shift:${setting.key}:-30` },
-      { text: `🕒 ${setting.send_time || '09:00'}`, callback_data: `notif_noop:${setting.key}` },
+      { text: `🕒 ${setting.send_time || (setting.key === 'daily_report' ? '22:00' : '09:00')}`, callback_data: `notif_noop:${setting.key}` },
       { text: '➕ 30m', callback_data: `notif_shift:${setting.key}:30` }
     ]);
     rows.push([
-      { text: '08:00', callback_data: `notif_preset:${setting.key}:08-00` },
-      { text: '09:00', callback_data: `notif_preset:${setting.key}:09-00` },
-      { text: '10:00', callback_data: `notif_preset:${setting.key}:10-00` }
+      { text: setting.key === 'daily_report' ? '21:00' : '08:00', callback_data: `notif_preset:${setting.key}:${setting.key === 'daily_report' ? '21-00' : '08-00'}` },
+      { text: setting.key === 'daily_report' ? '22:00' : '09:00', callback_data: `notif_preset:${setting.key}:${setting.key === 'daily_report' ? '22-00' : '09-00'}` },
+      { text: setting.key === 'daily_report' ? '23:00' : '10:00', callback_data: `notif_preset:${setting.key}:${setting.key === 'daily_report' ? '23-00' : '10-00'}` }
     ]);
   }
 
@@ -1351,7 +1388,6 @@ async function savePlanIntent(userId, chatId, intent) {
     let activeNameCol = categoryLimitNameColumn();
     let activeMode = mode;
     let activeRowId = rowId;
-    let lastError = null;
     let writePayload = {
       category_id: category?.id || null,
       [activeNameCol]: categoryName,
@@ -1374,8 +1410,6 @@ async function savePlanIntent(userId, chatId, intent) {
         categoryLimitNameColumnSupported = activeNameCol === 'name' ? 'name' : null;
         return res;
       }
-
-      lastError = res.error;
 
       if (isMissingColumnError(res.error, activeNameCol)) {
         activeNameCol = alternateCategoryLimitNameColumn(activeNameCol);
@@ -1433,8 +1467,7 @@ async function savePlanIntent(userId, chatId, intent) {
       return res;
     }
 
-    const detail = String(lastError?.message || lastError?.details || lastError?.hint || '').trim();
-    return { error: new Error(detail ? `category_limits write fallback exhausted: ${detail}` : 'category_limits write fallback exhausted') };
+    return { error: new Error('category_limits write fallback exhausted') };
   }
 
   if (current?.id) {
@@ -1766,6 +1799,20 @@ module.exports = async (req, res) => {
     return res.status(200).send('Kassa Bot ishlayapti 🚀');
   }
 
+  const webhookSecret = process.env.TELEGRAM_WEBHOOK_SECRET
+    || process.env.TELEGRAM_WEBHOOK_SECRET_TOKEN
+    || process.env.BOT_WEBHOOK_SECRET
+    || process.env.WEBHOOK_SECRET
+    || '';
+  if (webhookSecret) {
+    const headerSecret = req.headers?.['x-telegram-bot-api-secret-token']
+      || req.headers?.['X-Telegram-Bot-Api-Secret-Token']
+      || '';
+    if (headerSecret !== webhookSecret) {
+      return res.status(401).json({ ok: false, error: 'Unauthorized' });
+    }
+  }
+
   try {
     const update = req.body || {};
 
@@ -1869,7 +1916,7 @@ module.exports = async (req, res) => {
         const [action, key, rawValue] = data.split(':');
 
         if (action === 'notif_noop') {
-          await bot.answerCallbackQuery(q.id, { text: 'Custom vaqt uchun /notif time daily_reminder 08:30 deb yozing' }).catch(() => { });
+          await bot.answerCallbackQuery(q.id, { text: `Custom vaqt uchun /notif time ${key} ${key === 'daily_report' ? '22:00' : '08:30'} deb yozing` }).catch(() => { });
           return res.status(200).json({ ok: true });
         }
 
@@ -1907,7 +1954,7 @@ module.exports = async (req, res) => {
         if (action === 'notif_shift') {
           try {
             const current = await getNotificationSetting(key);
-            const nextTime = shiftNotifTime(current.send_time || '09:00', Number(rawValue || 0));
+            const nextTime = shiftNotifTime(current.send_time || (current.key === 'daily_report' ? '22:00' : '09:00'), Number(rawValue || 0));
             await saveNotificationSetting(key, { send_time: nextTime });
             await bot.answerCallbackQuery(q.id, { text: `Yangi vaqt: ${nextTime}` }).catch(() => { });
             await sendNotificationDetail(chatId, msgId, key);
@@ -2145,7 +2192,7 @@ module.exports = async (req, res) => {
         if (sub === 'on' || sub === 'off') {
           const key = parts[2];
           if (!NOTIFICATION_SETTING_DEFAULTS[key]) {
-            await bot.sendMessage(chatId, '⚠️ Noto\'g\'ri key. Mavjudlari: daily_reminder, debt_reminder, scheduled_queue').catch(() => { });
+            await bot.sendMessage(chatId, '⚠️ Noto\'g\'ri key. Mavjudlari: daily_reminder, daily_report, debt_reminder, scheduled_queue').catch(() => { });
             return res.status(200).json({ ok: true });
           }
           const saved = await saveNotificationSetting(key, { enabled: sub === 'on' });
@@ -2156,13 +2203,13 @@ module.exports = async (req, res) => {
         if (sub === 'time') {
           const key = parts[2];
           const timeValue = parts[3];
-          if (key !== 'daily_reminder') {
-            await bot.sendMessage(chatId, '⚠️ Vaqt sozlamasi hozircha faqat daily_reminder uchun mavjud.').catch(() => { });
+          if (key !== 'daily_reminder' && key !== 'daily_report') {
+            await bot.sendMessage(chatId, '⚠️ Vaqt sozlamasi hozircha faqat daily_reminder va daily_report uchun mavjud.').catch(() => { });
             return res.status(200).json({ ok: true });
           }
           const normalized = normalizeNotifTime(timeValue, '');
           if (!normalized) {
-            await bot.sendMessage(chatId, '⚠️ Vaqt formati noto\'g\'ri. Misol: /notif time daily_reminder 08:30').catch(() => { });
+            await bot.sendMessage(chatId, '⚠️ Vaqt formati noto\'g\'ri. Misol: /notif time daily_report 22:00').catch(() => { });
             return res.status(200).json({ ok: true });
           }
           const saved = await saveNotificationSetting(key, { send_time: normalized });
@@ -2199,9 +2246,9 @@ module.exports = async (req, res) => {
         }
 
         if (sub === 'text') {
-          const m = full.match(/^\/notif\s+text\s+(daily_reminder|debt_reminder)\s+([\s\S]+)$/i);
+          const m = full.match(/^\/notif\s+text\s+(daily_reminder|daily_report|debt_reminder)\s+([\s\S]+)$/i);
           if (!m) {
-            await bot.sendMessage(chatId, '⚠️ Format: /notif text daily_reminder Assalomu aleykum...').catch(() => { });
+            await bot.sendMessage(chatId, '⚠️ Format: /notif text daily_report Kunlik hisobotingiz...').catch(() => { });
             return res.status(200).json({ ok: true });
           }
           const key = m[1];

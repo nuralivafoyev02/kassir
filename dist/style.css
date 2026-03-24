@@ -24,12 +24,27 @@
     /* Safe Area o'zgaruvchilari */
     --safe-top: env(safe-area-inset-top, 0px);
     --safe-bottom: env(safe-area-inset-bottom, 0px);
+    --safe-left: env(safe-area-inset-left, 0px);
+    --safe-right: env(safe-area-inset-right, 0px);
+    --tg-safe-top: 0px;
+    --tg-safe-bottom: 0px;
+    --tg-safe-left: 0px;
+    --tg-safe-right: 0px;
+    --tg-content-safe-top: 0px;
+    --tg-content-safe-bottom: 0px;
+    --tg-content-safe-left: 0px;
+    --tg-content-safe-right: 0px;
     --tg-header-offset: 0px;
     --vv-top: 0px;
     --vv-bottom: 0px;
     --app-height: 100dvh;
     --app-top-reserve: calc(var(--safe-top) + var(--tg-header-offset) + var(--vv-top));
     --app-bottom-reserve: calc(var(--safe-bottom) + var(--vv-bottom));
+    --app-side-left-reserve: max(var(--safe-left), var(--tg-safe-left), var(--tg-content-safe-left));
+    --app-side-right-reserve: max(var(--safe-right), var(--tg-safe-right), var(--tg-content-safe-right));
+    --overlay-top-reserve: var(--app-top-reserve);
+    --overlay-bottom-reserve: var(--app-bottom-reserve);
+    --overlay-max-height: calc(var(--app-height) - var(--overlay-top-reserve) - var(--overlay-bottom-reserve) - 8px);
     --sheet-safe-top: calc(var(--app-top-reserve) * 0.35);
     /* JS orqali o'zgaradi */
 }
@@ -66,6 +81,8 @@ body {
     margin: 0 auto;
     position: relative;
     padding-top: calc(var(--safe-top) + var(--tg-header-offset) + var(--vv-top));
+    padding-left: var(--app-side-left-reserve);
+    padding-right: var(--app-side-right-reserve);
 }
 
 #views {
@@ -1794,6 +1811,7 @@ body {
     visibility: hidden;
     pointer-events: none;
     transition: opacity 0.25s ease, visibility 0.25s, backdrop-filter 0.25s;
+    padding: calc(8px + var(--overlay-top-reserve)) calc(12px + var(--app-side-right-reserve)) var(--overlay-bottom-reserve) calc(12px + var(--app-side-left-reserve));
 }
 
 .ov.on {
@@ -1812,18 +1830,22 @@ body {
 
 .ov.center {
     align-items: center;
-    padding: calc(20px + var(--app-top-reserve)) 20px calc(20px + var(--app-bottom-reserve));
+    padding: calc(20px + var(--overlay-top-reserve)) calc(20px + var(--app-side-right-reserve)) calc(20px + var(--overlay-bottom-reserve)) calc(20px + var(--app-side-left-reserve));
 }
 
 .sheet {
+    position: relative;
     background: var(--surface);
     border: 1px solid var(--border);
     border-radius: 28px 28px 0 0;
     width: 100%;
     max-width: 430px;
-    padding: calc(20px + var(--sheet-safe-top)) 20px calc(40px + var(--app-bottom-reserve));
-    max-height: calc(var(--app-height) - 12px);
+    padding: calc(20px + var(--sheet-safe-top)) calc(20px + var(--app-side-right-reserve)) calc(40px + var(--app-bottom-reserve)) calc(20px + var(--app-side-left-reserve));
+    max-height: max(260px, var(--overlay-max-height));
     overflow-y: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+    scroll-padding-top: calc(64px + var(--sheet-safe-top));
     box-shadow: 0 -8px 40px rgba(0, 0, 0, 0.5);
     transform: translateY(100%);
     transition: transform 0.3s cubic-bezier(0.32, 0.72, 0, 1);
@@ -1835,8 +1857,9 @@ body {
 
 .sheet.c {
     border-radius: 24px;
-    padding: 24px;
+    padding: calc(24px + var(--sheet-safe-top)) calc(24px + var(--app-side-right-reserve)) calc(24px + var(--overlay-bottom-reserve)) calc(24px + var(--app-side-left-reserve));
     max-width: 360px;
+    max-height: min(560px, max(220px, var(--overlay-max-height)));
     margin: auto;
     box-shadow: 0 8px 40px rgba(0, 0, 0, 0.5);
     transform: scale(0.9) translateY(20px);
@@ -1862,14 +1885,15 @@ body {
     font-weight: 800;
     margin-bottom: 16px;
     letter-spacing: -0.3px;
+    padding-right: calc(56px + var(--app-side-right-reserve));
 }
 
 .sh-close {
     position: absolute;
-    top: calc(16px + var(--sheet-safe-top));
-    right: 16px;
-    width: 32px;
-    height: 32px;
+    top: calc(14px + var(--sheet-safe-top));
+    right: calc(12px + var(--app-side-right-reserve));
+    width: 40px;
+    height: 40px;
     background: rgba(255, 255, 255, 0.05);
     border: none;
     border-radius: 50%;
@@ -1878,7 +1902,7 @@ body {
     align-items: center;
     justify-content: center;
     cursor: pointer;
-    font-size: 14px;
+    font-size: 16px;
     transition: all 0.2s;
     z-index: 10;
 }
@@ -2142,25 +2166,32 @@ body.light .sh-close:hover {
 #ov-settings.ov {
     align-items: stretch;
     justify-content: flex-start;
-    padding: 0;
+    padding: var(--overlay-top-reserve) var(--app-side-right-reserve) var(--overlay-bottom-reserve) var(--app-side-left-reserve);
 }
 
 #ov-settings .stg-sheet {
     width: 100%;
     max-width: none;
-    min-height: var(--app-height);
+    min-height: calc(var(--app-height) - var(--overlay-top-reserve) - var(--overlay-bottom-reserve));
     max-height: none;
-    height: var(--app-height);
+    height: calc(var(--app-height) - var(--overlay-top-reserve) - var(--overlay-bottom-reserve));
     margin: 0;
-    padding-top: calc(12px + var(--app-top-reserve));
+    padding-left: calc(18px + var(--app-side-left-reserve));
+    padding-right: calc(18px + var(--app-side-right-reserve));
+    padding-top: 12px;
     padding-bottom: calc(40px + var(--app-bottom-reserve));
     box-shadow: none;
 }
 
+#ov-settings .sh-close {
+    top: calc(12px + var(--sheet-safe-top));
+    right: calc(12px + var(--app-side-right-reserve));
+}
+
 .stg-sheet {
     padding-bottom: 40px;
-    max-height: var(--app-height);
-    height: var(--app-height);
+    max-height: calc(var(--app-height) - var(--overlay-top-reserve) - var(--overlay-bottom-reserve));
+    height: calc(var(--app-height) - var(--overlay-top-reserve) - var(--overlay-bottom-reserve));
     overflow-y: auto;
     border-radius: 0 !important;
     border: none !important;
@@ -2680,7 +2711,7 @@ body.light .sh-close:hover {
     display: flex;
     align-items: center;
     justify-content: center;
-    padding: 18px;
+    padding: calc(18px + var(--overlay-top-reserve)) 18px calc(18px + var(--overlay-bottom-reserve));
     opacity: 0;
     visibility: hidden;
     transition: opacity 0.28s ease, visibility 0.28s;
@@ -2731,7 +2762,7 @@ body.light .sh-close:hover {
 
 .rec-stage {
     position: relative;
-    min-height: min(62vh, 520px);
+    min-height: min(520px, max(220px, calc(var(--overlay-max-height) - 92px)));
     border-radius: 22px;
     overflow: hidden;
     border: 1px solid rgba(255, 255, 255, 0.08);
@@ -2758,7 +2789,7 @@ body.light .sh-close:hover {
 
 #rec-img {
     max-width: 100%;
-    max-height: min(76vh, 720px);
+    max-height: min(720px, max(220px, calc(var(--overlay-max-height) - 120px)));
     object-fit: contain;
     border-radius: 18px;
     opacity: 0;
@@ -3069,13 +3100,21 @@ body.light .stg-action-btn {
 /* ─── EXPORT MODAL ENHANCED ───────────────────── */
 .exp-modal {
     max-width: min(100%, 560px);
+    background:
+        radial-gradient(circle at top right, rgba(139, 92, 246, 0.16), transparent 34%),
+        linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(7, 8, 14, 0.96));
+    border-color: rgba(255, 255, 255, 0.09);
 }
 
 .exp-hint {
-    margin: 8px 0 14px;
+    margin: 10px 0 16px;
     font-size: 13px;
     line-height: 1.45;
     color: var(--muted);
+    padding: 14px 16px;
+    border-radius: 18px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.015));
 }
 
 .exp-presets {
@@ -3120,12 +3159,13 @@ body.light .stg-action-btn {
 
 .exp-card {
     border: 1px solid var(--border);
-    background: rgba(255, 255, 255, 0.02);
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.045), rgba(255, 255, 255, 0.02));
     border-radius: 16px;
     padding: 14px;
     display: flex;
     flex-direction: column;
     gap: 8px;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
 }
 
 .exp-card.wide {
@@ -3156,6 +3196,10 @@ body.light .stg-action-btn {
 
 .exp-meta {
     margin: 0 0 14px;
+    padding: 0 14px;
+    border-radius: 18px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(255, 255, 255, 0.025);
 }
 
 .exp-s {
@@ -4403,9 +4447,9 @@ body {
 
 .debt-modal-v13 {
     width: min(560px, calc(100vw - 20px));
-    max-height: min(92vh, 900px);
+    max-height: min(900px, max(260px, var(--overlay-max-height)));
     overflow: auto;
-    padding: 18px;
+    padding: calc(18px + var(--sheet-safe-top)) 18px calc(18px + var(--overlay-bottom-reserve));
 }
 
 .debt-modal-head {
@@ -4599,10 +4643,10 @@ body {
     #ov-export .sheet,
     #ov-debt-form .sheet,
     #ov-addcat .sheet {
-        width: calc(100vw - 10px);
+        width: calc(100vw - 10px - var(--app-side-left-reserve) - var(--app-side-right-reserve));
         max-width: none;
-        min-height: calc(var(--app-height) - 8px);
-        max-height: calc(var(--app-height) - 8px);
+        min-height: max(320px, var(--overlay-max-height));
+        max-height: max(320px, var(--overlay-max-height));
         margin-top: auto;
         border-radius: 26px 26px 0 0;
         padding-bottom: calc(34px + var(--app-bottom-reserve));
@@ -4611,7 +4655,7 @@ body {
     #ov-export.ov.center,
     #ov-debt-form.ov.center {
         align-items: flex-end;
-        padding: 0;
+        padding: calc(8px + var(--overlay-top-reserve)) calc(8px + var(--app-side-right-reserve)) var(--overlay-bottom-reserve) calc(8px + var(--app-side-left-reserve));
     }
 
     #ov-export .sheet.c,
@@ -4630,4 +4674,9 @@ body {
     .plan-stats.compact {
         grid-template-columns: 1fr;
     }
+}
+
+.sheet-scroll-dialog {
+    max-height: min(560px, max(220px, var(--overlay-max-height))) !important;
+    overflow-y: auto !important;
 }

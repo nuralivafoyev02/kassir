@@ -11,7 +11,8 @@ export const PATH_TO_TAB = Object.fromEntries(ROUTE_TABLE.map(route => [route.pa
 
 export function normalizePath(pathname = '/') {
   if (!pathname) return '/'
-  const path = pathname.replace(/\+$/, '') || '/'
+  const normalizedInput = String(pathname || '').replace(/\/index\.html?$/i, '') || '/'
+  const path = normalizedInput.replace(/\/+$/, '') || '/'
   return PATH_TO_TAB[path] ? path : '/'
 }
 

@@ -212,6 +212,7 @@
   </div>
   <div class="ov center" id="ov-export" onclick="closeOv('ov-export',event)">
     <div class="sheet c exp-modal" onclick="event.stopPropagation()">
+      <button class="sh-close" onclick="closeOv('ov-export')">✕</button>
       <div class="sh-ttl">📄 <span>Hisobot (PDF + Excel)</span></div>
       <div class="exp-hint">Hisobot 2 ta fayl ko'rinishida tayyorlanadi: PDF va Excel. Telegram botga alohida yuboriladi, yuborib bo'lmasa telefoningizga yuklab olinadi.</div>
       <div class="exp-presets">
@@ -519,7 +520,7 @@
   </div>
 
   <div class="ov center" id="stg-sub-terms" onclick="closeOv('stg-sub-terms',event)">
-    <div class="sheet c" onclick="event.stopPropagation()" style="max-height:80vh;overflow-y:auto">
+    <div class="sheet c sheet-scroll-dialog" onclick="event.stopPropagation()">
       <div class="sh-ttl" data-i18n="terms_title">📋 Bizning shartlar</div>
       <div class="stg-legal-text" id="stg-terms-text"></div>
       <button class="bcl" style="width:100%;margin-top:16px" onclick="closeOv('stg-sub-terms')"
@@ -528,7 +529,7 @@
   </div>
 
   <div class="ov center" id="stg-sub-privacy" onclick="closeOv('stg-sub-privacy',event)">
-    <div class="sheet c" onclick="event.stopPropagation()" style="max-height:80vh;overflow-y:auto">
+    <div class="sheet c sheet-scroll-dialog" onclick="event.stopPropagation()">
       <div class="sh-ttl" data-i18n="privacy_title">🛡️ Maxfiylik siyosati</div>
       <div class="stg-legal-text" id="stg-privacy-text"></div>
       <button class="bcl" style="width:100%;margin-top:16px" onclick="closeOv('stg-sub-privacy')"
@@ -537,7 +538,7 @@
   </div>
 
   <div class="ov center" id="stg-sub-guide" onclick="closeOv('stg-sub-guide',event)">
-    <div class="sheet c" onclick="event.stopPropagation()" style="max-height:80vh;overflow-y:auto">
+    <div class="sheet c sheet-scroll-dialog" onclick="event.stopPropagation()">
       <div class="sh-ttl">📖 <span data-i18n="guide_title">Foydalanish yo'riqnomasi</span></div>
       <div class="stg-legal-text" data-i18n-html="guide_html">
         <p><strong>Kassa</strong> — shaxsiy moliyaviy boshqaruv ilovasi.</p>

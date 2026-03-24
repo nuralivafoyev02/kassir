@@ -2,7 +2,7 @@
   "name": "kassir-premium-vite-vue",
   "private": true,
   "version": "1.0.0",
-  "description": "Kassa Premium — original UI preserved, migrated to Vite + Vue with Vercel support",
+  "description": "Kassa Premium — original UI preserved, migrated to Vite + Vue with Cloudflare Wrangler support",
   "scripts": {
     "dev": "node server.js",
     "start": "node server.js",
