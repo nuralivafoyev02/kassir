@@ -5,7 +5,9 @@
   <div id="app">
     <div id="views">
       <DashboardView :active="activeTab === 'dash'" />
+      <DebtsView :active="activeTab === 'debt'" />
       <AddView :active="activeTab === 'add'" />
+      <PlanView :active="activeTab === 'plan'" />
       <HistoryView :active="activeTab === 'hist'" />
     </div>
 
@@ -24,6 +26,8 @@ import AppOverlays from './components/overlays/AppOverlays.vue'
 import DashboardView from './views/DashboardView.vue'
 import AddView from './views/AddView.vue'
 import HistoryView from './views/HistoryView.vue'
+import DebtsView from './views/DebtsView.vue'
+import PlanView from './views/PlanView.vue'
 import { bootLegacyBundle } from './lib/loadLegacyScripts'
 import { installRouteBridge, useRouteState } from './router/route-store'
 

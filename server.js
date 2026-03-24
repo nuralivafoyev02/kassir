@@ -30,7 +30,7 @@ function loadApiHandler(name) {
 function parseBody(req) {
   return new Promise((resolve, reject) => {
     let data = '';
-    req.on('data', chunk => { data += chunk; if (data.length > 1e6) req.destroy(); });
+    req.on('data', chunk => { data += chunk; if (data.length > 15 * 1024 * 1024) req.destroy(new Error('Payload too large')); });
     req.on('end', () => {
       try { resolve(data ? JSON.parse(data) : {}); }
       catch { resolve({}); }
@@ -101,6 +101,42 @@ async function start() {
 
       if (pathname === '/api/client-log') {
         const handler = loadApiHandler('client-log');
+        if (handler) {
+          req.body = req.method === 'POST' ? await parseBody(req) : {};
+          const mRes = mockRes(res);
+          return handler(req, mRes);
+        }
+      }
+
+      if (pathname === '/api/cron-reminders') {
+        const handler = loadApiHandler('cron-reminders');
+        if (handler) {
+          req.body = req.method === 'POST' ? await parseBody(req) : {};
+          const mRes = mockRes(res);
+          return handler(req, mRes);
+        }
+      }
+
+      if (pathname === '/api/send-report-pdf') {
+        const handler = loadApiHandler('send-report-pdf');
+        if (handler) {
+          req.body = req.method === 'POST' ? await parseBody(req) : {};
+          const mRes = mockRes(res);
+          return handler(req, mRes);
+        }
+      }
+
+      if (pathname === '/api/send-report-files') {
+        const handler = loadApiHandler('send-report-files');
+        if (handler) {
+          req.body = req.method === 'POST' ? await parseBody(req) : {};
+          const mRes = mockRes(res);
+          return handler(req, mRes);
+        }
+      }
+
+      if (pathname === '/api/notify-miniapp-tx') {
+        const handler = loadApiHandler('notify-miniapp-tx');
         if (handler) {
           req.body = req.method === 'POST' ? await parseBody(req) : {};
           const mRes = mockRes(res);

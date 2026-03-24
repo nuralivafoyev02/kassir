@@ -56,3 +56,11 @@ Endi quyidagilarni xavfsizroq joriy qilish mumkin:
 - AI classification qatlamini qo‘shish
 - limit va notification modulini alohida bo‘limga ko‘chirish
 - add/history/settings oqimlarini bosqichma-bosqich legacy JS’dan Vue composable/store’ga o‘tkazish
+
+
+## Feature upgrade
+
+- Debts: `/debts` now supports add/edit/delete/mark-paid flow and due-date reminders.
+- Plan: `/plan` now supports per-category spending limits and warning thresholds.
+- Settings > Categories: now active with keyword editing, icon editing, delete and usage preview.
+- Cron reminders: add `CRON_SECRET` in Vercel env and apply the latest `supabase.sql` migrations.

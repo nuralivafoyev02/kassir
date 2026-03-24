@@ -1,6 +1,8 @@
 export const ROUTE_TABLE = [
   { tab: 'dash', path: '/', name: 'dashboard' },
+  { tab: 'debt', path: '/debts', name: 'debts' },
   { tab: 'add', path: '/add', name: 'add' },
+  { tab: 'plan', path: '/plan', name: 'plan' },
   { tab: 'hist', path: '/history', name: 'history' },
 ]
 
@@ -9,7 +11,7 @@ export const PATH_TO_TAB = Object.fromEntries(ROUTE_TABLE.map(route => [route.pa
 
 export function normalizePath(pathname = '/') {
   if (!pathname) return '/'
-  const path = pathname.replace(/\/+$/, '') || '/'
+  const path = pathname.replace(/\+$/, '') || '/'
   return PATH_TO_TAB[path] ? path : '/'
 }
 

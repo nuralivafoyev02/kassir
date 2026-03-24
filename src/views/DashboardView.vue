@@ -1,5 +1,5 @@
 <template>
-      <div id="view-dash" :class="['view', { active }]">
+      <div id="view-dash" :class="['view', 'with-app-header', { active }]">
         <!-- Header -->
         <div class="app-header">
           <div class="header-left">

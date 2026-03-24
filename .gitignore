@@ -2,3 +2,4 @@
 node_modules/
 supabase.sql
 README.legacy.md
+.DS_Store

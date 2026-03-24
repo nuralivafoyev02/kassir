@@ -21,6 +21,7 @@ const db = createClient(SUPA_URL, SUPA_KEY);
 
 // OpenAI — faqat ovozli xabar uchun (ixtiyoriy)
 let openai = null;
+let openaiDisabledUntil = 0;
 if (OAI_KEY && !OAI_KEY.startsWith('your-')) {
   try {
     const { OpenAI } = require('openai');
@@ -41,23 +42,44 @@ const KB = {
 
 const GUIDE = `<b>📖 Qo'llanma</b>
 
-Menga oddiy matn ko‘rinishida yozing — men avtomatik ravishda <b>kirim</b> yoki <b>chiqim</b> sifatida saqlayman.
+Menga oddiy matn yozing — men gap mazmuniga qarab kirim, chiqim, qarz va rejangizni tushunishga harakat qilaman 🤖
 
 <b>💸 Chiqim misollari:</b>
   • <i>50 ming tushlik</i>
-  • <i>30000 Yandex</i>
   • <i>Taksiga 20 ming berdim</i>
+  • <i>Akamga 100 ming o'tkazdim</i>
+  • <i>Doston uchun 180 ming kiyim oldim</i>
 
 <b>💰 Kirim misollari:</b>
-  • <i>2 mln oylik</i>
-  • <i>100 dollar bonus tushdi</i>
-  • <i>Mijozdan 500k oldim</i>
+  • <i>200 ming dadam berdilar</i>
+  • <i>Mijozdan 500 ming oldim</i>
+  • <i>Oylik tushdi 4 mln</i>
 
-<b>🧾 Chek qo‘shish:</b>
-Chek rasmini izoh bilan birga yuboring — summani va tavsifni o‘zim aniqlayman.
+<b>🤝 Qarz berish / olish:</b>
+  • <i>Suxrobga qarz 100 ming</i>
+  • <i>Suxrobga 100 ming qarz berdim</i>
+  • <i>Suxrobdan qarz oldim 250 ming</i>
 
-<b>💱 Valyuta:</b>
-Valyuta kurslari ilova (<b>App</b>) sozlamalaridan avtomatik olinadi.`;
+<b>🔁 Qarz qaytishini yozish:</b>
+  • <i>Suxrob 100 ming qaytardi</i>
+  • <i>100 ming Suxrobdan qaytdi</i>
+  • <i>Suxrobga 80 ming qaytardim</i>
+
+<b>🎯 Reja / limit tuzish:</b>
+  • <i>5 mln farzandlarim uchun plan</i>
+  • <i>1 mln ovqat uchun reja</i>
+  • <i>Transport 800 ming limit</i>
+  • <i>500 ming qolganda ogohlantir</i>
+
+<b>🧾 Kimga / nima uchun bo'lgan chiqim:</b>
+  • <i>Ozodbek uchun 120 ming benzin</i>
+  • <i>Shuhratga 90 ming taksi berdim</i>
+
+<b>🧾 Chek qo'shish:</b>
+Chek rasmini izoh bilan birga yuboring. Masalan: <i>78 ming market</i>
+
+<b>ℹ️ Eslatma:</b>
+Qarz berilganda balans darhol o'zgarmaydi. Qarz qaytganda yoki qaytarganingizda qarz yozuvi yangilanadi va mos ravishda hisobga olinadi. Mini App ichidan kiritilgan operatsiyalar ham botga ko'rinadi.`;
 
 const DEFAULT_RATE = 12200;
 const ADMIN_IDS = new Set((process.env.ADMIN_IDS || '').split(',').map(v => v.trim()).filter(Boolean));
@@ -88,6 +110,36 @@ const numFmt = n => Number(n || 0).toLocaleString('ru-RU');
 const isAdmin = userId => ADMIN_IDS.has(String(userId));
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 let txSourceColumnSupported = null;
+let txSourceRefColumnSupported = null;
+let debtSettlementColumnSupported = null;
+let categoryLimitNameColumnSupported = null;
+
+async function downloadTelegramFileBuffer(fileId) {
+  const fileLink = await bot.getFileLink(fileId);
+  const resp = await fetch(fileLink);
+  if (!resp.ok) throw new Error(`Telegram file download failed: ${resp.status}`);
+  return Buffer.from(await resp.arrayBuffer());
+}
+
+async function transcribeVoiceBuffer(buffer) {
+  if (!openai) throw new Error('OPENAI unavailable');
+  const form = new FormData();
+  form.append('file', new Blob([buffer], { type: 'audio/ogg' }), 'voice.ogg');
+  form.append('model', 'whisper-1');
+  form.append('language', 'uz');
+
+  const resp = await fetch('https://api.openai.com/v1/audio/transcriptions', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${OAI_KEY}` },
+    body: form,
+  });
+
+  const raw = await resp.text();
+  let data;
+  try { data = JSON.parse(raw); } catch { data = { raw }; }
+  if (!resp.ok) throw new Error(data?.error?.message || data?.raw || `Whisper HTTP ${resp.status}`);
+  return String(data?.text || '').trim();
+}
 
 function fmtDateTime(v) {
   if (!v) return '—';
@@ -107,35 +159,520 @@ function tgErr(e) {
 }
 
 function isMissingColumnError(error, column) {
+  const msg = String(error?.message || error?.details || error?.hint || '').toLowerCase();
+  const target = String(column || '').toLowerCase();
+  return !!target && msg.includes(target) && (msg.includes('schema cache') || msg.includes('does not exist') || msg.includes('unknown column') || msg.includes('could not find the column'));
+}
+
+function isNullConstraintOnColumn(error, column) {
+  const msg = String(error?.message || error?.details || error?.hint || '').toLowerCase();
+  const target = String(column || '').toLowerCase();
+  return !!target && msg.includes(`null value in column "${target}"`) && msg.includes('not-null constraint');
+}
+
+function isQuotaOrRateLimitError(error) {
+  const status = Number(error?.status || error?.code || error?.response?.status || 0);
+  const msg = String(error?.message || error?.response?.data?.error?.message || '').toLowerCase();
+  return status === 429 || msg.includes('insufficient_quota') || msg.includes('current quota') || msg.includes('rate limit') || msg.includes('too many requests');
+}
+
+function isDuplicateKeyError(error) {
+  const msg = String(error?.message || error?.details || error?.hint || '').toLowerCase();
+  return msg.includes('duplicate key') || msg.includes('unique constraint') || msg.includes('already exists');
+}
+
+function categoryLimitNameColumn() {
+  return categoryLimitNameColumnSupported === 'name' ? 'name' : 'category_name';
+}
+
+function alternateCategoryLimitNameColumn(col) {
+  return col === 'name' ? 'category_name' : 'name';
+}
+
+async function runCategoryLimitQuery(executor) {
+  let nameCol = categoryLimitNameColumn();
+  let result = await executor(nameCol);
+
+  if (result?.error && isMissingColumnError(result.error, nameCol)) {
+    const alternate = alternateCategoryLimitNameColumn(nameCol);
+    categoryLimitNameColumnSupported = alternate === 'name' ? 'name' : null;
+    nameCol = alternate;
+    result = await executor(nameCol);
+  }
+
+  if (!result?.error) {
+    categoryLimitNameColumnSupported = nameCol === 'name' ? 'name' : null;
+  }
+
+  return { nameCol, result };
+}
+
+function normalizeCategoryLimitRow(row) {
+  if (!row) return row;
+  return {
+    ...row,
+    category_name: row.category_name || row.name || row.category || '',
+    month_key: row.month_key || row.month || '',
+    type: row.type || 'expense',
+  };
+}
+
+async function fetchCategoryLimitCandidates(userId) {
+  let response = await db.from('category_limits').select('*').eq('user_id', userId).order('created_at', { ascending: false });
+  if (response.error && isMissingColumnError(response.error, 'created_at')) {
+    response = await db.from('category_limits').select('*').eq('user_id', userId);
+  }
+  if (response.error) {
+    if (isMissingTableError(response.error, 'category_limits')) return [];
+    throw response.error;
+  }
+  const rows = (response.data || []).map(normalizeCategoryLimitRow);
+  if (rows.some(row => row && typeof row === 'object' && 'name' in row && !('category_name' in row))) {
+    categoryLimitNameColumnSupported = 'name';
+  }
+  return rows.sort((a, b) => {
+    const aTs = new Date(a.updated_at || a.created_at || 0).getTime() || 0;
+    const bTs = new Date(b.updated_at || b.created_at || 0).getTime() || 0;
+    if (bTs !== aTs) return bTs - aTs;
+    return Number(b.id || 0) - Number(a.id || 0);
+  });
+}
+
+function sameCategoryLimitName(row, categoryName) {
+  return normalizeTextForMatch(row?.category_name || row?.name || row?.category || '') === normalizeTextForMatch(categoryName);
+}
+
+function findExistingCategoryLimit(rows, categoryName, monthKey = '') {
+  const exact = (rows || []).find((row) => sameCategoryLimitName(row, categoryName) && (!row.month_key || !monthKey || row.month_key === monthKey));
+  if (exact) return exact;
+  return (rows || []).find((row) => sameCategoryLimitName(row, categoryName)) || null;
+}
+
+function isMissingTableError(error, table) {
   const msg = String(error?.message || error?.details || '');
-  return msg.includes(`'${column}'`) && msg.includes('schema cache');
+  return msg.includes(`relation "${table}" does not exist`) || msg.includes(`Could not find the table '${table}'`) || msg.includes(`relation '${table}' does not exist`);
+}
+
+function monthKeyOf(value = Date.now()) {
+  const d = new Date(value);
+  const y = d.getUTCFullYear();
+  const m = String(d.getUTCMonth() + 1).padStart(2, '0');
+  return `${y}-${m}`;
+}
+
+function monthStartIso(value = Date.now()) {
+  const d = new Date(value);
+  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1, 0, 0, 0, 0)).toISOString();
+}
+
+function startOfTodayIso(value = Date.now()) {
+  const d = new Date(value);
+  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), 0, 0, 0, 0)).toISOString();
+}
+
+async function sendCategoryLimitAlert(userId, chatId, category, latestAmount, txType = 'expense') {
+  if (txType !== 'expense') return;
+  if (!userId || !chatId || !category) return;
+
+  try {
+    const now = Date.now();
+    const currentMonth = monthKeyOf(now);
+    const rows = await fetchCategoryLimitCandidates(userId);
+    const limit = findExistingCategoryLimit(
+      rows.filter((row) => row.is_active !== false && row.notify_bot !== false && (!row.month_key || row.month_key === currentMonth)),
+      category,
+      currentMonth,
+    ) || findExistingCategoryLimit(rows.filter((row) => row.is_active !== false && row.notify_bot !== false), category, currentMonth);
+
+    if (!limit || !limit.notify_bot || !limit.is_active) return;
+
+    const spentRes = await db
+      .from('transactions')
+      .select('amount, date')
+      .eq('user_id', userId)
+      .eq('type', 'expense')
+      .eq('category', category)
+      .gte('date', monthStartIso(now));
+
+    if (spentRes.error) {
+      logErr('limit-spent', spentRes.error, { userId, category });
+      return;
+    }
+
+    const spent = (spentRes.data || []).reduce((sum, row) => sum + (Number(row.amount) || 0), 0);
+    const limitAmount = Number(limit.amount || 0);
+    const alertBefore = Math.max(0, Number(limit.alert_before || 0));
+    const remaining = limitAmount - spent;
+    const exceeded = spent > limitAmount;
+    const inWarningZone = !exceeded && alertBefore > 0 && remaining <= alertBefore;
+
+    if (!exceeded && !inWarningZone) return;
+
+    const lastAlertTs = limit.last_alert_sent_at ? new Date(limit.last_alert_sent_at).getTime() : 0;
+    const cooldownMs = 6 * 60 * 60 * 1000;
+    if (lastAlertTs && now - lastAlertTs < cooldownMs) return;
+
+    const latestTxt = Number(latestAmount || 0) > 0 ? `
+🧾 Oxirgi yozuv: <b>${numFmt(latestAmount)} so'm</b>` : '';
+    const text = exceeded
+      ? `🚨 <b>Limit oshdi</b>
+
+📂 Kategoriya: <b>${esc(category)}</b>
+🎯 Limit: <b>${numFmt(limitAmount)} so'm</b>
+📤 Sarflangan: <b>${numFmt(spent)} so'm</b>
+📉 Oshgan summa: <b>${numFmt(Math.abs(remaining))} so'm</b>${latestTxt}`
+      : `⚠️ <b>Limitga yaqinlashdingiz</b>
+
+📂 Kategoriya: <b>${esc(category)}</b>
+🎯 Limit: <b>${numFmt(limitAmount)} so'm</b>
+📤 Sarflangan: <b>${numFmt(spent)} so'm</b>
+💡 Qolgan: <b>${numFmt(Math.max(0, remaining))} so'm</b>${latestTxt}`;
+
+    await bot.sendMessage(chatId, text, { parse_mode: 'HTML' }).catch(() => null);
+
+    const updRes = await db
+      .from('category_limits')
+      .update({ last_alert_sent_at: new Date(now).toISOString() })
+      .eq('id', limit.id);
+
+    if (updRes.error && !isMissingColumnError(updRes.error, 'last_alert_sent_at')) {
+      logErr('limit-update', updRes.error, { userId, category, limitId: limit.id });
+    }
+  } catch (error) {
+    logErr('limit-alert', error, { userId, category });
+  }
 }
 
 async function insertTransactions(rows, source = 'bot') {
   const payload = (rows || []).map(row => ({ ...row }));
 
-  if (txSourceColumnSupported !== false) {
-    const withSource = payload.map(row => ({ ...row, source }));
-    const res = await db.from('transactions').insert(withSource).select();
+  if (txSourceColumnSupported !== false || txSourceRefColumnSupported !== false) {
+    const enriched = payload.map(row => {
+      const next = { ...row };
+      if (txSourceColumnSupported !== false) next.source = source;
+      if (txSourceRefColumnSupported !== false && row.source_ref) next.source_ref = row.source_ref;
+      return next;
+    });
+
+    const res = await db.from('transactions').insert(enriched).select();
     if (!res.error) {
-      txSourceColumnSupported = true;
+      if (txSourceColumnSupported !== false) txSourceColumnSupported = true;
+      if (payload.some(row => row.source_ref)) txSourceRefColumnSupported = true;
       return res;
     }
-    if (!isMissingColumnError(res.error, 'source')) {
-      return res;
+
+    if (isMissingColumnError(res.error, 'source_ref')) {
+      txSourceRefColumnSupported = false;
+      return insertTransactions(rows, source);
     }
-    txSourceColumnSupported = false;
+
+    if (isMissingColumnError(res.error, 'source')) {
+      txSourceColumnSupported = false;
+      return insertTransactions(rows, source);
+    }
+
+    return res;
   }
 
-  return db.from('transactions').insert(payload).select();
+  const plain = payload.map(({ source_ref, ...rest }) => ({ ...rest }));
+  return db.from('transactions').insert(plain).select();
 }
+
+
+const NOTIFICATION_SETTING_DEFAULTS = {
+  daily_reminder: {
+    key: 'daily_reminder',
+    title: '🌤 Kunlik eslatma',
+    enabled: true,
+    send_time: '09:00',
+    timezone: 'Asia/Tashkent',
+    message_template: `🌤 <b>Assalamu aleykum{{name_block}}</b>
+
+Bugungi xarajatlarni kiritib borishni unutmang.
+💸 Kirim, chiqim, qarz va rejalaringizni yozsangiz — men ularni tartibli saqlab boraman.
+
+📅 Bugun: {{today}}
+🤝 <i>24/7 xizmatingizda man!</i>`,
+    config: { window_minutes: 5 }
+  },
+  daily_report: {
+    key: 'daily_report',
+    title: '🌙 Kunlik hisobot',
+    enabled: true,
+    send_time: '22:00',
+    timezone: 'Asia/Tashkent',
+    message_template: `🌙 <b>Kunlik hisobotingiz{{name_block}}</b>
+
+Bugungi kirim-chiqimlaringizni yakunlab, kunlik hisobotingizni tekshirib chiqing.
+💸 Agar hali kiritmagan bo'lsangiz, bugungi yozuvlarni hozir qo'shib qo'ying.
+
+📅 Bugun: {{today}}
+✅ <i>Kunlik hisobotingizni yopishni unutmang.</i>`,
+    config: { window_minutes: 5 }
+  },
+  debt_reminder: {
+    key: 'debt_reminder',
+    title: '⏰ Qarz eslatmasi',
+    enabled: true,
+    send_time: null,
+    timezone: 'Asia/Tashkent',
+    message_template: `⏰ <b>Qarz eslatmasi</b>
+
+{{day_label}} <b>{{person_name}}</b> bilan bog'liq qarz vaqti yetdi.
+💰 {{amount}} so'm
+📌 {{direction}}
+🕒 {{when}}{{note_block}}`,
+    config: {}
+  },
+  scheduled_queue: {
+    key: 'scheduled_queue',
+    title: '📨 Scheduled notification queue',
+    enabled: true,
+    send_time: null,
+    timezone: 'Asia/Tashkent',
+    message_template: null,
+    config: {}
+  }
+};
+
+const NOTIFICATION_SETTING_ORDER = ['daily_reminder', 'daily_report', 'debt_reminder', 'scheduled_queue'];
+
+function normalizeNotifTime(value, fallback = '09:00') {
+  const raw = String(value || '').trim();
+  const match = raw.match(/^(\d{1,2}):(\d{2})$/);
+  if (!match) return fallback;
+  const hh = Number(match[1]);
+  const mm = Number(match[2]);
+  if (!Number.isInteger(hh) || !Number.isInteger(mm) || hh < 0 || hh > 23 || mm < 0 || mm > 59) return fallback;
+  return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
+}
+
+function shiftNotifTime(value, deltaMinutes) {
+  const base = normalizeNotifTime(value, '09:00');
+  const [hh, mm] = base.split(':').map(Number);
+  let total = hh * 60 + mm + Number(deltaMinutes || 0);
+  total = ((total % 1440) + 1440) % 1440;
+  return `${String(Math.floor(total / 60)).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`;
+}
+
+function clipText(value, max = 900) {
+  const text = String(value || '');
+  return text.length > max ? `${text.slice(0, max - 1)}…` : text;
+}
+
+function renderNotifTemplate(template, vars = {}) {
+  return String(template || '').replace(/{{\s*([a-zA-Z0-9_]+)\s*}}/g, (_, key) => String(vars[key] ?? ''));
+}
+
+function escapeTemplateVars(vars = {}) {
+  return Object.fromEntries(Object.entries(vars).map(([k, v]) => [k, esc(v)]));
+}
+
+function getNotificationDefault(key) {
+  return NOTIFICATION_SETTING_DEFAULTS[key] ? JSON.parse(JSON.stringify(NOTIFICATION_SETTING_DEFAULTS[key])) : null;
+}
+
+function mergeNotificationSetting(rowOrKey, patch = null) {
+  const row = typeof rowOrKey === 'string' ? { key: rowOrKey } : (rowOrKey || {});
+  const base = getNotificationDefault(row.key);
+  if (!base) return null;
+  return {
+    ...base,
+    ...row,
+    ...(patch || {}),
+    key: base.key,
+    title: String((patch && patch.title) ?? row.title ?? base.title),
+    enabled: (patch && typeof patch.enabled === 'boolean') ? patch.enabled : (typeof row.enabled === 'boolean' ? row.enabled : base.enabled),
+    send_time: (patch && Object.prototype.hasOwnProperty.call(patch, 'send_time'))
+      ? (patch.send_time ? normalizeNotifTime(patch.send_time, base.send_time || '09:00') : null)
+      : (row.send_time ? normalizeNotifTime(row.send_time, base.send_time || '09:00') : base.send_time),
+    timezone: String((patch && patch.timezone) ?? row.timezone ?? base.timezone),
+    message_template: (patch && Object.prototype.hasOwnProperty.call(patch, 'message_template'))
+      ? (patch.message_template == null ? null : String(patch.message_template))
+      : (row.message_template == null ? base.message_template : String(row.message_template)),
+    config: {
+      ...(base.config || {}),
+      ...(row.config || {}),
+      ...((patch && patch.config) || {})
+    }
+  };
+}
+
+async function seedNotificationSettings() {
+  const payload = NOTIFICATION_SETTING_ORDER.map((key) => mergeNotificationSetting(key));
+  const { error } = await db.from('notification_settings').upsert(payload, { onConflict: 'key', ignoreDuplicates: true });
+  if (error) throw error;
+}
+
+async function listNotificationSettings() {
+  try {
+    await seedNotificationSettings();
+    const { data, error } = await db.from('notification_settings')
+      .select('key, title, enabled, send_time, timezone, message_template, config, last_sent_at, updated_at')
+      .in('key', NOTIFICATION_SETTING_ORDER)
+      .order('key', { ascending: true });
+    if (error) throw error;
+    const rows = Array.isArray(data) ? data : [];
+    return NOTIFICATION_SETTING_ORDER.map((key) => mergeNotificationSetting(rows.find((row) => row.key === key) || key));
+  } catch (error) {
+    if (isMissingTableError(error, 'notification_settings')) {
+      const e = new Error('notification_settings jadvali topilmadi. Supabase SQL migratsiyasini ishga tushiring.');
+      e.code = 'NOTIF_TABLE_MISSING';
+      throw e;
+    }
+    throw error;
+  }
+}
+
+async function getNotificationSetting(key) {
+  const settings = await listNotificationSettings();
+  return settings.find((row) => row.key === key) || null;
+}
+
+async function saveNotificationSetting(key, patch = {}) {
+  const merged = mergeNotificationSetting(key, patch);
+  if (!merged) throw new Error('Noma\'lum notification turi');
+  try {
+    await seedNotificationSettings();
+    const payload = {
+      key: merged.key,
+      title: merged.title,
+      enabled: merged.enabled,
+      send_time: merged.send_time,
+      timezone: merged.timezone,
+      message_template: merged.message_template,
+      config: merged.config || {}
+    };
+    const { data, error } = await db.from('notification_settings').upsert(payload, { onConflict: 'key' }).select().single();
+    if (error) throw error;
+    return mergeNotificationSetting(data || key);
+  } catch (error) {
+    if (isMissingTableError(error, 'notification_settings')) {
+      const e = new Error('notification_settings jadvali topilmadi. Avval yangi SQL migratsiyani ishlating.');
+      e.code = 'NOTIF_TABLE_MISSING';
+      throw e;
+    }
+    throw error;
+  }
+}
+
+function buildNotificationPanelText(settings) {
+  const rows = (settings || []).map((item) => {
+    const status = item.enabled ? '✅ Yoniq' : '⛔️ O\'chiq';
+    const timePart = item.send_time ? ` · 🕒 ${item.send_time}` : '';
+    const lastSent = item.last_sent_at ? `\n   Oxirgi yuborish: ${esc(fmtDateTime(item.last_sent_at))}` : '';
+    return `• <b>${esc(item.title)}</b>\n   ${status}${timePart}${lastSent}`;
+  }).join('\n\n');
+
+  return `🔔 <b>NOTIFICATION BOSHQARUVI</b>\n\n${rows}\n\n<i>Daily reminder, daily report va debt notificationlarni shu yerdan boshqarasiz. Matn yoki custom vaqtni o'zgartirish uchun <b>/notif</b> buyruqlaridan foydalaning.</i>`;
+}
+
+function buildNotificationPanelMarkup(settings = []) {
+  const rows = settings.map((item) => [{ text: `${item.enabled ? '✅' : '⛔️'} ${item.title}`, callback_data: `notif_open:${item.key}` }]);
+  rows.push([{ text: '🔄 Yangilash', callback_data: 'admin_notifications' }, { text: '🛠 Admin panel', callback_data: 'admin_panel' }]);
+  return { inline_keyboard: rows };
+}
+
+function buildNotificationHelpText(key) {
+  const sample = key || 'daily_reminder';
+  return `🧭 <b>Notification buyruqlari</b>
+
+<b>/notif</b> — notification panel
+<b>/notif list</b> — barcha sozlamalar
+<b>/notif on ${sample}</b> — yoqish
+<b>/notif off ${sample}</b> — o'chirish
+<b>/notif time daily_reminder 08:30</b> — ertalabgi eslatma vaqtini o'zgartirish
+<b>/notif time daily_report 22:00</b> — kunlik hisobot vaqtini o'zgartirish
+<b>/notif text daily_reminder Assalomu aleykum...</b> — matnni yangilash
+<b>/notif text daily_report Kunlik hisobotingiz...</b> — matnni yangilash
+<b>/notif reset daily_report</b> — default matnni qaytarish
+<b>/notif test daily_report</b> — test yuborish
+
+Mavjud keylar: <code>daily_reminder</code>, <code>daily_report</code>, <code>debt_reminder</code>, <code>scheduled_queue</code>`;
+}
+
+function buildNotificationDetailText(setting) {
+  const status = setting.enabled ? '✅ Yoniq' : '⛔️ O\'chiq';
+  const timeLine = setting.send_time ? `🕒 Vaqt: <b>${setting.send_time}</b> (${esc(setting.timezone || 'Asia/Tashkent')})\n` : '';
+  const templateLine = setting.message_template
+    ? `📝 Matn shabloni:\n<pre>${esc(clipText(setting.message_template, 1200))}</pre>`
+    : `📝 Matn shabloni: <i>Bu notification tizim matniga tayangan.</i>`;
+  const lastSent = setting.last_sent_at ? `\nOxirgi yuborish: <b>${esc(fmtDateTime(setting.last_sent_at))}</b>` : '';
+  return `🔔 <b>${esc(setting.title)}</b>\n\nHolat: <b>${status}</b>\n${timeLine}${templateLine}${lastSent}\n\n${buildNotificationHelpText(setting.key)}`;
+}
+
+function buildNotificationDetailMarkup(setting) {
+  const rows = [
+    [
+      { text: setting.enabled ? '⛔️ O\'chirish' : '✅ Yoqish', callback_data: `notif_toggle:${setting.key}` },
+      { text: '🧪 Test', callback_data: `notif_test:${setting.key}` }
+    ]
+  ];
+
+  if (setting.key === 'daily_reminder' || setting.key === 'daily_report') {
+    rows.push([
+      { text: '➖ 30m', callback_data: `notif_shift:${setting.key}:-30` },
+      { text: `🕒 ${setting.send_time || (setting.key === 'daily_report' ? '22:00' : '09:00')}`, callback_data: `notif_noop:${setting.key}` },
+      { text: '➕ 30m', callback_data: `notif_shift:${setting.key}:30` }
+    ]);
+    rows.push([
+      { text: setting.key === 'daily_report' ? '21:00' : '08:00', callback_data: `notif_preset:${setting.key}:${setting.key === 'daily_report' ? '21-00' : '08-00'}` },
+      { text: setting.key === 'daily_report' ? '22:00' : '09:00', callback_data: `notif_preset:${setting.key}:${setting.key === 'daily_report' ? '22-00' : '09-00'}` },
+      { text: setting.key === 'daily_report' ? '23:00' : '10:00', callback_data: `notif_preset:${setting.key}:${setting.key === 'daily_report' ? '23-00' : '10-00'}` }
+    ]);
+  }
+
+  rows.push([
+    { text: '🧭 Buyruqlar', callback_data: `notif_help:${setting.key}` },
+    { text: '🔙 Orqaga', callback_data: 'admin_notifications' }
+  ]);
+  return { inline_keyboard: rows };
+}
+
+function buildNotificationPreviewVars(settingKey) {
+  if (settingKey === 'debt_reminder') {
+    return {
+      day_label: 'Bugun',
+      person_name: 'Suxrob',
+      amount: numFmt(250000),
+      direction: 'Siz qaytarishingiz kerak',
+      when: fmtDateTime(new Date()),
+      note_block: `\n📝 ${esc('Sinov izohi')}`
+    };
+  }
+
+  return {
+    name_block: `, <b>${esc('Nurali')}</b>`,
+    today: esc(new Date().toLocaleDateString('uz-UZ'))
+  };
+}
+
+function renderNotificationPreviewText(setting) {
+  if (!setting?.message_template) {
+    if (setting?.key === 'scheduled_queue') {
+      return `<b>Scheduled queue test</b>\n\nQueue orqali yuboriladigan notificationlar Worker cron ichida ishlaydi ✅`;
+    }
+    return `<b>Notification test</b>\n\nMatn shabloni mavjud emas.`;
+  }
+  return renderNotifTemplate(setting.message_template, buildNotificationPreviewVars(setting.key));
+}
+
+async function sendNotificationPreview(chatId, settingKey) {
+  const setting = await getNotificationSetting(settingKey);
+  if (!setting) throw new Error('Notification topilmadi');
+  const text = renderNotificationPreviewText(setting);
+  await bot.sendMessage(chatId, text, { parse_mode: 'HTML', disable_web_page_preview: true });
+  return setting;
+}
+
 
 function adminPanelMarkup() {
   return {
     inline_keyboard: [
       [{ text: '📊 Statistika', callback_data: 'admin_stats' }, { text: '👥 Yangi userlar', callback_data: 'admin_users' }],
       [{ text: '📣 Broadcastlar', callback_data: 'admin_broadcasts' }, { text: '⚠️ Xatolar', callback_data: 'admin_failed' }],
-      [{ text: "🧭 Qo'llanma", callback_data: 'admin_help' }, { text: '🔄 Yangilash', callback_data: 'admin_panel' }]
+      [{ text: '🔔 Notificationlar', callback_data: 'admin_notifications' }, { text: "🧭 Qo'llanma", callback_data: 'admin_help' }],
+      [{ text: '🔄 Yangilash', callback_data: 'admin_panel' }]
     ]
   };
 }
@@ -248,11 +785,17 @@ function buildBroadcastGuideText() {
 
 <b>/admin</b> — admin panelni ochadi
 <b>/message Matn</b> — broadcast draft yaratadi
+<b>/notif</b> — notification sozlamalar paneli
 
 <b>Tugmali broadcast:</b>
 <code>/message Assalomu alaykum
 --
 Kanal | https://t.me/username</code>
+
+<b>Notification boshqaruvi:</b>
+<code>/notif time daily_reminder 08:30</code>
+<code>/notif text daily_reminder Assalomu aleykum...</code>
+<code>/notif test debt_reminder</code>
 
 Rasm/video/document bilan ham <b>/message</b> yuborsangiz, preview chiqadi.
 Xato bo'lsa, natija oynasida yetkazilmagan userlar uchun alohida <b>qayta yuborish</b> tugmasi chiqadi.`;
@@ -263,6 +806,24 @@ async function sendAdminPanel(chatId, messageId = null) {
   return safeEditOrSend(chatId, messageId, buildAdminPanelText(snapshot), {
     parse_mode: 'HTML',
     reply_markup: adminPanelMarkup()
+  });
+}
+
+
+async function sendNotificationPanel(chatId, messageId = null) {
+  const settings = await listNotificationSettings();
+  return safeEditOrSend(chatId, messageId, buildNotificationPanelText(settings), {
+    parse_mode: 'HTML',
+    reply_markup: buildNotificationPanelMarkup(settings)
+  });
+}
+
+async function sendNotificationDetail(chatId, messageId, key) {
+  const setting = await getNotificationSetting(key);
+  if (!setting) throw new Error('Notification topilmadi');
+  return safeEditOrSend(chatId, messageId, buildNotificationDetailText(setting), {
+    parse_mode: 'HTML',
+    reply_markup: buildNotificationDetailMarkup(setting)
   });
 }
 
@@ -387,9 +948,119 @@ function buildBroadcastResultMarkup(bc, result) {
   return { inline_keyboard: rows };
 }
 
+async function fetchUserCategories(userId) {
+  let res = await db.from('categories').select('id, name, type, keywords').eq('user_id', userId);
+  if (res.error && isMissingColumnError(res.error, 'keywords')) {
+    res = await db.from('categories').select('id, name, type').eq('user_id', userId);
+  }
+  if (res.error) throw res.error;
+  return res.data || [];
+}
+
+const CATEGORY_ALIASES = {
+  expense: {
+    Transport: ['taksi', 'taxi', 'yandex', 'metro', 'bus', 'benzin', 'zapravka', "yo'l", 'transport'],
+    Ovqat: ['ovqat', 'osh', 'tushlik', 'kechki ovqat', 'non', 'market', 'korzinka', 'taom', 'kafe', 'fastfood', 'choyxona'],
+    Kvartira: ['ijara', 'kvartira', 'uy', 'kommunal', 'svet', 'gaz', 'suv', 'internet', 'wifi', 'arenda'],
+    Kredit: ['kredit', 'bank', 'tolov', "to'lov", 'uzum'],
+    Qarz: ['qarz', 'nasiya', 'loan', 'qarzdorlik'],
+    "Sog'liq": ['dori', 'apteka', 'klinika', 'shifoxona', 'stomatolog', "sog'liq"],
+    Aloqa: ['telefon', 'nomer', 'aloqa', 'sim', 'megabayt', 'internet paket'],
+    "Ko'ngilochar": ['kino', 'oyin', "o'yin", 'game', 'subscription', 'netflix', 'spotify'],
+    Kiyim: ['kiyim', 'shim', 'oyoq kiyim', 'krossovka', 'futbolka', 'kurtka']
+  },
+  income: {
+    Oylik: ['oylik', 'salary', 'maosh'],
+    Avans: ['avans'],
+    Bonus: ['bonus', 'cashback', 'mukofot'],
+    "Sovg'a": ["sovg'a", 'gift'],
+    Sotuv: ['sotuv', 'savdo', 'mijoz', 'zakaz'],
+    Astatka: ['astatka', 'qaytim', 'qoldiq']
+  }
+};
+
+function normalizeTextForMatch(value) {
+  return String(value || '')
+    .toLowerCase()
+    .replace(/[^a-zа-яё0-9\sЀ-ӿ؀-ۿ']/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function genericCategoryName(value) {
+  const v = normalizeTextForMatch(value);
+  return !v || ['xarajat', 'expense', 'chiqim', 'kirim', 'income', 'daromad'].includes(v);
+}
+
+function scoreCategoryFromAliases(type, haystack) {
+  const aliasPool = CATEGORY_ALIASES[type] || {};
+  let best = null;
+  let bestScore = 0;
+
+  for (const [name, aliases] of Object.entries(aliasPool)) {
+    let score = 0;
+    for (const alias of aliases) {
+      const token = normalizeTextForMatch(alias);
+      if (!token) continue;
+      if (haystack === token) score += 12;
+      else if (haystack.includes(token)) score += Math.max(3, token.length);
+    }
+    if (score > bestScore) {
+      bestScore = score;
+      best = name;
+    }
+  }
+
+  return { best, bestScore };
+}
+
+function resolveCategoryForUser(parsed, categories, rawText = '') {
+  if (!parsed) return null;
+
+  const type = parsed.type === 'income' ? 'income' : 'expense';
+  const pool = (categories || []).filter(cat => cat.type === type);
+  const haystack = `${normalizeTextForMatch(rawText)} ${normalizeTextForMatch(parsed.category)}`.trim();
+
+  const direct = pool.find(cat => normalizeTextForMatch(cat.name) === normalizeTextForMatch(parsed.category));
+  if (direct) return direct.name;
+
+  let best = null;
+  let bestScore = 0;
+  for (const cat of pool) {
+    const words = [cat.name]
+      .concat(Array.isArray(cat.keywords) ? cat.keywords : [])
+      .map(normalizeTextForMatch)
+      .filter(Boolean);
+
+    let score = 0;
+    for (const word of words) {
+      if (haystack === word) score += 14;
+      else if (haystack.includes(word)) score += Math.max(3, word.length);
+    }
+
+    if (score > bestScore) {
+      bestScore = score;
+      best = cat.name;
+    }
+  }
+
+  if (best && bestScore >= 4) return best;
+
+  const aliasHit = scoreCategoryFromAliases(type, haystack);
+  if (aliasHit.best) {
+    const matchedUserCategory = pool.find(cat => normalizeTextForMatch(cat.name) === normalizeTextForMatch(aliasHit.best));
+    if (matchedUserCategory) return matchedUserCategory.name;
+    return aliasHit.best;
+  }
+
+  if (genericCategoryName(parsed.category)) return type === 'income' ? 'Kirim' : 'Xarajat';
+  return parsed.category;
+}
+
 // GPT orkali matndan (ovozli xabardan) ma'lumotlarni olish
 async function gptParse(text) {
   if (!openai || !text) return null;
+  if (openaiDisabledUntil && Date.now() < openaiDisabledUntil) return null;
 
   try {
     const prompt = `Ushbu o'zbek tilidagi moliyaviy xabardan summa (amount), tur (type: income yoki expense) va kategoriyani (category) JSON formatida aniqlab ber.
@@ -397,16 +1068,17 @@ Xabar: "${text}"
 
 Qoidalar:
 1. "yuz ming", "bir yarim mln" kabi so'zlarni raqamga aylantir.
-2. "berdim", "ketdi", "sotib oldim" so'zlari odatda chiqim (expense).
-3. "tushdi", "oldim", "keldi", "oylik", "bonus" so'zlari odatda kirim (income).
-4. Agar valyuta dollar ($) bo'lsa, isUSD: true qilib belgilang.
-5. Faqat JSON qaytaring: {"amount": number, "type": "income"|"expense", "category": "string", "isUSD": boolean}
+2. "berdim", "to'ladim", "sarfladim", "sotib oldim" odatda chiqim (expense).
+3. "dadam berdilar", "mijoz yubordi", "oylik tushdi", "bonus keldi" odatda kirim (income).
+4. Faqat "oldim" so'ziga qarab income demang: "kitob oldim" bu expense, "mijozdan oldim" bu income.
+5. Agar valyuta dollar ($) bo'lsa, isUSD: true qilib belgilang.
+6. Faqat JSON qaytaring: {"amount": number, "type": "income"|"expense", "category": "string", "isUSD": boolean}
 Agar tushunarsiz bo'lsa, null qaytaring.`;
 
     const res = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
-      messages: [{ role: "user", content: prompt }],
-      response_format: { type: "json_object" },
+      model: 'gpt-4o-mini',
+      messages: [{ role: 'user', content: prompt }],
+      response_format: { type: 'json_object' },
       temperature: 0,
     });
 
@@ -420,49 +1092,52 @@ Agar tushunarsiz bo'lsa, null qaytaring.`;
       isUSD: !!data.isUSD
     };
   } catch (e) {
+    if (isQuotaOrRateLimitError(e)) {
+      openaiDisabledUntil = Date.now() + 30 * 60 * 1000;
+      warn('gpt-parse-fallback', { reason: e?.message || 'quota/rate-limit', disabledUntil: new Date(openaiDisabledUntil).toISOString() });
+      return null;
+    }
     logErr('gpt-parse', e);
     return null;
   }
 }
 
-// ─── TEXT PARSER ──────────────────────────────────────────
-// Matndan summa, tur va kategoriyani ajratib olish (Regex asosslangan fallback)
-function parseText(raw) {
+function titleCaseWords(value) {
+  return String(value || '')
+    .split(/\s+/)
+    .filter(Boolean)
+    .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ')
+    .trim();
+}
+
+function extractAmountMeta(raw) {
   if (!raw) return null;
   const text = String(raw).trim();
-  if (!text) return null;
-
   const lower = text.toLowerCase();
-
-  // Dollar belgilari bormi?
   const isUSD = /\$|\busd\b|dollar/i.test(lower);
 
-  // Belgilarni tozalash — raqam, bo'shliq, nuqta, vergulni qoldirish
   let clean = lower
     .replace(/so'?m|sum|uzs|\$|€|\busd\b|dollar/gi, ' ')
-    .replace(/[^\d\s.,a-z']/g, ' ')
+    .replace(/[^\d\s.,a-zа-яёӣқғҳў\-']/gi, ' ')
     .replace(/\s+/g, ' ')
     .trim();
 
-  // Raqam va suffix topish
   const m = clean.match(/(\d[\d\s,.]*)(\s*(?:k|ming|mln|mlrd|million|milliard|m|b)\b)?/i);
   if (!m) return null;
 
   let numStr = m[1].trim();
   numStr = numStr
-    .replace(/[. ](?=\d{3}(?:\D|$))/g, '') // minglik nuqta yoki bo'shliq: 500.000 -> 500000
-    .replace(/,/g, '.')                    // vergulni nuqtaga: 1,5 -> 1.5
-    .replace(/\s/g, '');                   // qolgan bo'shliqlar
+    .replace(/[. ](?=\d{3}(?:\D|$))/g, '')
+    .replace(/,/g, '.')
+    .replace(/\s/g, '');
 
   const amount = parseFloat(numStr);
-  if (!amount || isNaN(amount) || !Number.isFinite(amount)) return null;
+  if (!amount || Number.isNaN(amount) || !Number.isFinite(amount)) return null;
 
-  // Suffix multiplier
   const suffix = (m[2] || '').replace(/\s/g, '').toLowerCase();
   let finalAmount = amount;
 
-  // Redundancy check: if user wrote "500 000 ming", amount is 500000. 
-  // If amount >= 1000 and suffix is 'k'/'ming', we skip multiplication.
   const isAlreadyBig = (suffix === 'k' || suffix === 'ming') && amount >= 1000;
   const isAlreadyMln = (suffix === 'mln' || suffix === 'm' || suffix === 'million') && amount >= 1000000;
 
@@ -476,32 +1151,562 @@ function parseText(raw) {
 
   if (!Number.isFinite(finalAmount) || finalAmount <= 0) return null;
 
-  // Tur aniqlash
-  const incWords = ['kirim', 'tushdi', 'keldi', 'avans', 'oylik', 'bonus', 'oldim', 'daromad'];
-  const expWords = ['chiqim', 'ketdi', 'berdim', 'sarfladim', 'xarajat', 'taksi', 'ovqat', 'tushlik'];
+  return {
+    amount: Math.round(finalAmount),
+    isUSD,
+    clean,
+    rawMatch: m[0]
+  };
+}
 
-  let type = 'expense';
-  if (/^\+/.test(lower)) type = 'income';
-  else if (/^-/.test(lower)) type = 'expense';
-  else if (/\w+dan\b/i.test(lower)) type = 'income';
-  else if (incWords.some(w => lower.includes(w))) type = 'income';
-  else if (expWords.some(w => lower.includes(w))) type = 'expense';
-  else if (/\w+ga\b/i.test(lower)) type = 'expense';
+function inferTransactionType(lower) {
+  let incomeScore = 0;
+  let expenseScore = 0;
 
-  let catPart = clean.replace(m[0], '').replace(/^\s*[+\-]\s*/, '').trim();
+  if (/^\+/.test(lower)) incomeScore += 5;
+  if (/^-/.test(lower)) expenseScore += 5;
+
+  if (/\b(?:oylik|maosh|avans|bonus|cashback|daromad|foyda|grant|stipendiya)\b/i.test(lower)) incomeScore += 7;
+  if (/\b(?:dadam|onam|akam|ukam|opam|singlim|do'?stim|mijoz|klient|boshliq|ishxona|kompaniya|ustoz)\b.*\b(?:berdi|berdilar|yubordi|jo'?natdi|o'?tkazdi|tashladi|to'?ladi)\b/i.test(lower)) incomeScore += 8;
+  if (/\b(?:menga|hisobimga|kartamga)\b.*\b(?:tushdi|keldi|o'?tdi|kelib tushdi)\b/i.test(lower)) incomeScore += 8;
+  if (/\b(?:mijozdan|klientdan|dadamdan|onamdan|akamdan|ukamdan|opamdan|singlimdan|do'?stimdan|boshliqdan)\b.*\b(?:oldim|oldik|qabul qildim)\b/i.test(lower)) incomeScore += 7;
+  if (/\b(?:qaytdi|qaytarib berdi|qaytarildi)\b/i.test(lower)) incomeScore += 4;
+  if (/\b(?:sovg'a|sovga|hadya)\b/i.test(lower)) incomeScore += 4;
+
+  if (/\b(?:berdim|to'?ladim|sarfladim|jo'?natdim|o'?tkazdim|uzatdim|chiqim|xarajat)\b/i.test(lower)) expenseScore += 8;
+  if (/\b(?:sotib oldim|xarid qildim)\b/i.test(lower)) expenseScore += 8;
+  if (/\boldim\b/i.test(lower) && !/\b(?:mijozdan|klientdan|dadamdan|onamdan|akamdan|ukamdan|opamdan|singlimdan|do'?stimdan|boshliqdan)\b/i.test(lower) && !/\b(?:oylik|maosh|avans|bonus|cashback|daromad|foyda|qaytim|astatka)\b/i.test(lower)) expenseScore += 4;
+  if (/\b\S+ga\b.*\b(?:berdim|to'?ladim|o'?tkazdim)\b/i.test(lower)) expenseScore += 5;
+  if (/\b(?:taksi|yandex|ovqat|tushlik|kechki ovqat|non|market|korzinka|bozor|ijara|kommunal|kredit|dori|apteka|internet|wifi|benzin|zapravka|subscription|obuna|kiyim|krossovka)\b/i.test(lower)) expenseScore += 5;
+
+  return {
+    incomeScore,
+    expenseScore,
+    type: incomeScore > expenseScore ? 'income' : 'expense'
+  };
+}
+
+function inferSemanticCategory(lower, type, rawCategory) {
+  if (type === 'income') {
+    if (/\b(?:oylik|maosh)\b/i.test(lower)) return 'Oylik';
+    if (/\bavans\b/i.test(lower)) return 'Avans';
+    if (/\b(?:bonus|cashback|mukofot)\b/i.test(lower)) return 'Bonus';
+    if (/\b(?:mijoz|klient|sotuv|zakaz|savdo)\b/i.test(lower)) return 'Sotuv';
+    if (/\b(?:dadam|onam|akam|ukam|opam|singlim|do'?stim|sovg'a|sovga|hadya)\b/i.test(lower)) return "Sovg'a";
+    if (/\b(?:qaytdi|qaytarib berdi|qaytarildi)\b/i.test(lower)) return 'Astatka';
+  }
+
+  const aliasHit = scoreCategoryFromAliases(type, normalizeTextForMatch(`${lower} ${rawCategory}`));
+  if (aliasHit.best) return aliasHit.best;
+
+  return rawCategory;
+}
+
+function cleanupCategoryText(value) {
+  const cleaned = String(value || '')
+    .replace(/\b(so'?m|sum|uzs|usd|dollar|kirim|chiqim|berdim|berdi|berdilar|oldim|oldik|tushdi|ketdi|keldi|oylik|bonus|avans|maosh|menga|hisobimga|kartamga|to'?ladim|sarfladim|sotib|xarid|qildim|plan|reja|limit|byudjet)\b/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return cleaned;
+}
+
+function stripAmountFragment(text, amountMeta) {
+  return String(text || '').replace(amountMeta?.rawMatch || '', ' ');
+}
+
+function cleanupIntentName(value) {
+  return titleCaseWords(String(value || '')
+    .replace(/\b(?:uchun|ga|ka|qa|dan|ni|pul|summa|bo'?yicha|oylik|oyiga|joriy|shu|oy|plan|reja|limit|byudjet|budjet)\b/gi, ' ')
+    .replace(/[.,!?;:]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim());
+}
+
+function cleanupPersonName(value) {
+  return titleCaseWords(String(value || '')
+    .replace(/\b(?:men|menga|meni|mendan|biz|bizga|bizni|u|unga|undan|undanam|pul|summa|uchun|bilan|qilgan|qilib|qaytarib|berib|oldim|berdim|oldi|berdi|qaytardi|qaytdi|qaytardim|qaytarildi|to'?ladim|uzdim|qarz|nasiya|qarzni|kerak|bo'?lgan|boyicha)\b/gi, ' ')
+    .replace(/[.,!?;:]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim());
+}
+
+function extractNameBySuffix(text, suffix) {
+  const safe = String(text || '').trim();
+  if (!safe) return '';
+  const re = new RegExp(`([\\p{L}0-9'’\\s-]{2,}?)(?:${suffix})\\b`, 'iu');
+  const match = safe.match(re);
+  if (!match?.[1]) return '';
+  return cleanupPersonName(match[1]);
+}
+
+function extractLooseName(text) {
+  return cleanupPersonName(String(text || '')
+    .replace(/\b(?:qaytdi|qaytardi|qaytardim|qaytarildi|qaytarib berdi|qaytarib berdim|to'?ladim|uzdim|berdim|oldim|qarz|nasiya)\b/gi, ' '));
+}
+
+function parsePlanIntent(raw) {
+  const text = String(raw || '').trim();
+  if (!text || !/\b(?:reja|plan|limit|byudjet|budjet)\b/i.test(text)) return null;
+
+  const amountMeta = extractAmountMeta(text);
+  if (!amountMeta) return null;
+
+  const noPrimaryAmount = stripAmountFragment(text, amountMeta);
+  const alertMeta = /\b(?:qolganda|ogohlantir|ogohlantirgin|ogohlantirish)\b/i.test(text) ? extractAmountMeta(noPrimaryAmount) : null;
+  const cleaned = cleanupCategoryText(String(noPrimaryAmount)
+    .replace(alertMeta?.rawMatch || '', ' ')
+    .replace(/\b(?:reja|plan|limit|byudjet|budjet|oylik|oyiga|kerak|qilib qo'y|qilib qoy|qilib ber|tuzib ber|tuzib qo'y|tuzib qoy|tuz|tuzing|ogohlantir|ogohlantirgin|ogohlantirish|qolganda)\b/gi, ' '));
+
+  let categoryName = '';
+  const beforeUchun = cleaned.match(/(.+?)\s+uchun\b/i);
+  if (beforeUchun?.[1]) categoryName = beforeUchun[1];
+  if (!categoryName) {
+    const afterIntent = cleaned.match(/\b(?:reja|plan|limit|byudjet|budjet)\b\s+(.+)$/i);
+    if (afterIntent?.[1]) categoryName = afterIntent[1];
+  }
+  if (!categoryName) categoryName = cleaned;
+
+  categoryName = cleanupIntentName(categoryName);
+  if (!categoryName) return null;
+
+  return {
+    amount: amountMeta.amount,
+    categoryName,
+    alertBefore: Math.max(0, alertMeta?.amount || Math.round(amountMeta.amount * 0.1)),
+    monthKey: monthKeyOf(),
+  };
+}
+
+function parseDebtIntent(raw) {
+  const text = String(raw || '').trim();
+  const lower = text.toLowerCase();
+  if (!text || !/\b(?:qarz|nasiya)\b/i.test(lower)) return null;
+
+  const amountMeta = extractAmountMeta(text);
+  if (!amountMeta) return null;
+
+  const noAmount = stripAmountFragment(text, amountMeta);
+  const hasGiveVerb = /\b(?:berdim|berib turdim|yozib berdim|beraman)\b/i.test(lower);
+  const hasTakeVerb = /\b(?:oldim|olib turdim|olaman)\b/i.test(lower);
+  const hasGa = /[\p{L}0-9'’`\-]+ga\b/iu.test(noAmount);
+  const hasDan = /[\p{L}0-9'’`\-]+dan\b/iu.test(noAmount);
+
+  let direction = null;
+  if (hasGa || hasGiveVerb) direction = 'receivable';
+  if (!direction && (hasDan || hasTakeVerb)) direction = 'payable';
+  if (!direction) return null;
+
+  let personName = direction === 'receivable'
+    ? extractNameBySuffix(noAmount, 'ga')
+    : extractNameBySuffix(noAmount, 'dan');
+
+  if (!personName) personName = extractLooseName(noAmount);
+  if (!personName) return null;
+
+  return {
+    amount: amountMeta.amount,
+    personName,
+    direction,
+    note: text,
+  };
+}
+
+function parseDebtSettlementIntent(raw) {
+  const text = String(raw || '').trim();
+  const lower = text.toLowerCase();
+  if (!text) return null;
+
+  const amountMeta = extractAmountMeta(text);
+  const noAmount = stripAmountFragment(text, amountMeta);
+  const hasReturnVerb = /\b(?:qaytdi|qaytardi|qaytardim|qaytarildi|qaytarib berdi|qaytarib berdim|uzdim|uzildi|to'?ladim)\b/i.test(lower);
+  const hasDebtHint = /\b(?:qarz|nasiya)\b/i.test(lower);
+  if (hasDebtHint && !hasReturnVerb) return null;
+  const hasGa = /[\p{L}0-9'’`\-]+ga\b/iu.test(noAmount);
+  const hasDan = /[\p{L}0-9'’`\-]+dan\b/iu.test(noAmount);
+
+  let direction = null;
+  if (/\b(?:qaytardi|qaytdi|qaytarildi|qaytarib berdi)\b/i.test(lower)) direction = 'receivable';
+  if (!direction && /\b(?:qaytardim|qaytarib berdim|uzdim|to'?ladim)\b/i.test(lower)) direction = 'payable';
+  if (!direction && hasDan) direction = 'receivable';
+  if (!direction && hasGa) direction = 'payable';
+  if (!direction) return null;
+
+  let personName = direction === 'receivable'
+    ? extractNameBySuffix(noAmount, 'dan')
+    : extractNameBySuffix(noAmount, 'ga');
+
+  if (!personName) personName = extractLooseName(noAmount);
+  if (!personName) return null;
+
+  const explicit = hasReturnVerb || hasDebtHint;
+  if (!explicit && !amountMeta) return null;
+
+  return {
+    amount: amountMeta?.amount || null,
+    personName,
+    direction,
+    explicit,
+    note: text,
+  };
+}
+
+async function ensureExpenseCategory(userId, categoryName) {
+  const cats = await fetchUserCategories(userId);
+  const normalized = normalizeTextForMatch(categoryName);
+  const existing = (cats || []).find(cat => cat.type === 'expense' && normalizeTextForMatch(cat.name) === normalized);
+  if (existing) return existing;
+
+  const { data, error } = await db
+    .from('categories')
+    .insert([{ user_id: userId, name: categoryName, type: 'expense', icon: 'target' }])
+    .select('id, name, type, keywords')
+    .maybeSingle();
+
+  if (error && !String(error.message || '').toLowerCase().includes('duplicate')) throw error;
+  if (data) return data;
+
+  const fresh = await fetchUserCategories(userId);
+  return fresh.find(cat => cat.type === 'expense' && normalizeTextForMatch(cat.name) === normalized) || null;
+}
+
+async function savePlanIntent(userId, chatId, intent) {
+  const category = await ensureExpenseCategory(userId, intent.categoryName);
+  const categoryName = category?.name || intent.categoryName;
+  const existingRows = await fetchCategoryLimitCandidates(userId);
+  const current = findExistingCategoryLimit(existingRows, categoryName, intent.monthKey);
+
+  async function writeCategoryLimit(mode, rowId = null) {
+    let activeNameCol = categoryLimitNameColumn();
+    let activeMode = mode;
+    let activeRowId = rowId;
+    let writePayload = {
+      category_id: category?.id || null,
+      [activeNameCol]: categoryName,
+      category: categoryName,
+      type: 'expense',
+      amount: intent.amount,
+      alert_before: intent.alertBefore,
+      notify_bot: true,
+      notify_app: true,
+      is_active: true,
+      month_key: intent.monthKey,
+    };
+
+    for (let i = 0; i < 8; i += 1) {
+      const res = activeMode === 'update'
+        ? await db.from('category_limits').update(writePayload).eq('id', activeRowId).eq('user_id', userId)
+        : await db.from('category_limits').insert([{ user_id: userId, ...writePayload }]);
+
+      if (!res.error) {
+        categoryLimitNameColumnSupported = activeNameCol === 'name' ? 'name' : null;
+        return res;
+      }
+
+      if (isMissingColumnError(res.error, activeNameCol)) {
+        activeNameCol = alternateCategoryLimitNameColumn(activeNameCol);
+        categoryLimitNameColumnSupported = activeNameCol === 'name' ? 'name' : null;
+        writePayload = { ...writePayload, [activeNameCol]: categoryName };
+        delete writePayload.category_name;
+        delete writePayload.name;
+        continue;
+      }
+
+      if (isMissingColumnError(res.error, 'month_key')) {
+        const { month_key, ...rest } = writePayload;
+        writePayload = rest;
+        continue;
+      }
+
+      if (isNullConstraintOnColumn(res.error, 'category')) {
+        writePayload = { ...writePayload, category: categoryName };
+        continue;
+      }
+
+      if (isMissingColumnError(res.error, 'category')) {
+        const { category, ...rest } = writePayload;
+        writePayload = rest;
+        continue;
+      }
+
+      if (isNullConstraintOnColumn(res.error, 'type')) {
+        writePayload = { ...writePayload, type: 'expense' };
+        continue;
+      }
+
+      if (isMissingColumnError(res.error, 'type')) {
+        const { type, ...rest } = writePayload;
+        writePayload = rest;
+        continue;
+      }
+
+      if (isMissingColumnError(res.error, 'category_id')) {
+        const { category_id, ...rest } = writePayload;
+        writePayload = rest;
+        continue;
+      }
+
+      if (activeMode === 'insert' && isDuplicateKeyError(res.error)) {
+        const refreshedRows = await fetchCategoryLimitCandidates(userId);
+        const existing = findExistingCategoryLimit(refreshedRows, categoryName, intent.monthKey);
+        if (existing?.id) {
+          activeMode = 'update';
+          activeRowId = existing.id;
+          continue;
+        }
+      }
+
+      return res;
+    }
+
+    return { error: new Error('category_limits write fallback exhausted') };
+  }
+
+  if (current?.id) {
+    const updateRes = await writeCategoryLimit('update', current.id);
+    if (updateRes.error) throw updateRes.error;
+    await bot.sendMessage(chatId,
+      `🎯 <b>Reja yangilandi</b>
+
+📂 Kategoriya: <b>${esc(categoryName)}</b>
+💰 Limit: <b>${numFmt(intent.amount)} so'm</b>
+⚠️ Ogohlantirish: <b>${numFmt(intent.alertBefore)} so'm</b>
+📅 Oy: <b>${esc(intent.monthKey)}</b>
+
+Mini App > Reja bo'limida ko'rinadi.`,
+      { parse_mode: 'HTML' }
+    ).catch(() => null);
+    return true;
+  }
+
+  const insertRes = await writeCategoryLimit('insert');
+  if (insertRes.error) throw insertRes.error;
+
+  await bot.sendMessage(chatId,
+    `🎯 <b>Reja yaratildi</b>
+
+📂 Kategoriya: <b>${esc(categoryName)}</b>
+💰 Limit: <b>${numFmt(intent.amount)} so'm</b>
+⚠️ Ogohlantirish: <b>${numFmt(intent.alertBefore)} so'm</b>
+📅 Oy: <b>${esc(intent.monthKey)}</b>
+
+Mini App > Reja bo'limida ko'rinadi.`,
+    { parse_mode: 'HTML' }
+  ).catch(() => null);
+  return true;
+}
+
+function pickBestDebtMatch(rows, personName) {
+  const target = normalizeTextForMatch(personName);
+  let best = null;
+  let bestScore = 0;
+
+  for (const row of rows || []) {
+    const candidate = normalizeTextForMatch(row.person_name);
+    if (!candidate) continue;
+    let score = 0;
+    if (candidate === target) score = 100;
+    else if (candidate.includes(target) || target.includes(candidate)) score = 70;
+    else {
+      const targetWords = new Set(target.split(' ').filter(Boolean));
+      const candidateWords = candidate.split(' ').filter(Boolean);
+      score = candidateWords.reduce((sum, word) => sum + (targetWords.has(word) ? 25 : 0), 0);
+    }
+    if (score > bestScore) {
+      bestScore = score;
+      best = row;
+    }
+  }
+
+  return bestScore >= 25 ? best : null;
+}
+
+async function findOpenDebtByPerson(userId, personName, direction) {
+  const { data, error } = await db
+    .from('debts')
+    .select('*')
+    .eq('user_id', userId)
+    .eq('status', 'open')
+    .eq('direction', direction)
+    .order('created_at', { ascending: true });
+  if (error) throw error;
+  return pickBestDebtMatch(data || [], personName);
+}
+
+async function updateDebtSettlementMeta(debtId, userId, values) {
+  if (debtSettlementColumnSupported === false) {
+    const { settlement_tx_id, ...plain } = values || {};
+    return db.from('debts').update(plain).eq('id', debtId).eq('user_id', userId);
+  }
+
+  const res = await db.from('debts').update(values).eq('id', debtId).eq('user_id', userId);
+  if (!res.error) {
+    debtSettlementColumnSupported = true;
+    return res;
+  }
+
+  if (isMissingColumnError(res.error, 'settlement_tx_id')) {
+    debtSettlementColumnSupported = false;
+    const { settlement_tx_id, ...plain } = values || {};
+    return db.from('debts').update(plain).eq('id', debtId).eq('user_id', userId);
+  }
+
+  return res;
+}
+
+async function createDebtSettlementTx(userId, debt, amount) {
+  const category = debt.direction === 'receivable'
+    ? `Qarz qaytdi · ${debt.person_name}`
+    : `Qarz qaytarildi · ${debt.person_name}`;
+  const sourceRef = `debt:${debt.id}:${Date.now()}`;
+  const row = {
+    user_id: userId,
+    amount,
+    category,
+    type: debt.direction === 'receivable' ? 'income' : 'expense',
+    date: iso(),
+    source_ref: sourceRef,
+  };
+
+  const { data, error } = await insertTransactions([row], 'debt_settlement');
+  if (error) throw error;
+  const saved = Array.isArray(data) ? data[0] : data;
+  return saved || null;
+}
+
+async function saveDebtIntent(userId, chatId, intent) {
+  const payload = {
+    user_id: userId,
+    person_name: intent.personName,
+    amount: intent.amount,
+    direction: intent.direction,
+    due_at: null,
+    remind_at: null,
+    note: intent.note,
+    status: 'open'
+  };
+
+  const { error } = await db.from('debts').insert([payload]);
+  if (error) throw error;
+
+  const directionText = intent.direction === 'receivable' ? 'Sizga qaytadi' : 'Siz qaytarasiz';
+  await bot.sendMessage(chatId,
+    `🤝 <b>Qarz saqlandi</b>
+
+📂 <b>Turi:</b> Qarz
+👤 <b>Kim bilan:</b> <b>${esc(intent.personName)}</b>
+💰 <b>Summa:</b> <b>${numFmt(intent.amount)} so'm</b>
+📌 <b>Yo'nalish:</b> <b>${esc(directionText)}</b>
+
+<i>Eslatma: qarz berilganda balans darhol o'zgarmaydi. Qarz qaytganda yoki qaytarganingizda bot avtomatik hisobga oladi.</i>`,
+    { parse_mode: 'HTML' }
+  ).catch(() => null);
+  return true;
+}
+
+async function saveDebtSettlementIntent(userId, chatId, intent) {
+  const debt = await findOpenDebtByPerson(userId, intent.personName, intent.direction);
+  if (!debt) {
+    if (intent.explicit) {
+      await bot.sendMessage(chatId,
+        `⚠️ <b>Ochiq qarz topilmadi</b>
+
+👤 <b>${esc(intent.personName)}</b> uchun ochiq qarz yozuvi topilmadi. Avval qarzni yozing yoki Mini App > Qarzlar bo'limidan tekshiring.`,
+        { parse_mode: 'HTML' }
+      ).catch(() => null);
+      return { handled: true, found: false };
+    }
+    return { handled: false, found: false };
+  }
+
+  const currentAmount = Number(debt.amount || 0);
+  const paidAmount = Math.max(0, Number(intent.amount || currentAmount));
+  if (!paidAmount) return { handled: false, found: true };
+
+  const usedAmount = Math.min(currentAmount, paidAmount);
+  const remaining = Math.max(0, currentAmount - usedAmount);
+  const tx = await createDebtSettlementTx(userId, debt, usedAmount);
+
+  if (remaining > 0) {
+    const { error } = await updateDebtSettlementMeta(debt.id, userId, {
+      amount: remaining,
+      updated_at: iso(),
+    });
+    if (error) throw error;
+
+    await bot.sendMessage(chatId,
+      `🔁 <b>Qarz qisman yopildi</b>
+
+👤 <b>${esc(debt.person_name)}</b>
+💸 <b>${numFmt(usedAmount)} so'm</b> ${debt.direction === 'receivable' ? 'qaytdi' : 'qaytarildi'}
+💼 <b>Qoldiq qarz:</b> <b>${numFmt(remaining)} so'm</b>`,
+      { parse_mode: 'HTML' }
+    ).catch(() => null);
+
+    return { handled: true, found: true, debtId: debt.id, txId: tx?.id || null, partial: true };
+  }
+
+  const { error } = await updateDebtSettlementMeta(debt.id, userId, {
+    status: 'paid',
+    paid_at: iso(),
+    settlement_tx_id: tx?.id || null,
+    updated_at: iso(),
+  });
+  if (error) throw error;
+
+  await bot.sendMessage(chatId,
+    `✅ <b>Qarz yopildi</b>
+
+👤 <b>${esc(debt.person_name)}</b>
+💰 <b>${numFmt(usedAmount)} so'm</b> ${debt.direction === 'receivable' ? "qaytdi va balansga qo'shildi" : "qaytarildi va balansdan chiqarildi"}.`,
+    { parse_mode: 'HTML' }
+  ).catch(() => null);
+
+  return { handled: true, found: true, debtId: debt.id, txId: tx?.id || null, partial: false };
+}
+
+
+// ─── TEXT PARSER ──────────────────────────────────────────
+// Matndan summa, tur va kategoriyani ajratib olish (Regex asosslangan fallback)
+function parseText(raw) {
+  if (!raw) return null;
+  const text = String(raw).trim();
+  if (!text) return null;
+
+  const lower = text.toLowerCase();
+  const amountMeta = extractAmountMeta(text);
+  if (!amountMeta) return null;
+
+  const typeMeta = inferTransactionType(lower);
+  const type = typeMeta.type;
+
+  let catPart = amountMeta.clean.replace(amountMeta.rawMatch, ' ').replace(/^\s*[+\-]\s*/, '').trim();
+  catPart = cleanupCategoryText(catPart);
   if (!catPart || catPart.length < 2) catPart = type === 'income' ? 'kirim' : 'xarajat';
 
-  const category = catPart.charAt(0).toUpperCase() + catPart.slice(1);
+  const inferredCategory = inferSemanticCategory(lower, type, titleCaseWords(catPart));
+  const category = titleCaseWords(inferredCategory || catPart || (type === 'income' ? 'Kirim' : 'Xarajat'));
 
-  return { amount: Math.round(finalAmount), type, category, isUSD };
+  return {
+    amount: amountMeta.amount,
+    type,
+    category,
+    isUSD: amountMeta.isUSD
+  };
 }
 
 // ─── SAVE TRANSACTION ────────────────────────────────────
-async function saveTx(userId, chatId, parsed, receiptUrl = null, exRate = DEFAULT_RATE, replyId = null) {
+async function saveTx(userId, chatId, parsed, receiptUrl = null, exRate = DEFAULT_RATE, replyId = null, rawText = '') {
   const safeRate = Number(exRate) > 0 ? Number(exRate) : DEFAULT_RATE;
 
   let amount = parsed.amount;
   let category = parsed.category;
+
+  try {
+    const userCats = await fetchUserCategories(userId);
+    category = resolveCategoryForUser(parsed, userCats, rawText) || category;
+  } catch (error) {
+    logErr('category-resolve', error, { userId });
+  }
   let amtTxt = `${numFmt(amount)} so'm`;
 
   if (parsed.isUSD) {
@@ -548,7 +1753,8 @@ async function saveTx(userId, chatId, parsed, receiptUrl = null, exRate = DEFAUL
     opts
   ).catch(() => { });
 
-  log('tx-saved', { userId, id: saved.id, type: saved.type, amount: saved.amount });
+  await sendCategoryLimitAlert(userId, chatId, category, amount, parsed.type);
+  log('tx-saved', { userId, id: saved.id, type: saved.type, amount: saved.amount, category });
   return saved;
 }
 
@@ -677,6 +1883,88 @@ module.exports = async (req, res) => {
         }
       }
 
+
+      if (data.startsWith('notif_')) {
+        if (!isAdmin(userId)) {
+          await bot.answerCallbackQuery(q.id, { text: 'Admin emas', show_alert: true }).catch(() => { });
+          return res.status(200).json({ ok: true });
+        }
+
+        const [action, key, rawValue] = data.split(':');
+
+        if (action === 'notif_noop') {
+          await bot.answerCallbackQuery(q.id, { text: `Custom vaqt uchun /notif time ${key} ${key === 'daily_report' ? '22:00' : '08:30'} deb yozing` }).catch(() => { });
+          return res.status(200).json({ ok: true });
+        }
+
+        if (action === 'notif_help') {
+          await bot.answerCallbackQuery(q.id).catch(() => { });
+          await safeEditOrSend(chatId, msgId, buildNotificationHelpText(key), {
+            parse_mode: 'HTML',
+            reply_markup: { inline_keyboard: [[{ text: '🔙 Orqaga', callback_data: `notif_open:${key}` }], [{ text: '🛠 Admin panel', callback_data: 'admin_panel' }]] }
+          });
+          return res.status(200).json({ ok: true });
+        }
+
+        if (action === 'notif_open') {
+          await bot.answerCallbackQuery(q.id).catch(() => { });
+          try {
+            await sendNotificationDetail(chatId, msgId, key);
+          } catch (e) {
+            await safeEditOrSend(chatId, msgId, `⚠️ Notificationni ochishda xatolik: ${esc(tgErr(e))}`, { parse_mode: 'HTML', reply_markup: adminPanelMarkup() });
+          }
+          return res.status(200).json({ ok: true });
+        }
+
+        if (action === 'notif_toggle') {
+          try {
+            const current = await getNotificationSetting(key);
+            const next = await saveNotificationSetting(key, { enabled: !current.enabled });
+            await bot.answerCallbackQuery(q.id, { text: next.enabled ? 'Yoqildi ✅' : "O'chirildi ⛔️" }).catch(() => { });
+            await sendNotificationDetail(chatId, msgId, key);
+          } catch (e) {
+            await bot.answerCallbackQuery(q.id, { text: tgErr(e), show_alert: true }).catch(() => { });
+          }
+          return res.status(200).json({ ok: true });
+        }
+
+        if (action === 'notif_shift') {
+          try {
+            const current = await getNotificationSetting(key);
+            const nextTime = shiftNotifTime(current.send_time || (current.key === 'daily_report' ? '22:00' : '09:00'), Number(rawValue || 0));
+            await saveNotificationSetting(key, { send_time: nextTime });
+            await bot.answerCallbackQuery(q.id, { text: `Yangi vaqt: ${nextTime}` }).catch(() => { });
+            await sendNotificationDetail(chatId, msgId, key);
+          } catch (e) {
+            await bot.answerCallbackQuery(q.id, { text: tgErr(e), show_alert: true }).catch(() => { });
+          }
+          return res.status(200).json({ ok: true });
+        }
+
+        if (action === 'notif_preset') {
+          try {
+            const nextTime = String(rawValue || '').replace('-', ':');
+            await saveNotificationSetting(key, { send_time: nextTime });
+            await bot.answerCallbackQuery(q.id, { text: `Vaqt saqlandi: ${nextTime}` }).catch(() => { });
+            await sendNotificationDetail(chatId, msgId, key);
+          } catch (e) {
+            await bot.answerCallbackQuery(q.id, { text: tgErr(e), show_alert: true }).catch(() => { });
+          }
+          return res.status(200).json({ ok: true });
+        }
+
+        if (action === 'notif_test') {
+          try {
+            await sendNotificationPreview(chatId, key);
+            await bot.answerCallbackQuery(q.id, { text: 'Test yuborildi ✅' }).catch(() => { });
+          } catch (e) {
+            await bot.answerCallbackQuery(q.id, { text: tgErr(e), show_alert: true }).catch(() => { });
+          }
+          return res.status(200).json({ ok: true });
+        }
+      }
+
+
       if (data.startsWith('admin_')) {
         if (!isAdmin(userId)) {
           await bot.answerCallbackQuery(q.id, { text: 'Admin emas', show_alert: true }).catch(() => { });
@@ -731,6 +2019,15 @@ module.exports = async (req, res) => {
             parse_mode: 'HTML',
             reply_markup: { inline_keyboard: [...rowsKb, [{ text: '🛠 Admin panel', callback_data: 'admin_panel' }]] }
           });
+          return res.status(200).json({ ok: true });
+        }
+
+        if (data === 'admin_notifications') {
+          try {
+            await sendNotificationPanel(chatId, msgId);
+          } catch (e) {
+            await safeEditOrSend(chatId, msgId, `⚠️ Notification panelni ochishda xatolik: ${esc(tgErr(e))}`, { parse_mode: 'HTML', reply_markup: adminPanelMarkup() });
+          }
           return res.status(200).json({ ok: true });
         }
 
@@ -847,6 +2144,108 @@ module.exports = async (req, res) => {
       return res.status(200).json({ ok: true });
     }
 
+
+    if (text === '/notif' || text.startsWith('/notif ')) {
+      if (!isAdmin(userId)) {
+        await bot.sendMessage(chatId, '⛔️ Bu buyruq faqat adminlar uchun.').catch(() => { });
+        return res.status(200).json({ ok: true });
+      }
+
+      const full = String(text || '').trim();
+      const parts = full.split(/\s+/);
+      const sub = (parts[1] || '').toLowerCase();
+
+      try {
+        if (!sub || sub === 'list') {
+          await sendNotificationPanel(chatId);
+          return res.status(200).json({ ok: true });
+        }
+
+        if (sub === 'help') {
+          await bot.sendMessage(chatId, buildNotificationHelpText(), { parse_mode: 'HTML' }).catch(() => { });
+          return res.status(200).json({ ok: true });
+        }
+
+        if (sub === 'on' || sub === 'off') {
+          const key = parts[2];
+          if (!NOTIFICATION_SETTING_DEFAULTS[key]) {
+            await bot.sendMessage(chatId, '⚠️ Noto\'g\'ri key. Mavjudlari: daily_reminder, daily_report, debt_reminder, scheduled_queue').catch(() => { });
+            return res.status(200).json({ ok: true });
+          }
+          const saved = await saveNotificationSetting(key, { enabled: sub === 'on' });
+          await bot.sendMessage(chatId, `✅ ${saved.title} holati: <b>${saved.enabled ? 'yoqildi' : "o'chirildi"}</b>`, { parse_mode: 'HTML' }).catch(() => { });
+          return res.status(200).json({ ok: true });
+        }
+
+        if (sub === 'time') {
+          const key = parts[2];
+          const timeValue = parts[3];
+          if (key !== 'daily_reminder' && key !== 'daily_report') {
+            await bot.sendMessage(chatId, '⚠️ Vaqt sozlamasi hozircha faqat daily_reminder va daily_report uchun mavjud.').catch(() => { });
+            return res.status(200).json({ ok: true });
+          }
+          const normalized = normalizeNotifTime(timeValue, '');
+          if (!normalized) {
+            await bot.sendMessage(chatId, '⚠️ Vaqt formati noto\'g\'ri. Misol: /notif time daily_report 22:00').catch(() => { });
+            return res.status(200).json({ ok: true });
+          }
+          const saved = await saveNotificationSetting(key, { send_time: normalized });
+          await bot.sendMessage(chatId, `✅ ${saved.title} vaqti <b>${saved.send_time}</b> qilib saqlandi.`, { parse_mode: 'HTML' }).catch(() => { });
+          return res.status(200).json({ ok: true });
+        }
+
+        if (sub === 'reset') {
+          const key = parts[2];
+          const base = getNotificationDefault(key);
+          if (!base) {
+            await bot.sendMessage(chatId, '⚠️ Noto\'g\'ri key.').catch(() => { });
+            return res.status(200).json({ ok: true });
+          }
+          const saved = await saveNotificationSetting(key, {
+            enabled: base.enabled,
+            send_time: base.send_time,
+            timezone: base.timezone,
+            message_template: base.message_template,
+            config: base.config || {}
+          });
+          await bot.sendMessage(chatId, `♻️ ${saved.title} default holatiga qaytarildi.`, { parse_mode: 'HTML' }).catch(() => { });
+          return res.status(200).json({ ok: true });
+        }
+
+        if (sub === 'test') {
+          const key = parts[2];
+          if (!NOTIFICATION_SETTING_DEFAULTS[key]) {
+            await bot.sendMessage(chatId, '⚠️ Noto\'g\'ri key.').catch(() => { });
+            return res.status(200).json({ ok: true });
+          }
+          await sendNotificationPreview(chatId, key);
+          return res.status(200).json({ ok: true });
+        }
+
+        if (sub === 'text') {
+          const m = full.match(/^\/notif\s+text\s+(daily_reminder|daily_report|debt_reminder)\s+([\s\S]+)$/i);
+          if (!m) {
+            await bot.sendMessage(chatId, '⚠️ Format: /notif text daily_report Kunlik hisobotingiz...').catch(() => { });
+            return res.status(200).json({ ok: true });
+          }
+          const key = m[1];
+          const template = String(m[2] || '').trim();
+          if (!template) {
+            await bot.sendMessage(chatId, '⚠️ Matn bo\'sh bo\'lmasin.').catch(() => { });
+            return res.status(200).json({ ok: true });
+          }
+          const saved = await saveNotificationSetting(key, { message_template: template });
+          await bot.sendMessage(chatId, `✅ ${saved.title} matni yangilandi.\n\n<i>Test uchun /notif test ${key}</i>`, { parse_mode: 'HTML' }).catch(() => { });
+          return res.status(200).json({ ok: true });
+        }
+
+        await bot.sendMessage(chatId, buildNotificationHelpText(), { parse_mode: 'HTML' }).catch(() => { });
+      } catch (e) {
+        await bot.sendMessage(chatId, `⚠️ Notification sozlamasida xatolik: ${esc(tgErr(e))}`, { parse_mode: 'HTML' }).catch(() => { });
+      }
+      return res.status(200).json({ ok: true });
+    }
+
     // ── Admin Broadcast (/message ...) ──
     if (text.startsWith('/message')) {
       if (!isAdmin(userId)) {
@@ -929,12 +2328,12 @@ module.exports = async (req, res) => {
     // ── Yangi foydalanuvchi — telefon so'rash ──
     if (!user) {
       await bot.sendMessage(chatId, `👋 Assalomu alaykum!\nBotdan foydalanish uchun telefon raqamingizni tasdiqlang.`, {
-          reply_markup: {
-            keyboard: [[{ text: '📱 Telefon raqamni yuborish', request_contact: true }]],
-            resize_keyboard: true,
-            one_time_keyboard: true,
-          },
-        }
+        reply_markup: {
+          keyboard: [[{ text: '📱 Telefon raqamni yuborish', request_contact: true }]],
+          resize_keyboard: true,
+          one_time_keyboard: true,
+        },
+      }
       ).catch(() => { });
       return res.status(200).json({ ok: true });
     }
@@ -1047,34 +2446,56 @@ module.exports = async (req, res) => {
       return res.status(200).json({ ok: true });
     }
 
+    // ── Aqlli intentlar: qarz qaytishi, qarz yaratish va reja ──
+    if (text) {
+      const debtSettlementIntent = parseDebtSettlementIntent(text);
+      if (debtSettlementIntent) {
+        try {
+          const result = await saveDebtSettlementIntent(userId, chatId, debtSettlementIntent);
+          if (result?.handled) return res.status(200).json({ ok: true });
+        } catch (error) {
+          logErr('debt-settlement-intent', error, { userId, text });
+          await bot.sendMessage(chatId, `⚠️ Qarz qaytishini qayta ishlashda xatolik: ${esc(error.message || "noma'lum")}`, { parse_mode: 'HTML' }).catch(() => null);
+          return res.status(200).json({ ok: true });
+        }
+      }
+
+      const debtIntent = parseDebtIntent(text);
+      if (debtIntent) {
+        try {
+          await saveDebtIntent(userId, chatId, debtIntent);
+          return res.status(200).json({ ok: true });
+        } catch (error) {
+          logErr('debt-intent', error, { userId, text });
+          await bot.sendMessage(chatId, `⚠️ Qarzni saqlashda xatolik: ${esc(error.message || "noma'lum")}`, { parse_mode: 'HTML' }).catch(() => null);
+          return res.status(200).json({ ok: true });
+        }
+      }
+
+      const planIntent = parsePlanIntent(text);
+      if (planIntent) {
+        try {
+          await savePlanIntent(userId, chatId, planIntent);
+          return res.status(200).json({ ok: true });
+        } catch (error) {
+          logErr('plan-intent', error, { userId, text });
+          await bot.sendMessage(chatId, `⚠️ Rejani saqlashda xatolik: ${esc(error.message || "noma'lum")}`, { parse_mode: 'HTML' }).catch(() => null);
+          return res.status(200).json({ ok: true });
+        }
+      }
+    }
+
     // ── Ovozli xabar ──
     if (msg.voice) {
       const proc = await bot.sendMessage(chatId, '🎙 Ovozli xabar qabul qilindi...').catch(() => null);
-      const tmpPath = path.join('/tmp', `voice_${userId}_${Date.now()}.ogg`);
 
       try {
         if (!openai) throw new Error('OpenAI configured emas');
 
         if (proc) await bot.editMessageText('⏳ Ovoz tahlil qilinmoqda (Whisper)...', { chat_id: chatId, message_id: proc.message_id }).catch(() => { });
 
-        const fileLink = await bot.getFileLink(msg.voice.file_id);
-        const resp = await axios({ url: fileLink, method: 'GET', responseType: 'stream', timeout: 30000 });
-        const writer = fs.createWriteStream(tmpPath);
-        resp.data.pipe(writer);
-
-        await new Promise((resolve, reject) => {
-          writer.on('finish', resolve);
-          writer.on('error', reject);
-        });
-
-        // Whisper transcription
-        const tr = await openai.audio.transcriptions.create({
-          file: fs.createReadStream(tmpPath),
-          model: 'whisper-1',
-          language: 'uz',
-        });
-
-        const spoken = (tr.text || '').trim();
+        const voiceBuffer = await downloadTelegramFileBuffer(msg.voice.file_id);
+        const spoken = await transcribeVoiceBuffer(voiceBuffer);
         if (!spoken) {
           if (proc) await bot.editMessageText('❌ Ovoz matnga aylanmadi. Qaytadan aniqroq gapirib ko\'ring.', { chat_id: chatId, message_id: proc.message_id }).catch(() => { });
           return res.status(200).json({ ok: true });
@@ -1095,13 +2516,12 @@ module.exports = async (req, res) => {
 
         if (proc) await bot.deleteMessage(chatId, proc.message_id).catch(() => { });
 
-        await saveTx(userId, chatId, parsed, null, user.exchange_rate, msg.message_id);
+        await saveTx(userId, chatId, parsed, null, user.exchange_rate, msg.message_id, spoken);
 
       } catch (e) {
         logErr('voice', e, { userId });
         if (proc) await bot.editMessageText('😕 Ovozli xabarni qayta ishlashda xatolik yuz berdi. Matn orqali yozib yuboring.', { chat_id: chatId, message_id: proc.message_id }).catch(() => { });
       } finally {
-        if (fs.existsSync(tmpPath)) fs.unlink(tmpPath, () => { });
       }
       return res.status(200).json({ ok: true });
     }
@@ -1121,13 +2541,12 @@ module.exports = async (req, res) => {
         const procMsg = await bot.sendMessage(chatId, '📸 Chek rasmini yuklanmoqda...').catch(() => null);
         try {
           const photoId = msg.photo[msg.photo.length - 1].file_id;
-          const fileLink = await bot.getFileLink(photoId);
-          const resp = await axios({ url: fileLink, method: 'GET', responseType: 'arraybuffer', timeout: 30000 });
+          const photoBuffer = await downloadTelegramFileBuffer(photoId);
           const fileName = `${userId}/${Date.now()}.jpg`;
 
           const { error: upErr } = await db.storage
             .from('receipts')
-            .upload(fileName, Buffer.from(resp.data), { contentType: 'image/jpeg' });
+            .upload(fileName, photoBuffer, { contentType: 'image/jpeg' });
 
           if (upErr) throw upErr;
 
@@ -1147,7 +2566,7 @@ module.exports = async (req, res) => {
         }
       }
 
-      await saveTx(userId, chatId, parsed, receiptUrl, user.exchange_rate, msg.message_id);
+      await saveTx(userId, chatId, parsed, receiptUrl, user.exchange_rate, msg.message_id, text);
       return res.status(200).json({ ok: true });
     }
 

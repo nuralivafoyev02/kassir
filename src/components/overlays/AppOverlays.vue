@@ -38,6 +38,11 @@
     <div class="sheet c" onclick="event.stopPropagation()">
       <div class="sh-ttl">✏️ <span data-i18n="edit_cat_title">Kategoriya nomi</span></div>
       <div class="fld"><label data-i18n="edit_cat_new_name">Yangi nom</label><input id="ec-name" type="text" data-i18n-placeholder="new_cat_name_ph" placeholder="Nom..."></div>
+      <div class="fld"><label>KALIT SO'ZLAR</label><input id="ec-keywords" type="text" placeholder="masalan: taksi, yandex, metro"></div>
+      <div class="fld" style="margin-top:16px">
+        <label>Ikonka</label>
+        <div id="edit-icon-grid"></div>
+      </div>
       <div class="mrow"><button class="bcl" onclick="closeOv('ov-editcat')" data-i18n="cancel">Bekor</button><button class="bpri"
           onclick="saveEditCat()" data-i18n="save">Saqlash</button></div>
     </div>
@@ -51,6 +56,7 @@
         <label data-i18n="new_cat_name">Nom</label>
         <input id="nc-name" type="text" data-i18n-placeholder="new_cat_name_ph" placeholder="Kategoriya nomi...">
       </div>
+      <div class="fld"><label>KALIT SO'ZLAR</label><input id="nc-keywords" type="text" placeholder="masalan: taksi, yandex, metro"></div>
       <div class="fld" style="margin-top:20px">
         <label data-i18n="new_cat_icon">Ikonka tanlang</label>
         <div id="icon-grid"></div>
@@ -58,6 +64,143 @@
       <button class="bpri" style="margin-top:24px;width:100%" onclick="saveNewCat()" data-i18n="save">Saqlash</button>
     </div>
   </div>
+  <div class="ov center" id="ov-debt-form" onclick="closeOv('ov-debt-form',event)">
+    <div class="sheet c debt-modal debt-modal-v13" onclick="event.stopPropagation()">
+      <div class="debt-modal-head">
+        <div class="sh-ttl"><span>🤝</span> <span id="debt-form-title">Qarz qo'shish</span></div>
+        <button type="button" class="debt-sheet-close" onclick="closeOv('ov-debt-form')">✕</button>
+      </div>
+
+      <input id="debt-id" type="hidden">
+      <input id="debt-direction" type="hidden" value="receivable">
+
+      <div class="debt-spotlight">
+        <div>
+          <strong>Qarzni tez va tushunarli kiriting</strong>
+          <small>Kim bilan, qancha summa, qachon qaytishi va bot qachon eslatishini belgilang.</small>
+        </div>
+        <div class="debt-spotlight-badge" id="debt-form-mode-badge">Yangi</div>
+      </div>
+
+      <div class="fld">
+        <label>Yo'nalish</label>
+        <div class="segmented debt-direction-picker" id="debt-direction-picker">
+          <button type="button" class="seg-btn active" id="debt-dir-receivable-btn" onclick="setDebtDirectionMode('receivable')">Menga qaytadi</button>
+          <button type="button" class="seg-btn" id="debt-dir-payable-btn" onclick="setDebtDirectionMode('payable')">Men qaytaraman</button>
+        </div>
+      </div>
+
+      <div class="fld debt-form-grid">
+        <div>
+          <label>Kim bilan</label>
+          <input id="debt-person" type="text" placeholder="Ism yoki kontakt">
+        </div>
+        <div>
+          <label>Summa</label>
+          <input id="debt-amount" type="text" inputmode="decimal" placeholder="100 000">
+        </div>
+      </div>
+
+      <div class="quick-chip-row debt-amount-presets">
+        <button type="button" class="quick-chip" onclick="prefillDebtAmount(50000)">50 ming</button>
+        <button type="button" class="quick-chip" onclick="prefillDebtAmount(100000)">100 ming</button>
+        <button type="button" class="quick-chip" onclick="prefillDebtAmount(300000)">300 ming</button>
+        <button type="button" class="quick-chip" onclick="prefillDebtAmount(1000000)">1 mln</button>
+      </div>
+
+      <div class="debt-form-card debt-form-block">
+        <div class="plan-option-head">
+          <div>
+            <strong>Qaytarish sanasi</strong>
+            <small>Qarz qachon qaytishi kerakligini belgilang.</small>
+          </div>
+        </div>
+        <div class="quick-chip-row debt-quick-row">
+          <button type="button" class="quick-chip" onclick="applyDebtDuePreset('today')">Bugun</button>
+          <button type="button" class="quick-chip" onclick="applyDebtDuePreset('tomorrow')">Ertaga</button>
+          <button type="button" class="quick-chip" onclick="applyDebtDuePreset('week')">1 hafta</button>
+        </div>
+        <div class="debt-datetime-grid">
+          <div class="fld debt-inline-field"><label>Sana</label><input id="debt-due-date" type="date"></div>
+          <div class="fld debt-inline-field"><label>Vaqt</label><input id="debt-due-time" type="time"></div>
+        </div>
+      </div>
+
+      <div class="debt-form-card debt-form-block">
+        <div class="plan-option-head">
+          <div>
+            <strong>Eslatma</strong>
+            <small>Bot qarzni qachon eslatishini tanlang.</small>
+          </div>
+        </div>
+        <div class="quick-chip-row debt-quick-row" id="debt-reminder-presets">
+          <button type="button" class="quick-chip active" data-mode="same" onclick="setDebtReminderPreset('same')">O'sha vaqtda</button>
+          <button type="button" class="quick-chip" data-mode="30m" onclick="setDebtReminderPreset('30m')">30 daqiqa oldin</button>
+          <button type="button" class="quick-chip" data-mode="1h" onclick="setDebtReminderPreset('1h')">1 soat oldin</button>
+          <button type="button" class="quick-chip" data-mode="1d" onclick="setDebtReminderPreset('1d')">1 kun oldin</button>
+          <button type="button" class="quick-chip" data-mode="custom" onclick="setDebtReminderPreset('custom')">Qo'lda</button>
+        </div>
+        <div class="debt-datetime-grid" id="debt-remind-custom-wrap" style="display:none">
+          <div class="fld debt-inline-field"><label>Eslatma sanasi</label><input id="debt-remind-date" type="date"></div>
+          <div class="fld debt-inline-field"><label>Eslatma vaqti</label><input id="debt-remind-time" type="time"></div>
+        </div>
+        <div class="debt-hint" id="debt-remind-hint">Agar qo'lda tanlanmasa, bot siz tanlagan preset bo'yicha eslatadi.</div>
+      </div>
+
+      <div class="fld">
+        <label>Izoh</label>
+        <textarea id="debt-note" rows="3" placeholder="Masalan: yarim pul qaytdi, 2-kun eslatish kerak"></textarea>
+      </div>
+
+      <div class="debt-form-actions">
+        <button class="bcl" onclick="closeOv('ov-debt-form')">Bekor</button>
+        <button class="bpri" id="debt-form-submit" onclick="saveDebtForm()">Saqlash</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="ov" id="ov-plan-form" onclick="closeOv('ov-plan-form',event)">
+    <div class="sheet plan-modal-v12" onclick="event.stopPropagation()">
+      <div class="sh-hdl"></div>
+      <button class="sh-close" onclick="closeOv('ov-plan-form')">✕</button>
+      <div class="sh-ttl">🎯 <span>Reja</span></div>
+      <input id="plan-id" type="hidden">
+      <div class="fld"><label>Kategoriya</label><select id="plan-category"></select></div>
+      <div class="fld two-col-grid compact-grid">
+        <div><label>Oy limiti</label><input id="plan-amount" type="text" inputmode="decimal" placeholder="1 500 000"></div>
+        <div><label>Oy</label><input id="plan-month-key" type="month"></div>
+      </div>
+      <div class="fld"><label>Ogohlantirish chegarasi</label><input id="plan-alert-before" type="text" inputmode="decimal" placeholder="200 000"></div>
+      <div class="plan-option-stack">
+        <label class="plan-option-card checkbox-card">
+          <input id="plan-notify-bot" type="checkbox" checked>
+          <span class="checkbox-mark"></span>
+          <span class="plan-option-copy">
+            <strong>Bot ogohlantirishi</strong>
+            <small>Limit tugashiga yaqin qolganda Telegram bot xabar yuboradi.</small>
+          </span>
+        </label>
+        <label class="plan-option-card checkbox-card">
+          <input id="plan-notify-app" type="checkbox" checked>
+          <span class="checkbox-mark"></span>
+          <span class="plan-option-copy">
+            <strong>Mini app ogohlantirishi</strong>
+            <small>Ilova ichida tez ko'rinadigan alert va badge ko'rsatiladi.</small>
+          </span>
+        </label>
+        <label class="plan-option-card checkbox-card">
+          <input id="plan-is-active" type="checkbox" checked>
+          <span class="checkbox-mark"></span>
+          <span class="plan-option-copy">
+            <strong>Reja faol</strong>
+            <small>Faol rejalar statistikada hisoblanadi va limit nazoratiga ulanadi.</small>
+          </span>
+        </label>
+      </div>
+      <div class="mrow" style="margin-top:16px"><button class="bcl" onclick="closeOv('ov-plan-form')">Bekor</button><button class="bpri" onclick="savePlanForm()">Saqlash</button></div>
+    </div>
+  </div>
+
   <div class="ov center" id="ov-date" onclick="closeOv('ov-date',event)">
     <div class="sheet c" onclick="event.stopPropagation()">
       <div class="sh-ttl">📅 <span data-i18n="date_range">Sana oralig'i</span></div>
@@ -69,8 +212,8 @@
   </div>
   <div class="ov center" id="ov-export" onclick="closeOv('ov-export',event)">
     <div class="sheet c exp-modal" onclick="event.stopPropagation()">
-      <div class="sh-ttl">📄 <span data-i18n="pdf_title">PDF Hisobot</span></div>
-      <div class="exp-hint" data-i18n="pdf_modal_hint">PDF hisobot Unicode formatda yaratiladi va kirill matnlar to‘g‘ri chiqadi.</div>
+      <div class="sh-ttl">📄 <span>Hisobot (PDF + Excel)</span></div>
+      <div class="exp-hint">Hisobot 2 ta fayl ko'rinishida tayyorlanadi: PDF va Excel. Telegram botga alohida yuboriladi, yuborib bo'lmasa telefoningizga yuklab olinadi.</div>
       <div class="exp-presets">
         <button class="exp-chip" type="button" data-exp-preset="today" onclick="setExportPreset('today')" data-i18n="pdf_preset_today">Bugun</button>
         <button class="exp-chip" type="button" data-exp-preset="month" onclick="setExportPreset('month')" data-i18n="pdf_preset_month">Shu oy</button>
@@ -107,7 +250,7 @@
         <div class="exp-s"><span data-i18n="pdf_file_label">Fayl nomi</span><span id="ex-file">Kassa.pdf</span></div>
       </div>
       <div class="mrow"><button class="bcl" onclick="closeOv('ov-export')" data-i18n="cancel">Bekor</button><button class="bpri"
-          id="ex-create-btn" onclick="makePDF()" data-i18n="pdf_create">Yaratish</button></div>
+          id="ex-create-btn" onclick="makePDF()">Yaratish va yuborish</button></div>
     </div>
   </div>
   <div class="ov" id="ov-settings" onclick="closeOv('ov-settings',event)">
@@ -126,7 +269,7 @@
           </svg>
         </div>
         <div class="stg-name" id="stg-user-name">—</div>
-        <div class="stg-sub-info" id="stg-sub-info" data-i18n="stg_coming_soon">Tez orada</div>
+        <div class="stg-sub-info" id="stg-sub-info" data-i18n="stg_coming_soon">Tez kunda</div>
       </div>
 
       <!-- GURUH: PROFIL -->
@@ -139,7 +282,7 @@
         <div class="stg-item stg-disabled">
           <div class="stg-ico">💎</div>
           <div class="stg-txt" data-i18n="stg_subscription">Obuna holati</div>
-          <span class="stg-badge" data-i18n="stg_coming_soon">Tez orada</span>
+          <span class="stg-badge" data-i18n="stg_coming_soon">Tez kunda</span>
         </div>
       </div>
 
@@ -155,21 +298,20 @@
           <div class="stg-txt" data-i18n="stg_balance">Balanslar</div>
           <div class="stg-arrow">›</div>
         </div>
-        <div class="stg-item stg-disabled" onclick="openStgSub('stg-sub-cats')">
+        <div class="stg-item" onclick="openStgSub('stg-sub-cats')">
           <div class="stg-ico">📂</div>
           <div class="stg-txt" data-i18n="stg_categories">Kategoriyalar</div>
-          <span class="stg-badge" data-i18n="stg_coming_soon">Tez orada</span>
-          <!-- <div class="stg-arrow">›</div> -->
+          <div class="stg-arrow">›</div>
         </div>
         <div class="stg-item stg-disabled">
           <div class="stg-ico">👥</div>
           <div class="stg-txt" data-i18n="stg_friends">Do'stlar</div>
-          <span class="stg-badge" data-i18n="stg_coming_soon">Tez orada</span>
+          <span class="stg-badge" data-i18n="stg_coming_soon">Tez kunda</span>
         </div>
         <div class="stg-item stg-disabled">
           <div class="stg-ico">🔔</div>
           <div class="stg-txt" data-i18n="stg_notifications">Bildirishnomalar</div>
-          <span class="stg-badge" data-i18n="stg_coming_soon">Tez orada</span>
+          <span class="stg-badge" data-i18n="stg_coming_soon">Tez kunda</span>
         </div>
       </div>
 
@@ -242,13 +384,33 @@
           </div>
           <div class="tgl" id="stg-bio-tgl" onclick="toggleBio(event)" role="switch" data-i18n-aria-label="stg_biometric"></div>
         </div>
-        <div class="stg-item">
+        <div class="stg-item theme-item-block">
           <div class="stg-ico" id="stg-theme-ico">🌙</div>
           <div class="stg-info">
             <div class="stg-txt" data-i18n="stg_theme">Mavzu</div>
             <div class="stg-sub" data-i18n="stg_theme_sub">Tungi / Kunduzgi</div>
           </div>
           <button class="stg-action-btn" onclick="toggleTheme()" data-i18n="stg_theme_toggle">Almashtirish</button>
+        </div>
+        <div class="theme-palette-wrap">
+          <div class="theme-palette-head">
+            <strong>Rang uslubi</strong>
+            <span>Mini app aksent rangini tanlang</span>
+          </div>
+          <div class="theme-palette" id="theme-palette">
+            <button type="button" class="theme-swatch" data-theme-color="gold" onclick="setAccentTheme('gold')">
+              <span class="theme-dot gold"></span>
+              <span class="theme-name">Sariq</span>
+            </button>
+            <button type="button" class="theme-swatch" data-theme-color="violet" onclick="setAccentTheme('violet')">
+              <span class="theme-dot violet"></span>
+              <span class="theme-name">Binafsha</span>
+            </button>
+            <button type="button" class="theme-swatch" data-theme-color="mono" onclick="setAccentTheme('mono')">
+              <span class="theme-dot mono"></span>
+              <span class="theme-name">Oq-qora</span>
+            </button>
+          </div>
         </div>
       </div>
 
