@@ -13,6 +13,7 @@ npx wrangler secret put SUPABASE_ANON_KEY
 npx wrangler secret put SUPABASE_SERVICE_ROLE_KEY
 npx wrangler secret put OPENAI_API_KEY
 npx wrangler secret put CRON_SECRET
+npx wrangler secret put ADMIN_IDS
 ```
 
 `OWNER_ID`, `ADMIN_IDS`, `WEBAPP_URL` qiymatlarini `wrangler.jsonc` dagi `vars` bo'limiga qo'shish mumkin yoki secret qilib saqlang.
