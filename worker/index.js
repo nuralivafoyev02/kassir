@@ -236,123 +236,6 @@ Bugungi kirim-chiqimlaringizni yakunlab, kunlik hisobotingizni tekshirib chiqing
   },
 };
 
-
-function normalizeNotifTime(value, fallback = "09:00") {
-  const raw = String(value || "").trim();
-  const match = raw.match(/^(\d{1,2}):(\d{2})$/);
-  if (!match) return fallback;
-
-  const hh = Number(match[1]);
-  const mm = Number(match[2]);
-
-  if (
-    !Number.isInteger(hh) ||
-    !Number.isInteger(mm) ||
-    hh < 0 ||
-    hh > 23 ||
-    mm < 0 ||
-    mm > 59
-  ) {
-    return fallback;
-  }
-
-  return `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}`;
-}
-
-function renderTemplate(template, vars = {}) {
-  return String(template || "").replace(/{{\s*([a-zA-Z0-9_]+)\s*}}/g, (_, key) => {
-    return String(vars[key] ?? "");
-  });
-}
-
-function mergeNotificationSetting(rowOrKey, patch = null) {
-  const row = typeof rowOrKey === "string" ? { key: rowOrKey } : (rowOrKey || {});
-  const base = NOTIFICATION_DEFAULTS[row.key] || null;
-  if (!base) return null;
-
-  return {
-    ...base,
-    ...row,
-    ...(patch || {}),
-    key: base.key,
-    enabled:
-      patch && typeof patch.enabled === "boolean"
-        ? patch.enabled
-        : typeof row.enabled === "boolean"
-          ? row.enabled
-          : base.enabled,
-    send_time:
-      patch && Object.prototype.hasOwnProperty.call(patch, "send_time")
-        ? (patch.send_time ? normalizeNotifTime(patch.send_time, base.send_time || "09:00") : null)
-        : (row.send_time ? normalizeNotifTime(row.send_time, base.send_time || "09:00") : base.send_time),
-    timezone: String((patch && patch.timezone) ?? row.timezone ?? base.timezone),
-    message_template:
-      patch && Object.prototype.hasOwnProperty.call(patch, "message_template")
-        ? patch.message_template
-        : (row.message_template == null ? base.message_template : row.message_template),
-    config: {
-      ...(base.config || {}),
-      ...(row.config || {}),
-      ...((patch && patch.config) || {}),
-    },
-  };
-}
-
-async function sbGetNotificationSettings(env) {
-  try {
-    const data = await sbFetch(
-      env,
-      `/notification_settings?select=key,title,enabled,send_time,timezone,message_template,config,last_sent_at`
-    );
-
-    const rows = Array.isArray(data) ? data : [];
-
-    return Object.fromEntries(
-      Object.keys(NOTIFICATION_DEFAULTS).map((key) => {
-        const row = rows.find((item) => item.key === key) || key;
-        return [key, mergeNotificationSetting(row)];
-      })
-    );
-  } catch (error) {
-    if (sbMissingTable(error, "notification_settings")) {
-      return Object.fromEntries(
-        Object.keys(NOTIFICATION_DEFAULTS).map((key) => [key, mergeNotificationSetting(key)])
-      );
-    }
-    throw error;
-  }
-}
-
-async function sbTouchNotificationSetting(env, key, payload = {}) {
-  try {
-    await sbFetch(env, `/notification_settings?key=eq.${encodeURIComponent(key)}`, {
-      method: "PATCH",
-      headers: {
-        "content-type": "application/json",
-        Prefer: "return=minimal",
-      },
-      body: JSON.stringify(payload),
-    });
-  } catch (error) {
-    if (!sbMissingTable(error, "notification_settings")) throw error;
-  }
-}
-
-async function sbInsertNotificationLog(env, row) {
-  try {
-    await sbFetch(env, `/notification_logs`, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        Prefer: "return=minimal",
-      },
-      body: JSON.stringify(row),
-    });
-  } catch (error) {
-    if (!sbMissingTable(error, "notification_logs")) throw error;
-  }
-}
-
 function getTimeZoneParts(value = new Date(), timeZone = TASHKENT_TIME_ZONE) {
   const safeTimeZone = String(timeZone || TASHKENT_TIME_ZONE);
 
@@ -1167,6 +1050,20 @@ const HANDLER_LOADERS = {
   bot: () => import("../api/bot.js"),
 };
 
+async function getLegacyHandler(name) {
+  const loader = HANDLER_LOADERS[name];
+  if (!loader) throw new Error(`Unknown legacy handler: ${name}`);
+
+  const mod = await loader();
+  const handler = mod?.default || mod?.handler || mod;
+
+  if (typeof handler !== "function") {
+    throw new Error(`Legacy handler is not a function: ${name}`);
+  }
+
+  return handler;
+}
+
 async function buildLegacyReq(request, env) {
   const url = new URL(request.url);
   const contentType = request.headers.get("content-type") || "";
@@ -1272,21 +1169,14 @@ function createLegacyRes(resolve) {
 }
 
 async function invokeLegacyHandler(name, request, env) {
-  const resolved = await getLegacyHandler(name);
-
-  // Worker-style handler bo'lsa original Request bilan ishlatamiz
-  if (resolved.type === "fetch") {
-    return await resolved.handler(request, env);
-  }
-
-  // Express/Vercel-style handler bo'lsa req/res adapter ishlatamiz
+  const handler = await getLegacyHandler(name);
   const req = await buildLegacyReq(request, env);
 
   return await new Promise(async (resolve, reject) => {
     const res = createLegacyRes(resolve);
 
     try {
-      const maybeResult = await resolved.handler(req, res, env);
+      const maybeResult = await handler(req, res, env);
 
       if (res.finished) return;
 
@@ -1539,33 +1429,7 @@ async function handleManualCronRun(request, env) {
     );
   }
 }
-function hasAssetsBinding(env) {
-  return !!env?.ASSETS && typeof env.ASSETS.fetch === "function";
-}
 
-async function serveStaticOr404(request, env) {
-  if (hasAssetsBinding(env)) {
-    return env.ASSETS.fetch(request);
-  }
-
-  return new Response("Static asset topilmadi", {
-    status: 404,
-    headers: {
-      "content-type": "text/plain; charset=utf-8",
-      "cache-control": "no-store",
-    },
-  });
-}
-
-function apiNotFound(pathname) {
-  return json(
-    {
-      ok: false,
-      error: `API route topilmadi: ${pathname}`,
-    },
-    404
-  );
-}
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
@@ -1587,14 +1451,17 @@ export default {
         return handleClientLog(request);
       }
 
+      // Telegram webhook
       if (url.pathname === "/api/bot") {
         return invokeLegacyHandler("bot", request, env);
       }
 
+      // Mini app notification
       if (url.pathname === "/api/notify-miniapp-tx") {
         return handleNotifyMiniAppTx(request, env);
       }
 
+      // Notification APIs
       if (url.pathname === "/api/notifications/schedule") {
         return handleScheduleNotification(request, env);
       }
@@ -1607,6 +1474,7 @@ export default {
         return handleTestNotification(request, env);
       }
 
+      // Manual cron trigger
       if (url.pathname === "/api/cron-reminders") {
         return handleManualCronRun(request, env);
       }
@@ -1615,11 +1483,7 @@ export default {
         return new Response(null, { status: 204 });
       }
 
-      if (url.pathname.startsWith("/api/")) {
-        return apiNotFound(url.pathname);
-      }
-
-      return serveStaticOr404(request, env);
+      return env.ASSETS.fetch(request);
     } catch (error) {
       console.error("[worker.fetch] unhandled", error);
       return json(
