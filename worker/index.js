@@ -847,6 +847,8 @@ async function runAllCronJobs(env, meta = {}) {
 
 const HANDLER_LOADERS = {
   bot: () => import("../api/bot.js"),
+  "send-report-files": () => import("../api/send-report-files.js"),
+  "send-report-pdf": () => import("../api/send-report-pdf.js"),
 };
 
 function seedLegacyProcessEnv(env) {
@@ -1295,6 +1297,15 @@ export default {
       // Mini app notification
       if (url.pathname === "/api/notify-miniapp-tx") {
         return handleNotifyMiniAppTx(request, env);
+      }
+
+      // Report delivery to Telegram bot
+      if (url.pathname === "/api/send-report-files") {
+        return invokeLegacyHandler("send-report-files", request, env);
+      }
+
+      if (url.pathname === "/api/send-report-pdf") {
+        return invokeLegacyHandler("send-report-pdf", request, env);
       }
 
       // Notification APIs

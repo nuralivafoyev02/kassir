@@ -1,11 +1,12 @@
 'use strict';
 
-const TelegramBot = require('node-telegram-bot-api');
-
-const BOT_TOKEN = process.env.BOT_TOKEN;
-if (!BOT_TOKEN) throw new Error("BOT_TOKEN yo'q");
-
-const bot = new TelegramBot(BOT_TOKEN, { polling: false });
+function getBotToken(req) {
+  return (
+    req?.env?.BOT_TOKEN ||
+    process.env.BOT_TOKEN ||
+    ''
+  );
+}
 
 function escXml(value) {
   return String(value ?? '')
@@ -71,7 +72,7 @@ function buildExcelXml(payload = {}) {
    <Font ss:Bold="1" ss:Color="#0F172A" ss:Size="12"/>
   </Style>
   <Style ss:ID="number">
-   <NumberFormat ss:Format="#,##0"/>
+   <NumberFormat ss:Format="#\,##0"/>
   </Style>
  </Styles>
  <Worksheet ss:Name="Hisobot">
@@ -112,12 +113,47 @@ function buildExcelXml(payload = {}) {
 </Workbook>`;
 }
 
+function cleanPdfBase64(input) {
+  return String(input || '').replace(/^data:application\/pdf;base64,/, '').trim();
+}
+
+async function tgSendDocument(token, chatId, blob, fileName, caption, contentType) {
+  const form = new FormData();
+  form.set('chat_id', String(chatId));
+  if (caption) form.set('caption', caption);
+  form.set('document', new File([blob], fileName, { type: contentType }));
+
+  const resp = await fetch(`https://api.telegram.org/bot${token}/sendDocument`, {
+    method: 'POST',
+    body: form,
+  });
+
+  const raw = await resp.text();
+  let data;
+  try {
+    data = JSON.parse(raw);
+  } catch {
+    data = { ok: false, raw };
+  }
+
+  if (!resp.ok || data?.ok === false) {
+    throw new Error(data?.description || data?.raw || `Telegram HTTP ${resp.status}`);
+  }
+
+  return data;
+}
+
 module.exports = async (req, res) => {
   if (req.method !== 'POST') {
     return res.status(200).send('send-report-files ready');
   }
 
   try {
+    const token = getBotToken(req);
+    if (!token) {
+      return res.status(500).json({ ok: false, error: "BOT_TOKEN yo'q" });
+    }
+
     const body = req.body || {};
     const userId = Number(body.user_id || body.userId || 0);
     const pdfFileName = String(body.pdf_file_name || body.pdfFileName || 'Kassa-report.pdf').trim() || 'Kassa-report.pdf';
@@ -129,29 +165,24 @@ module.exports = async (req, res) => {
     if (!userId) return res.status(400).json({ ok: false, error: 'user_id required' });
     if (!pdfBase64) return res.status(400).json({ ok: false, error: 'pdf_base64 required' });
 
-    const cleanPdfBase64 = pdfBase64.replace(/^data:application\/pdf;base64,/, '');
-    const pdfBuffer = Buffer.from(cleanPdfBase64, 'base64');
-    if (!pdfBuffer.length) return res.status(400).json({ ok: false, error: 'invalid pdf payload' });
+    const cleanBase64 = cleanPdfBase64(pdfBase64);
+    const pdfBytes = Uint8Array.from(atob(cleanBase64), (c) => c.charCodeAt(0));
+    if (!pdfBytes.length) return res.status(400).json({ ok: false, error: 'invalid pdf payload' });
 
+    const pdfBlob = new Blob([pdfBytes], { type: 'application/pdf' });
     const excelXml = buildExcelXml(body);
-    const excelBuffer = Buffer.from(excelXml, 'utf8');
+    const excelBlob = new Blob([excelXml], { type: 'application/vnd.ms-excel;charset=utf-8' });
 
-    await bot.sendDocument(
-      userId,
-      pdfBuffer,
-      { caption: pdfCaption },
-      { filename: pdfFileName, contentType: 'application/pdf' }
-    );
+    const pdfResult = await tgSendDocument(token, userId, pdfBlob, pdfFileName, pdfCaption, 'application/pdf');
+    const excelResult = await tgSendDocument(token, userId, excelBlob, excelFileName, excelCaption, 'application/vnd.ms-excel');
 
-    await bot.sendDocument(
-      userId,
-      excelBuffer,
-      { caption: excelCaption },
-      { filename: excelFileName, contentType: 'application/vnd.ms-excel' }
-    );
-
-    return res.status(200).json({ ok: true });
+    return res.status(200).json({
+      ok: true,
+      pdf_message_id: pdfResult?.result?.message_id || null,
+      excel_message_id: excelResult?.result?.message_id || null,
+    });
   } catch (error) {
-    return res.status(500).json({ ok: false, error: error.message || String(error) });
+    console.error('[send-report-files]', error);
+    return res.status(500).json({ ok: false, error: error?.message || String(error) });
   }
 };
