@@ -1546,7 +1546,33 @@ async function handleManualCronRun(request, env) {
     );
   }
 }
+function hasAssetsBinding(env) {
+  return !!env?.ASSETS && typeof env.ASSETS.fetch === "function";
+}
 
+async function serveStaticOr404(request, env) {
+  if (hasAssetsBinding(env)) {
+    return env.ASSETS.fetch(request);
+  }
+
+  return new Response("Static asset topilmadi", {
+    status: 404,
+    headers: {
+      "content-type": "text/plain; charset=utf-8",
+      "cache-control": "no-store",
+    },
+  });
+}
+
+function apiNotFound(pathname) {
+  return json(
+    {
+      ok: false,
+      error: `API route topilmadi: ${pathname}`,
+    },
+    404
+  );
+}
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
@@ -1568,17 +1594,14 @@ export default {
         return handleClientLog(request);
       }
 
-      // Telegram webhook
       if (url.pathname === "/api/bot") {
         return invokeLegacyHandler("bot", request, env);
       }
 
-      // Mini app notification
       if (url.pathname === "/api/notify-miniapp-tx") {
         return handleNotifyMiniAppTx(request, env);
       }
 
-      // Notification APIs
       if (url.pathname === "/api/notifications/schedule") {
         return handleScheduleNotification(request, env);
       }
@@ -1591,7 +1614,6 @@ export default {
         return handleTestNotification(request, env);
       }
 
-      // Manual cron trigger
       if (url.pathname === "/api/cron-reminders") {
         return handleManualCronRun(request, env);
       }
@@ -1600,7 +1622,11 @@ export default {
         return new Response(null, { status: 204 });
       }
 
-      return env.ASSETS.fetch(request);
+      if (url.pathname.startsWith("/api/")) {
+        return apiNotFound(url.pathname);
+      }
+
+      return serveStaticOr404(request, env);
     } catch (error) {
       console.error("[worker.fetch] unhandled", error);
       return json(
