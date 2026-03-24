@@ -196,21 +196,6 @@ Bugungi xarajatlarni kiritib borishni unutmang.
 🤝 <i>24/7 xizmatingizda man!</i>`,
     config: { window_minutes: 5, batch_size: 100, per_run_limit: 10000 },
   },
-  daily_report: {
-    key: "daily_report",
-    title: "Kunlik hisobot",
-    enabled: true,
-    send_time: "22:00",
-    timezone: TASHKENT_TIME_ZONE,
-    message_template: `🌙 <b>Kunlik hisobotingiz{{name_block}}</b>
-
-Bugungi kirim-chiqimlaringizni yakunlab, kunlik hisobotingizni tekshirib chiqing.
-💸 Agar hali kiritmagan bo'lsangiz, bugungi yozuvlarni hozir qo'shib qo'ying.
-
-📅 Bugun: {{today}}
-✅ <i>Kunlik hisobotingizni yopishni unutmang.</i>`,
-    config: { window_minutes: 5, batch_size: 100, per_run_limit: 10000 },
-  },
   debt_reminder: {
     key: "debt_reminder",
     title: "Qarz eslatmasi",
@@ -356,16 +341,6 @@ function uzDayStartUtcIso(value = new Date(), timeZone = TASHKENT_TIME_ZONE) {
 
 function buildDailyReminderText(setting, fullName = "", now = new Date()) {
   const template = setting?.message_template || NOTIFICATION_DEFAULTS.daily_reminder.message_template;
-  const timeZone = setting?.timezone || TASHKENT_TIME_ZONE;
-
-  return renderTemplate(template, {
-    name_block: String(fullName || "").trim() ? `, <b>${esc(fullName)}</b>` : "",
-    today: esc(new Date(now).toLocaleDateString("uz-UZ", { timeZone })),
-  });
-}
-
-function buildDailyReportText(setting, fullName = "", now = new Date()) {
-  const template = setting?.message_template || NOTIFICATION_DEFAULTS.daily_report.message_template;
   const timeZone = setting?.timezone || TASHKENT_TIME_ZONE;
 
   return renderTemplate(template, {
@@ -607,33 +582,6 @@ async function fetchUsersForDailyReminderPage(env, dayStartIso, { afterUserId = 
   }
 }
 
-async function fetchUsersForDailyReportPage(env, dayStartIso, { afterUserId = null, limit = 100 } = {}) {
-  const encodedOr = encodeURIComponent(`(last_daily_report_at.is.null,last_daily_report_at.lt.${dayStartIso})`);
-  const cursor = afterUserId != null ? `&user_id=gt.${encodeURIComponent(afterUserId)}` : "";
-
-  try {
-    const rows = await sbFetch(
-      env,
-      `/users?select=user_id,full_name,daily_reminder_enabled,last_daily_report_at&or=${encodedOr}${cursor}&order=user_id.asc&limit=${limit}`
-    );
-    return { rows, migrationRequired: null };
-  } catch (error) {
-    if (sbMissingColumn(error, "daily_reminder_enabled")) {
-      const rows = await sbFetch(
-        env,
-        `/users?select=user_id,full_name,last_daily_report_at&or=${encodedOr}${cursor}&order=user_id.asc&limit=${limit}`
-      );
-      return { rows, migrationRequired: null };
-    }
-
-    if (sbMissingColumn(error, "last_daily_report_at")) {
-      return { rows: [], migrationRequired: "users.last_daily_report_at missing" };
-    }
-
-    throw error;
-  }
-}
-
 async function markDailyReminderSent(env, userId, nowIso) {
   try {
     await sbFetch(env, `/users?user_id=eq.${encodeURIComponent(userId)}`, {
@@ -646,22 +594,6 @@ async function markDailyReminderSent(env, userId, nowIso) {
     });
   } catch (error) {
     if (sbMissingColumn(error, "last_daily_reminder_at")) return;
-    throw error;
-  }
-}
-
-async function markDailyReportSent(env, userId, nowIso) {
-  try {
-    await sbFetch(env, `/users?user_id=eq.${encodeURIComponent(userId)}`, {
-      method: "PATCH",
-      headers: {
-        "content-type": "application/json",
-        Prefer: "return=minimal",
-      },
-      body: JSON.stringify({ last_daily_report_at: nowIso }),
-    });
-  } catch (error) {
-    if (sbMissingColumn(error, "last_daily_report_at")) return;
     throw error;
   }
 }
@@ -796,137 +728,6 @@ async function processDailyReminders(env, now = new Date(), meta = {}) {
   return result;
 }
 
-
-async function processDailyReports(env, now = new Date(), meta = {}) {
-  const settings = await sbGetNotificationSettings(env);
-  const reportSetting = settings.daily_report || mergeNotificationSetting("daily_report");
-
-  const timeZone = reportSetting?.timezone || TASHKENT_TIME_ZONE;
-  const sendTime = reportSetting?.send_time || "22:00";
-  const windowMinutes = resolveDailyWindowMinutes(reportSetting, meta);
-
-  const batchSize = Math.max(1, Math.min(1000, Number(reportSetting?.config?.batch_size || 100)));
-  const perRunLimit = Math.max(batchSize, Math.min(50000, Number(reportSetting?.config?.per_run_limit || 10000)));
-
-  const result = {
-    checked: 0,
-    sent: 0,
-    failed: [],
-    todayKey: uzDateKey(now, timeZone),
-    scheduled_for: `${sendTime} ${timeZone}`,
-    window_open: isDailyReminderWindow(now, sendTime, windowMinutes, timeZone),
-    batch_size: batchSize,
-    per_run_limit: perRunLimit,
-    effective_window_minutes: windowMinutes,
-  };
-
-  if (reportSetting.enabled === false) {
-    result.note = "daily report disabled";
-    return result;
-  }
-
-  if (!result.window_open) {
-    result.note = "outside daily report window";
-    return result;
-  }
-
-  const nowIso = new Date(now).toISOString();
-  const dayStartIso = uzDayStartUtcIso(now, timeZone);
-
-  let lastUserId = null;
-  let totalScanned = 0;
-
-  while (totalScanned < perRunLimit) {
-    const pageLimit = Math.min(batchSize, perRunLimit - totalScanned);
-
-    let page;
-    try {
-      page = await fetchUsersForDailyReportPage(env, dayStartIso, {
-        afterUserId: lastUserId,
-        limit: pageLimit,
-      });
-    } catch (error) {
-      if (sbMissingTable(error, "users")) {
-        result.note = "users table missing";
-        return result;
-      }
-      throw error;
-    }
-
-    if (page?.migrationRequired) {
-      result.note = page.migrationRequired;
-      return result;
-    }
-
-    const rawRows = Array.isArray(page?.rows) ? page.rows : [];
-    if (!rawRows.length) break;
-
-    totalScanned += rawRows.length;
-    lastUserId = rawRows[rawRows.length - 1]?.user_id ?? lastUserId;
-
-    const candidates = rawRows.filter(
-      (row) => row && toSafeChatId(row.user_id) && row.daily_reminder_enabled !== false
-    );
-
-    result.checked += candidates.length;
-
-    for (const row of candidates) {
-      const html = buildDailyReportText(reportSetting, row.full_name, now);
-
-      try {
-        await tgSendMessage(env, row.user_id, html);
-        await markDailyReportSent(env, row.user_id, nowIso);
-
-        await sbInsertNotificationLog(env, {
-          setting_key: "daily_report",
-          user_id: row.user_id,
-          status: "sent",
-          message_text: html,
-          sent_at: nowIso,
-          meta: {
-            send_time: sendTime,
-            source: meta.source || "scheduled",
-            batch_size: batchSize,
-          },
-        });
-
-        result.sent += 1;
-      } catch (error) {
-        result.failed.push({
-          user_id: row.user_id,
-          error: error?.message || String(error),
-        });
-
-        await sbInsertNotificationLog(env, {
-          setting_key: "daily_report",
-          user_id: row.user_id,
-          status: "failed",
-          message_text: html,
-          error_text: error?.message || String(error),
-          sent_at: nowIso,
-          meta: {
-            send_time: sendTime,
-            source: meta.source || "scheduled",
-            batch_size: batchSize,
-          },
-        });
-      }
-    }
-
-    if (rawRows.length < pageLimit) break;
-  }
-
-  if (result.sent > 0) {
-    await sbTouchNotificationSetting(env, "daily_report", { last_sent_at: nowIso });
-  }
-
-  if (totalScanned >= perRunLimit) {
-    result.note = `per_run_limit reached (${perRunLimit})`;
-  }
-
-  return result;
-}
-
 async function processDebtReminders(env, now = new Date(), meta = {}) {
   const settings = await sbGetNotificationSettings(env);
   const debtSetting = settings.debt_reminder || mergeNotificationSetting("debt_reminder");
@@ -1022,10 +823,9 @@ async function processDebtReminders(env, now = new Date(), meta = {}) {
 
 async function runAllCronJobs(env, meta = {}) {
   const now = new Date();
-  const [notifications, daily, report, debts] = await Promise.all([
+  const [notifications, daily, debts] = await Promise.all([
     processDueNotifications(env, meta),
     processDailyReminders(env, now, meta),
-    processDailyReports(env, now, meta),
     processDebtReminders(env, now, meta),
   ]);
 
@@ -1037,7 +837,6 @@ async function runAllCronJobs(env, meta = {}) {
     scheduledTime: meta.scheduledTime || null,
     notifications,
     daily,
-    report,
     debts,
   };
 }
@@ -1050,12 +849,49 @@ const HANDLER_LOADERS = {
   bot: () => import("../api/bot.js"),
 };
 
-async function getLegacyHandler(name) {
+function seedLegacyProcessEnv(env) {
+  if (!env || typeof process === "undefined" || !process?.env) return;
+  const keys = [
+    "BOT_TOKEN",
+    "SUPABASE_URL",
+    "SUPABASE_ANON_KEY",
+    "SUPABASE_SERVICE_ROLE_KEY",
+    "SUPABASE_KEY",
+    "OPENAI_API_KEY",
+    "ADMIN_IDS",
+    "OWNER_ID",
+    "CRON_SECRET",
+    "CRON_SCHEDULE",
+    "CRON_INTERVAL_MINUTES",
+    "WEBAPP_URL",
+  ];
+
+  for (const key of keys) {
+    const value = env?.[key];
+    if (typeof value === "string" && value.length && !process.env[key]) {
+      process.env[key] = value;
+    }
+  }
+}
+
+function resolveLegacyHandler(mod) {
+  const candidates = [
+    mod,
+    mod?.default,
+    mod?.handler,
+    mod?.default?.default,
+    mod?.default?.handler,
+  ];
+  return candidates.find((item) => typeof item === "function") || null;
+}
+
+async function getLegacyHandler(name, env) {
   const loader = HANDLER_LOADERS[name];
   if (!loader) throw new Error(`Unknown legacy handler: ${name}`);
 
+  seedLegacyProcessEnv(env);
   const mod = await loader();
-  const handler = mod?.default || mod?.handler || mod;
+  const handler = resolveLegacyHandler(mod);
 
   if (typeof handler !== "function") {
     throw new Error(`Legacy handler is not a function: ${name}`);
@@ -1169,7 +1005,7 @@ function createLegacyRes(resolve) {
 }
 
 async function invokeLegacyHandler(name, request, env) {
-  const handler = await getLegacyHandler(name);
+  const handler = await getLegacyHandler(name, env);
   const req = await buildLegacyReq(request, env);
 
   return await new Promise(async (resolve, reject) => {

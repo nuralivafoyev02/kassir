@@ -1166,12 +1166,15 @@
       let activePayload = buildPlanWritePayload();
       let activeMode = mode;
       let activeRowId = rowId;
+      let lastError = null;
       for (let i = 0; i < 8; i += 1) {
         let result = activeMode === 'update'
           ? await db.from('category_limits').update(activePayload).eq('id', activeRowId).eq('user_id', UID).select().maybeSingle()
           : await db.from('category_limits').insert([{ user_id: UID, ...activePayload }]).select().maybeSingle();
 
         if (!result.error) return result;
+
+        lastError = result.error;
 
         if (missingColumn(result.error, 'category_name')) {
           planNameColumnSupported = 'name';
@@ -1216,7 +1219,8 @@
         }
         return result;
       }
-      return { error: new Error('Plan write fallback exhausted') };
+      const detail = String(lastError?.message || lastError?.details || lastError?.hint || '').trim();
+      return { error: new Error(detail ? `Plan write fallback exhausted: ${detail}` : 'Plan write fallback exhausted') };
     };
 
     const mode = targetId ? 'update' : 'insert';

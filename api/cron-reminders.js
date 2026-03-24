@@ -26,21 +26,6 @@ Bugungi xarajatlarni kiritib borishni unutmang.
 🤝 <i>24/7 xizmatingizda man!</i>`,
     config: { window_minutes: 5, batch_size: 100, per_run_limit: 10000 },
   },
-  daily_report: {
-    key: 'daily_report',
-    title: 'Kunlik hisobot',
-    enabled: true,
-    send_time: '22:00',
-    timezone: TASHKENT_TIME_ZONE,
-    message_template: `🌙 <b>Kunlik hisobotingiz{{name_block}}</b>
-
-Bugungi kirim-chiqimlaringizni yakunlab, kunlik hisobotingizni tekshirib chiqing.
-💸 Agar hali kiritmagan bo'lsangiz, bugungi yozuvlarni hozir qo'shib qo'ying.
-
-📅 Bugun: {{today}}
-✅ <i>Kunlik hisobotingizni yopishni unutmang.</i>`,
-    config: { window_minutes: 5, batch_size: 100, per_run_limit: 10000 },
-  },
   debt_reminder: {
     key: 'debt_reminder',
     title: 'Qarz eslatmasi',
@@ -149,15 +134,6 @@ async function insertNotificationLog(row) {
 
 function buildDailyReminderText(setting, fullName = '', now = new Date()) {
   const template = setting?.message_template || NOTIFICATION_DEFAULTS.daily_reminder.message_template;
-  const timeZone = setting?.timezone || TASHKENT_TIME_ZONE;
-  return renderTemplate(template, {
-    name_block: String(fullName || '').trim() ? `, <b>${String(fullName).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</b>` : '',
-    today: new Date(now).toLocaleDateString('uz-UZ', { timeZone }),
-  });
-}
-
-function buildDailyReportText(setting, fullName = '', now = new Date()) {
-  const template = setting?.message_template || NOTIFICATION_DEFAULTS.daily_report.message_template;
   const timeZone = setting?.timezone || TASHKENT_TIME_ZONE;
   return renderTemplate(template, {
     name_block: String(fullName || '').trim() ? `, <b>${String(fullName).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</b>` : '',
@@ -337,53 +313,9 @@ async function fetchUsersForDailyReminderPage(dayStartIso, { afterUserId = null,
   return res;
 }
 
-async function fetchUsersForDailyReportPage(dayStartIso, { afterUserId = null, limit = 100 } = {}) {
-  let query = db
-    .from('users')
-    .select('user_id, full_name, daily_reminder_enabled, last_daily_report_at')
-    .or(`last_daily_report_at.is.null,last_daily_report_at.lt.${dayStartIso}`)
-    .order('user_id', { ascending: true })
-    .limit(limit);
-
-  if (afterUserId != null) {
-    query = query.gt('user_id', afterUserId);
-  }
-
-  let res = await query;
-
-  if (res.error && missingColumn(res.error, 'daily_reminder_enabled')) {
-    let fallback = db
-      .from('users')
-      .select('user_id, full_name, last_daily_report_at')
-      .or(`last_daily_report_at.is.null,last_daily_report_at.lt.${dayStartIso}`)
-      .order('user_id', { ascending: true })
-      .limit(limit);
-
-    if (afterUserId != null) {
-      fallback = fallback.gt('user_id', afterUserId);
-    }
-
-    res = await fallback;
-  }
-
-  if (res.error && missingColumn(res.error, 'last_daily_report_at')) {
-    return { data: [], error: null, skipped: 'users.last_daily_report_at missing' };
-  }
-
-  return res;
-}
-
 async function markDailyReminderSent(userId, nowIso) {
   let result = await db.from('users').update({ last_daily_reminder_at: nowIso }).eq('user_id', userId);
   if (result.error && missingColumn(result.error, 'last_daily_reminder_at')) {
-    return { error: null };
-  }
-  return result;
-}
-
-async function markDailyReportSent(userId, nowIso) {
-  let result = await db.from('users').update({ last_daily_report_at: nowIso }).eq('user_id', userId);
-  if (result.error && missingColumn(result.error, 'last_daily_report_at')) {
     return { error: null };
   }
   return result;
@@ -509,127 +441,6 @@ async function processDailyReminders(now, meta = {}) {
   return result;
 }
 
-
-async function processDailyReports(now, meta = {}) {
-  const settings = await getNotificationSettings();
-  const reportSetting = settings.daily_report || mergeNotificationSetting('daily_report');
-
-  const timeZone = reportSetting.timezone || TASHKENT_TIME_ZONE;
-  const sendTime = reportSetting.send_time || '22:00';
-  const windowMinutes = resolveDailyWindowMinutes(reportSetting, meta);
-
-  const batchSize = Math.max(1, Math.min(1000, Number(reportSetting?.config?.batch_size || 100)));
-  const perRunLimit = Math.max(batchSize, Math.min(50000, Number(reportSetting?.config?.per_run_limit || 10000)));
-
-  const result = {
-    checked: 0,
-    sent: 0,
-    failed: [],
-    todayKey: uzDateKey(now, timeZone),
-    scheduled_for: `${sendTime} ${timeZone}`,
-    window_open: isDailyReminderWindow(now, sendTime, windowMinutes, timeZone),
-    batch_size: batchSize,
-    per_run_limit: perRunLimit,
-    effective_window_minutes: windowMinutes,
-  };
-
-  if (reportSetting.enabled === false) {
-    result.note = 'daily report disabled';
-    return result;
-  }
-
-  if (!result.window_open) {
-    result.note = 'outside daily report window';
-    return result;
-  }
-
-  const nowIso = now.toISOString();
-  const dayStartIso = uzDayStartUtcIso(now, timeZone);
-
-  let lastUserId = null;
-  let totalScanned = 0;
-
-  while (totalScanned < perRunLimit) {
-    const pageLimit = Math.min(batchSize, perRunLimit - totalScanned);
-    const { data, error, skipped } = await fetchUsersForDailyReportPage(dayStartIso, {
-      afterUserId: lastUserId,
-      limit: pageLimit,
-    });
-
-    if (skipped) {
-      result.note = skipped;
-      return result;
-    }
-
-    if (error) {
-      if (relationMissing(error, 'users')) {
-        result.note = 'users table missing';
-        return result;
-      }
-      throw error;
-    }
-
-    const rawRows = data || [];
-    if (!rawRows.length) break;
-
-    totalScanned += rawRows.length;
-    lastUserId = rawRows[rawRows.length - 1]?.user_id ?? lastUserId;
-
-    const rows = rawRows.filter((row) => row && row.user_id && row.daily_reminder_enabled !== false);
-    result.checked += rows.length;
-
-    for (const row of rows) {
-      const html = buildDailyReportText(reportSetting, row.full_name, now);
-
-      try {
-        await bot.sendMessage(row.user_id, html, { parse_mode: 'HTML' });
-        await markDailyReportSent(row.user_id, nowIso);
-
-        await insertNotificationLog({
-          setting_key: 'daily_report',
-          user_id: row.user_id,
-          status: 'sent',
-          message_text: html,
-          sent_at: nowIso,
-          meta: {
-            send_time: sendTime,
-            batch_size: batchSize,
-          }
-        });
-
-        result.sent += 1;
-      } catch (err) {
-        result.failed.push({ user_id: row.user_id, error: err?.message || 'send failed' });
-
-        await insertNotificationLog({
-          setting_key: 'daily_report',
-          user_id: row.user_id,
-          status: 'failed',
-          message_text: html,
-          error_text: err?.message || 'send failed',
-          sent_at: nowIso,
-          meta: {
-            send_time: sendTime,
-            batch_size: batchSize,
-          }
-        });
-      }
-    }
-
-    if (rawRows.length < pageLimit) break;
-  }
-
-  if (result.sent > 0) {
-    await touchNotificationSetting('daily_report', { last_sent_at: nowIso });
-  }
-
-  if (totalScanned >= perRunLimit) {
-    result.note = `per_run_limit reached (${perRunLimit})`;
-  }
-
-  return result;
-}
-
 async function processDebtReminders(now) {
   const settings = await getNotificationSettings();
   const debtSetting = settings.debt_reminder || mergeNotificationSetting('debt_reminder');
@@ -707,9 +518,8 @@ module.exports = async (req, res) => {
     }
 
     const now = new Date();
-    const [daily, report, debts] = await Promise.all([
+    const [daily, debts] = await Promise.all([
       processDailyReminders(now, { cron: process.env.CRON_SCHEDULE || null }),
-      processDailyReports(now, { cron: process.env.CRON_SCHEDULE || null }),
       processDebtReminders(now),
     ]);
 
@@ -717,7 +527,6 @@ module.exports = async (req, res) => {
       ok: true,
       at: now.toISOString(),
       daily,
-      report,
       debts,
     });
   } catch (error) {
