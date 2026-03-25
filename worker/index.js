@@ -366,6 +366,32 @@ async function sbInsertNotificationLog(env, row) {
   }
 }
 
+async function sbInsertNotificationLogs(env, rows) {
+  const items = Array.isArray(rows) ? rows.filter(Boolean) : [];
+  if (!items.length) return;
+
+  try {
+    await sbFetch(env, `/notification_logs`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        Prefer: "return=minimal",
+      },
+      body: JSON.stringify(items),
+    });
+  } catch (error) {
+    if (!sbMissingTable(error, "notification_logs")) throw error;
+  }
+}
+
+function buildPostgrestInFilter(values = []) {
+  return (Array.isArray(values) ? values : [])
+    .map((value) => String(value ?? "").trim())
+    .filter(Boolean)
+    .map((value) => encodeURIComponent(value))
+    .join(",");
+}
+
 function getTimeZoneParts(value = new Date(), timeZone = TASHKENT_TIME_ZONE) {
   const safeTimeZone = String(timeZone || TASHKENT_TIME_ZONE);
 
@@ -742,10 +768,13 @@ async function fetchUsersForDailyReminderPage(env, dayStartIso, { afterUserId = 
   }
 }
 
-async function claimDailyReminderSend(env, userId, dayStartIso, claimIso) {
+async function claimDailyReminderSendBatch(env, userIds, dayStartIso, claimIso) {
+  const inFilter = buildPostgrestInFilter(userIds);
+  if (!inFilter) return [];
+
   try {
     const encodedOr = encodeURIComponent(`(last_daily_reminder_at.is.null,last_daily_reminder_at.lt.${dayStartIso})`);
-    const rows = await sbFetch(env, `/users?user_id=eq.${encodeURIComponent(userId)}&or=${encodedOr}&select=user_id`, {
+    const rows = await sbFetch(env, `/users?user_id=in.(${inFilter})&or=${encodedOr}&select=user_id`, {
       method: "PATCH",
       headers: {
         "content-type": "application/json",
@@ -753,9 +782,9 @@ async function claimDailyReminderSend(env, userId, dayStartIso, claimIso) {
       },
       body: JSON.stringify({ last_daily_reminder_at: claimIso }),
     });
-    return Array.isArray(rows) ? rows[0] || null : null;
+    return Array.isArray(rows) ? rows : [];
   } catch (error) {
-    if (sbMissingColumn(error, "last_daily_reminder_at")) return;
+    if (sbMissingColumn(error, "last_daily_reminder_at")) return [];
     throw error;
   }
 }
@@ -787,9 +816,12 @@ async function fetchUsersForDailyReportPage(env, dayStartIso, { afterUserId = nu
   }
 }
 
-async function releaseDailyReminderClaim(env, userId, claimIso) {
+async function releaseDailyReminderClaims(env, userIds, claimIso) {
+  const inFilter = buildPostgrestInFilter(userIds);
+  if (!inFilter) return;
+
   try {
-    await sbFetch(env, `/users?user_id=eq.${encodeURIComponent(userId)}&last_daily_reminder_at=eq.${encodeURIComponent(claimIso)}`, {
+    await sbFetch(env, `/users?user_id=in.(${inFilter})&last_daily_reminder_at=eq.${encodeURIComponent(claimIso)}`, {
       method: "PATCH",
       headers: {
         "content-type": "application/json",
@@ -803,10 +835,13 @@ async function releaseDailyReminderClaim(env, userId, claimIso) {
   }
 }
 
-async function claimDailyReportSend(env, userId, dayStartIso, claimIso) {
+async function claimDailyReportSendBatch(env, userIds, dayStartIso, claimIso) {
+  const inFilter = buildPostgrestInFilter(userIds);
+  if (!inFilter) return [];
+
   try {
     const encodedOr = encodeURIComponent(`(last_daily_report_at.is.null,last_daily_report_at.lt.${dayStartIso})`);
-    const rows = await sbFetch(env, `/users?user_id=eq.${encodeURIComponent(userId)}&or=${encodedOr}&select=user_id`, {
+    const rows = await sbFetch(env, `/users?user_id=in.(${inFilter})&or=${encodedOr}&select=user_id`, {
       method: "PATCH",
       headers: {
         "content-type": "application/json",
@@ -814,16 +849,19 @@ async function claimDailyReportSend(env, userId, dayStartIso, claimIso) {
       },
       body: JSON.stringify({ last_daily_report_at: claimIso }),
     });
-    return Array.isArray(rows) ? rows[0] || null : null;
+    return Array.isArray(rows) ? rows : [];
   } catch (error) {
-    if (sbMissingColumn(error, "last_daily_report_at")) return;
+    if (sbMissingColumn(error, "last_daily_report_at")) return [];
     throw error;
   }
 }
 
-async function releaseDailyReportClaim(env, userId, claimIso) {
+async function releaseDailyReportClaims(env, userIds, claimIso) {
+  const inFilter = buildPostgrestInFilter(userIds);
+  if (!inFilter) return;
+
   try {
-    await sbFetch(env, `/users?user_id=eq.${encodeURIComponent(userId)}&last_daily_report_at=eq.${encodeURIComponent(claimIso)}`, {
+    await sbFetch(env, `/users?user_id=in.(${inFilter})&last_daily_report_at=eq.${encodeURIComponent(claimIso)}`, {
       method: "PATCH",
       headers: {
         "content-type": "application/json",
@@ -913,21 +951,30 @@ async function processDailyReminders(env, now = new Date(), meta = {}) {
     );
 
     result.checked += candidates.length;
+    if (!candidates.length) {
+      if (rawRows.length < pageLimit) break;
+      continue;
+    }
 
-    for (const row of candidates) {
+    const claimedRows = await claimDailyReminderSendBatch(
+      env,
+      candidates.map((row) => row.user_id),
+      dayStartIso,
+      nowIso
+    );
+    const claimedIds = new Set((Array.isArray(claimedRows) ? claimedRows : []).map((row) => String(row.user_id)));
+    const claimedCandidates = candidates.filter((row) => claimedIds.has(String(row.user_id)));
+    const failedUserIds = [];
+    const logRows = [];
+
+    result.skipped += Math.max(0, candidates.length - claimedCandidates.length);
+
+    for (const row of claimedCandidates) {
       const html = buildDailyReminderText(dailySetting, row.full_name, now);
-      let claimed = null;
 
       try {
-        claimed = await claimDailyReminderSend(env, row.user_id, dayStartIso, nowIso);
-        if (!claimed) {
-          result.skipped += 1;
-          continue;
-        }
-
         await tgSendMessage(env, row.user_id, html);
-
-        await sbInsertNotificationLog(env, {
+        logRows.push({
           setting_key: "daily_reminder",
           user_id: row.user_id,
           status: "sent",
@@ -939,20 +986,14 @@ async function processDailyReminders(env, now = new Date(), meta = {}) {
             batch_size: batchSize,
           },
         });
-
         result.sent += 1;
       } catch (error) {
+        failedUserIds.push(row.user_id);
         result.failed.push({
           user_id: row.user_id,
           error: error?.message || String(error),
         });
-        if (claimed) {
-          try {
-            await releaseDailyReminderClaim(env, row.user_id, nowIso);
-          } catch (_) { }
-        }
-
-        await sbInsertNotificationLog(env, {
+        logRows.push({
           setting_key: "daily_reminder",
           user_id: row.user_id,
           status: "failed",
@@ -966,6 +1007,16 @@ async function processDailyReminders(env, now = new Date(), meta = {}) {
           },
         });
       }
+    }
+
+    if (failedUserIds.length) {
+      try {
+        await releaseDailyReminderClaims(env, failedUserIds, nowIso);
+      } catch (_) { }
+    }
+
+    if (logRows.length) {
+      await sbInsertNotificationLogs(env, logRows);
     }
 
     if (rawRows.length < pageLimit) break;
@@ -1058,21 +1109,30 @@ async function processDailyReports(env, now = new Date(), meta = {}) {
     );
 
     result.checked += candidates.length;
+    if (!candidates.length) {
+      if (rawRows.length < pageLimit) break;
+      continue;
+    }
 
-    for (const row of candidates) {
+    const claimedRows = await claimDailyReportSendBatch(
+      env,
+      candidates.map((row) => row.user_id),
+      dayStartIso,
+      nowIso
+    );
+    const claimedIds = new Set((Array.isArray(claimedRows) ? claimedRows : []).map((row) => String(row.user_id)));
+    const claimedCandidates = candidates.filter((row) => claimedIds.has(String(row.user_id)));
+    const failedUserIds = [];
+    const logRows = [];
+
+    result.skipped += Math.max(0, candidates.length - claimedCandidates.length);
+
+    for (const row of claimedCandidates) {
       const html = buildDailyReportText(reportSetting, row.full_name, now);
-      let claimed = null;
 
       try {
-        claimed = await claimDailyReportSend(env, row.user_id, dayStartIso, nowIso);
-        if (!claimed) {
-          result.skipped += 1;
-          continue;
-        }
-
         await tgSendMessage(env, row.user_id, html);
-
-        await sbInsertNotificationLog(env, {
+        logRows.push({
           setting_key: "daily_report",
           user_id: row.user_id,
           status: "sent",
@@ -1084,20 +1144,14 @@ async function processDailyReports(env, now = new Date(), meta = {}) {
             batch_size: batchSize,
           },
         });
-
         result.sent += 1;
       } catch (error) {
+        failedUserIds.push(row.user_id);
         result.failed.push({
           user_id: row.user_id,
           error: error?.message || String(error),
         });
-        if (claimed) {
-          try {
-            await releaseDailyReportClaim(env, row.user_id, nowIso);
-          } catch (_) { }
-        }
-
-        await sbInsertNotificationLog(env, {
+        logRows.push({
           setting_key: "daily_report",
           user_id: row.user_id,
           status: "failed",
@@ -1111,6 +1165,16 @@ async function processDailyReports(env, now = new Date(), meta = {}) {
           },
         });
       }
+    }
+
+    if (failedUserIds.length) {
+      try {
+        await releaseDailyReportClaims(env, failedUserIds, nowIso);
+      } catch (_) { }
+    }
+
+    if (logRows.length) {
+      await sbInsertNotificationLogs(env, logRows);
     }
 
     if (rawRows.length < pageLimit) break;
