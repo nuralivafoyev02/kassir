@@ -1,6 +1,6 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "kassir-miniapp",
+  "name": "mening-kassam",
   "main": "worker/index.js",
   "compatibility_date": "2026-03-24",
   "compatibility_flags": [
