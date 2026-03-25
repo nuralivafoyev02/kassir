@@ -84,6 +84,7 @@ Qarz berilganda balans darhol o'zgarmaydi. Qarz qaytganda yoki qaytarganingizda 
 
 const DEFAULT_RATE = 12200;
 const ADMIN_IDS = new Set((process.env.ADMIN_IDS || '').split(',').map(v => v.trim()).filter(Boolean));
+const ADMIN_USERS_PAGE_SIZE = 10;
 
 // ─── LOGGING ─────────────────────────────────────────────
 function getAdminNotifyChatId() {
@@ -96,7 +97,7 @@ function getAppLogger() {
     logChannelId: process.env.LOG_CHANNEL_ID,
     adminChatId: getAdminNotifyChatId(),
     loggingEnabled: process.env.TELEGRAM_LOGGING_ENABLED,
-    logLevel: process.env.LOG_LEVEL,
+    logLevel: process.env.LOG_LEVEL || 'INFO',
     localLevel: process.env.LOCAL_LOG_LEVEL || 'ERROR',
     source: 'BOT',
   });
@@ -104,11 +105,11 @@ function getAppLogger() {
 
 const log = (scope, data) => getAppLogger().local('INFO', scope, data);
 const warn = (scope, data) => getAppLogger().local('SUCCESS', scope, data);
-const logErr = (scope, e, extra = {}) => {
+const logErr = async (scope, e, extra = {}) => {
   const payload = { error: e, ...extra };
   const logger = getAppLogger();
   logger.local('ERROR', scope, payload);
-  void logger.error({
+  return logger.error({
     scope,
     user_id: extra.userId || extra.user_id || null,
     chat_id: extra.chatId || extra.chat_id || null,
@@ -129,6 +130,14 @@ function buildUserLogContext(msg = {}, user = null, extra = {}) {
     full_name: extra.full_name ?? user?.full_name ?? fallbackFullName,
     phone_number: extra.phone_number ?? user?.phone_number ?? null,
   };
+}
+
+function normalizePhoneNumber(value) {
+  return String(value || '').replace(/[^\d+]/g, '').trim();
+}
+
+function hasRegisteredPhone(user) {
+  return normalizePhoneNumber(user?.phone_number || '').length > 0;
 }
 
 // ─── UTILS ───────────────────────────────────────────────
@@ -337,7 +346,7 @@ async function sendCategoryLimitAlert(userId, chatId, category, latestAmount, tx
       .gte('date', monthStartIso(now));
 
     if (spentRes.error) {
-      logErr('limit-spent', spentRes.error, { userId, category });
+      await logErr('limit-spent', spentRes.error, { userId, category });
       return;
     }
 
@@ -378,10 +387,10 @@ async function sendCategoryLimitAlert(userId, chatId, category, latestAmount, tx
       .eq('id', limit.id);
 
     if (updRes.error && !isMissingColumnError(updRes.error, 'last_alert_sent_at')) {
-      logErr('limit-update', updRes.error, { userId, category, limitId: limit.id });
+      await logErr('limit-update', updRes.error, { userId, category, limitId: limit.id });
     }
   } catch (error) {
-    logErr('limit-alert', error, { userId, category });
+    await logErr('limit-alert', error, { userId, category });
   }
 }
 
@@ -789,12 +798,60 @@ function buildAdminPanelText(snapshot) {
 ${lastLine}`;
 }
 
-function buildRecentUsersText(rows, totalUsers) {
+function buildRecentUsersText(rows, totalUsers, { offset = 0, pageSize = ADMIN_USERS_PAGE_SIZE } = {}) {
   const body = rows?.length
-    ? rows.map((u, i) => `${i + 1}. <b>${esc(u.full_name || `User ${u.user_id}`)}</b>\n   ID: <code>${u.user_id}</code>${u.phone_number ? `\n   Tel: ${esc(u.phone_number)}` : ''}${u.created_at ? `\n   Qo\'shilgan: ${esc(fmtDateTime(u.created_at))}` : ''}`).join('\n\n')
+    ? rows.map((u, i) => `${offset + i + 1}. <b>${esc(u.full_name || `User ${u.user_id}`)}</b>\n   ID: <code>${u.user_id}</code>${u.phone_number ? `\n   Tel: ${esc(u.phone_number)}` : ''}${u.created_at ? `\n   Qo\'shilgan: ${esc(fmtDateTime(u.created_at))}` : ''}`).join('\n\n')
     : 'Hozircha userlar topilmadi.';
 
-  return `👥 <b>SO\'NGGI USERLAR</b>\nJami userlar: <b>${totalUsers}</b>\n\n${body}`;
+  const page = totalUsers > 0 ? Math.floor(offset / pageSize) + 1 : 1;
+  const totalPages = Math.max(1, Math.ceil(Number(totalUsers || 0) / pageSize));
+  const from = totalUsers > 0 ? offset + 1 : 0;
+  const to = offset + (rows?.length || 0);
+
+  return `👥 <b>USERLAR RO'YXATI</b>\nJami userlar: <b>${totalUsers}</b>\nSahifa: <b>${page}/${totalPages}</b>${to ? `\nKo'rsatilmoqda: <b>${from}-${to}</b>` : ''}\n\n${body}`;
+}
+
+function buildRecentUsersMarkup(totalUsers, offset = 0, pageSize = ADMIN_USERS_PAGE_SIZE) {
+  const totalPages = Math.max(1, Math.ceil(Number(totalUsers || 0) / pageSize));
+  const currentPage = totalUsers > 0 ? Math.floor(offset / pageSize) + 1 : 1;
+  const prevOffset = Math.max(0, offset - pageSize);
+  const nextOffset = offset + pageSize;
+  const hasPrev = offset > 0;
+  const hasNext = nextOffset < Number(totalUsers || 0);
+  const rows = [];
+
+  if (totalPages > 1) {
+    rows.push([
+      { text: hasPrev ? '⬅️ Oldingi' : '•', callback_data: hasPrev ? `admin_users:${prevOffset}` : `admin_users:${offset}` },
+      { text: `${currentPage}/${totalPages}`, callback_data: `admin_users:${offset}` },
+      { text: hasNext ? 'Keyingi ➡️' : '•', callback_data: hasNext ? `admin_users:${nextOffset}` : `admin_users:${offset}` },
+    ]);
+  }
+
+  rows.push([{ text: '🛠 Admin panel', callback_data: 'admin_panel' }]);
+  return { inline_keyboard: rows };
+}
+
+async function fetchAdminUsersPage(offset = 0, pageSize = ADMIN_USERS_PAGE_SIZE) {
+  const safeOffset = Math.max(0, Number(offset || 0));
+  const safePageSize = Math.max(1, Math.min(25, Number(pageSize || ADMIN_USERS_PAGE_SIZE)));
+  const to = safeOffset + safePageSize - 1;
+  const [{ data: rows, error }, totalUsers] = await Promise.all([
+    db.from('users')
+      .select('user_id, full_name, phone_number, created_at')
+      .order('created_at', { ascending: false })
+      .order('user_id', { ascending: false })
+      .range(safeOffset, to),
+    getExactCount(db.from('users').select('*', { count: 'exact', head: true })),
+  ]);
+
+  return {
+    rows: rows || [],
+    error,
+    totalUsers,
+    offset: safeOffset,
+    pageSize: safePageSize,
+  };
 }
 
 function buildBroadcastsText(rows) {
@@ -1148,7 +1205,7 @@ Agar tushunarsiz bo'lsa, null qaytaring.`;
       warn('gpt-parse-fallback', { reason: e?.message || 'quota/rate-limit', disabledUntil: new Date(openaiDisabledUntil).toISOString() });
       return null;
     }
-    logErr('gpt-parse', e);
+    await logErr('gpt-parse', e);
     return null;
   }
 }
@@ -1756,7 +1813,7 @@ async function saveTx(userId, chatId, parsed, receiptUrl = null, exRate = DEFAUL
     const userCats = await fetchUserCategories(userId);
     category = resolveCategoryForUser(parsed, userCats, rawText) || category;
   } catch (error) {
-    logErr('category-resolve', error, { userId });
+    await logErr('category-resolve', error, { userId });
   }
   let amtTxt = `${numFmt(amount)} so'm`;
 
@@ -1777,7 +1834,7 @@ async function saveTx(userId, chatId, parsed, receiptUrl = null, exRate = DEFAUL
 
   const { data, error } = await insertTransactions([row], 'bot');
   if (error) {
-    logErr('save-tx', error, { userId, chatId, amount, category });
+    await logErr('save-tx', error, { userId, chatId, amount, category });
     await bot.sendMessage(chatId, '⚠️ Bazaga yozishda xatolik. Keyinroq urinib ko\'ring.').catch(() => { });
     return null;
   }
@@ -2043,16 +2100,18 @@ module.exports = async (req, res) => {
           return res.status(200).json({ ok: true });
         }
 
-        if (data === 'admin_users') {
-          const [{ data: rows, error: uErr }, totalUsers] = await Promise.all([
-            db.from('users').select('user_id, full_name, phone_number, created_at').order('created_at', { ascending: false }).limit(10),
-            getExactCount(db.from('users').select('*', { count: 'exact', head: true }))
-          ]);
+        const adminUsersMatch = data.match(/^admin_users(?::(\d+))?$/);
+        if (adminUsersMatch) {
+          const offset = Number(adminUsersMatch[1] || 0);
+          const { rows, error: uErr, totalUsers, pageSize } = await fetchAdminUsersPage(offset);
           if (uErr) {
             await safeEditOrSend(chatId, msgId, `⚠️ Userlarni olishda xatolik: ${esc(uErr.message)}`, { parse_mode: 'HTML' });
             return res.status(200).json({ ok: true });
           }
-          await safeEditOrSend(chatId, msgId, buildRecentUsersText(rows || [], totalUsers), { parse_mode: 'HTML', reply_markup: adminPanelMarkup() });
+          await safeEditOrSend(chatId, msgId, buildRecentUsersText(rows, totalUsers, { offset, pageSize }), {
+            parse_mode: 'HTML',
+            reply_markup: buildRecentUsersMarkup(totalUsers, offset, pageSize)
+          });
           return res.status(200).json({ ok: true });
         }
 
@@ -2172,7 +2231,7 @@ module.exports = async (req, res) => {
     if (msg.contact) {
       // Faqat o'z kontaktini yuborishga ruxsat
       if (msg.contact.user_id !== userId) return res.status(200).json({ ok: true });
-      const isBrandNewUser = !user;
+      const shouldNotifyNewRegistration = !hasRegisteredPhone(user) && !!normalizePhoneNumber(msg.contact.phone_number);
       const userContext = buildUserLogContext(msg, user, { phone_number: msg.contact.phone_number });
 
       const { error: regErr } = await db.from('users').upsert({
@@ -2180,11 +2239,11 @@ module.exports = async (req, res) => {
         phone_number: msg.contact.phone_number,
         full_name: `${msg.from.first_name || ''} ${msg.from.last_name || ''}`.trim() || `User ${userId}`,
         last_start_date: iso(),
-        exchange_rate: DEFAULT_RATE,
+        exchange_rate: Number(user?.exchange_rate) > 0 ? Number(user.exchange_rate) : DEFAULT_RATE,
       }, { onConflict: 'user_id' });
 
       if (regErr) {
-        logErr('reg', regErr, userContext);
+        await logErr('reg', regErr, userContext);
         return res.status(200).json({ ok: false });
       }
 
@@ -2193,7 +2252,7 @@ module.exports = async (req, res) => {
         { reply_markup: KB, parse_mode: 'HTML' }
       ).catch(() => { });
 
-      if (isBrandNewUser) {
+      if (shouldNotifyNewRegistration) {
         const successPayload = {
           source: 'bot start/register',
           registered_at: iso(),
@@ -2436,7 +2495,7 @@ module.exports = async (req, res) => {
       }).select().single();
 
       if (drErr) {
-        logErr('draft-save', drErr);
+        await logErr('draft-save', drErr);
         await bot.sendMessage(chatId, '⚠️ Draft saqlashda xatolik.').catch(() => { });
         return res.status(200).json({ ok: true });
       }
@@ -2539,7 +2598,7 @@ module.exports = async (req, res) => {
         .gte('date', since);
 
       if (re) {
-        logErr('report', re, { userId });
+        await logErr('report', re, { userId });
         if (wait) await bot.editMessageText('⚠️ Hisobot chiqarishda xatolik.',
           { chat_id: chatId, message_id: wait.message_id }).catch(() => { });
         return res.status(200).json({ ok: true });
@@ -2584,7 +2643,7 @@ module.exports = async (req, res) => {
         .eq('user_id', userId);
 
       if (de) {
-        logErr('del-last', de, { userId });
+        await logErr('del-last', de, { userId });
         if (wait) await bot.editMessageText('⚠️ O\'chirishda xatolik.',
           { chat_id: chatId, message_id: wait.message_id }).catch(() => { });
         return res.status(200).json({ ok: true });
@@ -2610,7 +2669,7 @@ module.exports = async (req, res) => {
           const result = await saveDebtSettlementIntent(userId, chatId, debtSettlementIntent);
           if (result?.handled) return res.status(200).json({ ok: true });
         } catch (error) {
-          logErr('debt-settlement-intent', error, { userId, text });
+          await logErr('debt-settlement-intent', error, { userId, text });
           await bot.sendMessage(chatId, `⚠️ Qarz qaytishini qayta ishlashda xatolik: ${esc(error.message || "noma'lum")}`, { parse_mode: 'HTML' }).catch(() => null);
           return res.status(200).json({ ok: true });
         }
@@ -2622,7 +2681,7 @@ module.exports = async (req, res) => {
           await saveDebtIntent(userId, chatId, debtIntent);
           return res.status(200).json({ ok: true });
         } catch (error) {
-          logErr('debt-intent', error, { userId, text });
+          await logErr('debt-intent', error, { userId, text });
           await bot.sendMessage(chatId, `⚠️ Qarzni saqlashda xatolik: ${esc(error.message || "noma'lum")}`, { parse_mode: 'HTML' }).catch(() => null);
           return res.status(200).json({ ok: true });
         }
@@ -2634,7 +2693,7 @@ module.exports = async (req, res) => {
           await savePlanIntent(userId, chatId, planIntent);
           return res.status(200).json({ ok: true });
         } catch (error) {
-          logErr('plan-intent', error, { userId, text });
+          await logErr('plan-intent', error, { userId, text });
           await bot.sendMessage(chatId, `⚠️ Rejani saqlashda xatolik: ${esc(error.message || "noma'lum")}`, { parse_mode: 'HTML' }).catch(() => null);
           return res.status(200).json({ ok: true });
         }
@@ -2675,7 +2734,7 @@ module.exports = async (req, res) => {
         await saveTx(userId, chatId, parsed, null, user.exchange_rate, msg.message_id, spoken);
 
       } catch (e) {
-        logErr('voice', e, { userId });
+        await logErr('voice', e, { userId });
         if (proc) await bot.editMessageText('😕 Ovozli xabarni qayta ishlashda xatolik yuz berdi. Matn orqali yozib yuboring.', { chat_id: chatId, message_id: proc.message_id }).catch(() => { });
       } finally {
       }
@@ -2712,7 +2771,7 @@ module.exports = async (req, res) => {
           if (procMsg) await bot.deleteMessage(chatId, procMsg.message_id).catch(() => { });
           log('photo-uploaded', { userId, fileName });
         } catch (e) {
-          logErr('photo', e, { userId });
+          await logErr('photo', e, { userId });
           if (procMsg) {
             await bot.editMessageText(
               '⚠️ Rasmni saqlashda xatolik.\nTranzaksiya yoziladi, chekni ilovadan qo\'shishingiz mumkin.',
@@ -2746,7 +2805,7 @@ module.exports = async (req, res) => {
     return res.status(200).json({ ok: true });
 
   } catch (e) {
-    logErr('handler', e);
+    await logErr('handler', e);
     return res.status(500).json({ ok: false, error: e.message });
   }
 };

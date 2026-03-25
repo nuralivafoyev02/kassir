@@ -103,7 +103,7 @@ function getWorkerLogger(env) {
     logChannelId: env?.LOG_CHANNEL_ID,
     adminChatId: firstNonEmpty(env?.ADMIN_NOTIFY_CHAT_ID, env?.OWNER_ID),
     loggingEnabled: env?.TELEGRAM_LOGGING_ENABLED,
-    logLevel: env?.LOG_LEVEL,
+    logLevel: env?.LOG_LEVEL || "INFO",
     localLevel: env?.LOCAL_LOG_LEVEL || "ERROR",
     source: "WORKER",
     fetchImpl: fetch,
@@ -306,6 +306,10 @@ function normalizeNotifTime(value, fallback = "09:00") {
   const ss = match[3] == null ? 0 : Number(match[3]);
   if (!Number.isInteger(hh) || !Number.isInteger(mm) || !Number.isInteger(ss) || hh < 0 || hh > 23 || mm < 0 || mm > 59 || ss < 0 || ss > 59) return fallback;
   return `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}`;
+}
+
+function renderTemplate(template, vars = {}) {
+  return String(template || "").replace(/{{\s*([a-zA-Z0-9_]+)\s*}}/g, (_, key) => String(vars[key] ?? ""));
 }
 
 async function sbGetNotificationSettings(env) {
@@ -1213,17 +1217,52 @@ async function processDebtReminders(env, now = new Date(), meta = {}) {
   return result;
 }
 
+function buildCronTaskFailureResult(taskName, error) {
+  const message = error?.message || String(error);
+  if (taskName === "notifications") {
+    return {
+      ok: false,
+      total_due: 0,
+      sent: 0,
+      failed: 1,
+      skipped: 0,
+      errors: [{ task: taskName, error: message }],
+      note: `${taskName} failed`,
+    };
+  }
+
+  return {
+    ok: false,
+    checked: 0,
+    sent: 0,
+    failed: [{ task: taskName, error: message }],
+    note: `${taskName} failed`,
+  };
+}
+
+async function runCronTask(taskName, handler) {
+  try {
+    return await handler();
+  } catch (error) {
+    return buildCronTaskFailureResult(taskName, error);
+  }
+}
+
 async function runAllCronJobs(env, meta = {}) {
   const now = new Date();
   const [notifications, daily, report, debts] = await Promise.all([
-    processDueNotifications(env, meta),
-    processDailyReminders(env, now, meta),
-    processDailyReports(env, now, meta),
-    processDebtReminders(env, now, meta),
+    runCronTask("notifications", () => processDueNotifications(env, meta)),
+    runCronTask("daily", () => processDailyReminders(env, now, meta)),
+    runCronTask("report", () => processDailyReports(env, now, meta)),
+    runCronTask("debts", () => processDebtReminders(env, now, meta)),
   ]);
 
   return {
-    ok: true,
+    ok:
+      notifications?.ok !== false &&
+      daily?.ok !== false &&
+      report?.ok !== false &&
+      debts?.ok !== false,
     at: now.toISOString(),
     source: meta.source || "manual",
     cron: meta.cron || null,

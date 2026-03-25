@@ -71,7 +71,7 @@ const cronLogger = createTelegramOps({
   logChannelId: process.env.LOG_CHANNEL_ID,
   adminChatId: process.env.ADMIN_NOTIFY_CHAT_ID || process.env.OWNER_ID || '',
   loggingEnabled: process.env.TELEGRAM_LOGGING_ENABLED,
-  logLevel: process.env.LOG_LEVEL,
+  logLevel: process.env.LOG_LEVEL || 'INFO',
   localLevel: process.env.LOCAL_LOG_LEVEL || 'ERROR',
   source: 'CRON',
 });
@@ -809,6 +809,25 @@ async function processDebtReminders(now) {
   return result;
 }
 
+function buildCronTaskFailureResult(taskName, error) {
+  const message = error?.message || String(error);
+  return {
+    ok: false,
+    checked: 0,
+    sent: 0,
+    failed: [{ task: taskName, error: message }],
+    note: `${taskName} failed`,
+  };
+}
+
+async function runCronTask(taskName, handler) {
+  try {
+    return await handler();
+  } catch (error) {
+    return buildCronTaskFailureResult(taskName, error);
+  }
+}
+
 module.exports = async (req, res) => {
   try {
     const auth = getCronRequestSecret(req);
@@ -818,9 +837,9 @@ module.exports = async (req, res) => {
 
     const now = new Date();
     const [daily, report, debts] = await Promise.all([
-      processDailyReminders(now, { cron: process.env.CRON_SCHEDULE || null }),
-      processDailyReports(now, { cron: process.env.CRON_SCHEDULE || null }),
-      processDebtReminders(now),
+      runCronTask('daily', () => processDailyReminders(now, { cron: process.env.CRON_SCHEDULE || null })),
+      runCronTask('report', () => processDailyReports(now, { cron: process.env.CRON_SCHEDULE || null })),
+      runCronTask('debts', () => processDebtReminders(now)),
     ]);
 
     const payload = {
