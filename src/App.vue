@@ -42,6 +42,20 @@ onMounted(async () => {
       window.__KASSA_ROUTER__?.requestCurrentTab?.()
     }).catch((error) => {
       console.error('[vite-vue-bridge] Legacy boot failed:', error)
+      fetch('/api/client-log', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          level: 'error',
+          scope: 'legacy-boot',
+          message: error?.message || 'Legacy boot failed',
+          payload: {
+            stack: error?.stack || null,
+            url: location.href,
+          },
+        }),
+        keepalive: true,
+      }).catch(() => {})
       const bar = document.getElementById('err-bar')
       const loader = document.getElementById('loader')
       if (loader) loader.style.display = 'none'

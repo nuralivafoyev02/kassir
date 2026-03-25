@@ -80,6 +80,7 @@ function summarizeCronResult(result = {}) {
   return {
     checked: Number(result.checked || 0),
     sent: Number(result.sent || 0),
+    skipped: Number(result.skipped || 0),
     failed: Array.isArray(result.failed) ? result.failed.length : 0,
     scheduled_for: result.scheduled_for || null,
     time_zone: result.time_zone || null,
@@ -419,16 +420,48 @@ async function fetchUsersForDailyReportPage(dayStartIso, { afterUserId = null, l
   return res;
 }
 
-async function markDailyReminderSent(userId, nowIso) {
-  let result = await db.from('users').update({ last_daily_reminder_at: nowIso }).eq('user_id', userId);
+async function claimDailyReminderSend(userId, dayStartIso, claimIso) {
+  let result = await db.from('users')
+    .update({ last_daily_reminder_at: claimIso })
+    .eq('user_id', userId)
+    .or(`last_daily_reminder_at.is.null,last_daily_reminder_at.lt.${dayStartIso}`)
+    .select('user_id')
+    .maybeSingle();
+  if (result.error && missingColumn(result.error, 'last_daily_reminder_at')) {
+    return { data: null, error: null };
+  }
+  return result;
+}
+
+async function releaseDailyReminderClaim(userId, claimIso) {
+  let result = await db.from('users')
+    .update({ last_daily_reminder_at: null })
+    .eq('user_id', userId)
+    .eq('last_daily_reminder_at', claimIso);
   if (result.error && missingColumn(result.error, 'last_daily_reminder_at')) {
     return { error: null };
   }
   return result;
 }
 
-async function markDailyReportSent(userId, nowIso) {
-  let result = await db.from('users').update({ last_daily_report_at: nowIso }).eq('user_id', userId);
+async function claimDailyReportSend(userId, dayStartIso, claimIso) {
+  let result = await db.from('users')
+    .update({ last_daily_report_at: claimIso })
+    .eq('user_id', userId)
+    .or(`last_daily_report_at.is.null,last_daily_report_at.lt.${dayStartIso}`)
+    .select('user_id')
+    .maybeSingle();
+  if (result.error && missingColumn(result.error, 'last_daily_report_at')) {
+    return { data: null, error: null };
+  }
+  return result;
+}
+
+async function releaseDailyReportClaim(userId, claimIso) {
+  let result = await db.from('users')
+    .update({ last_daily_report_at: null })
+    .eq('user_id', userId)
+    .eq('last_daily_report_at', claimIso);
   if (result.error && missingColumn(result.error, 'last_daily_report_at')) {
     return { error: null };
   }
@@ -488,6 +521,7 @@ async function processDailyReminders(now, meta = {}) {
     checked: 0,
     sent: 0,
     failed: [],
+    skipped: 0,
     todayKey: uzDateKey(now, timeZone),
     local_now: timeInZoneLabel(now, timeZone),
     time_zone: timeZone,
@@ -546,10 +580,18 @@ async function processDailyReminders(now, meta = {}) {
 
     for (const row of rows) {
       const html = buildDailyReminderText(dailySetting, row.full_name, now);
+      let claimed = null;
 
       try {
+        const claimRes = await claimDailyReminderSend(row.user_id, dayStartIso, nowIso);
+        if (claimRes.error) throw claimRes.error;
+        claimed = claimRes.data || null;
+        if (!claimed) {
+          result.skipped += 1;
+          continue;
+        }
+
         await bot.sendMessage(row.user_id, html, { parse_mode: 'HTML' });
-        await markDailyReminderSent(row.user_id, nowIso);
 
         await insertNotificationLog({
           setting_key: 'daily_reminder',
@@ -566,6 +608,11 @@ async function processDailyReminders(now, meta = {}) {
         result.sent += 1;
       } catch (err) {
         result.failed.push({ user_id: row.user_id, error: err?.message || 'send failed' });
+        if (claimed) {
+          try {
+            await releaseDailyReminderClaim(row.user_id, nowIso);
+          } catch (_) { }
+        }
 
         await insertNotificationLog({
           setting_key: 'daily_reminder',
@@ -612,6 +659,7 @@ async function processDailyReports(now, meta = {}) {
     checked: 0,
     sent: 0,
     failed: [],
+    skipped: 0,
     todayKey: uzDateKey(now, timeZone),
     local_now: timeInZoneLabel(now, timeZone),
     time_zone: timeZone,
@@ -670,10 +718,18 @@ async function processDailyReports(now, meta = {}) {
 
     for (const row of rows) {
       const html = buildDailyReportText(reportSetting, row.full_name, now);
+      let claimed = null;
 
       try {
+        const claimRes = await claimDailyReportSend(row.user_id, dayStartIso, nowIso);
+        if (claimRes.error) throw claimRes.error;
+        claimed = claimRes.data || null;
+        if (!claimed) {
+          result.skipped += 1;
+          continue;
+        }
+
         await bot.sendMessage(row.user_id, html, { parse_mode: 'HTML' });
-        await markDailyReportSent(row.user_id, nowIso);
 
         await insertNotificationLog({
           setting_key: 'daily_report',
@@ -690,6 +746,11 @@ async function processDailyReports(now, meta = {}) {
         result.sent += 1;
       } catch (err) {
         result.failed.push({ user_id: row.user_id, error: err?.message || 'send failed' });
+        if (claimed) {
+          try {
+            await releaseDailyReportClaim(row.user_id, nowIso);
+          } catch (_) { }
+        }
 
         await insertNotificationLog({
           setting_key: 'daily_report',

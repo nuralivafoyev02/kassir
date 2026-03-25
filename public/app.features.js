@@ -221,7 +221,7 @@
   const debtSettlementSourceRef = (debtId) => `debt:${debtId}`;
   const debtSettlementMeta = (debt) => ({
     type: debt.direction === 'receivable' ? 'income' : 'expense',
-    category: debt.direction === 'receivable' ? `Qarz qaytdi · ${debt.person_name}` : `Qarz qaytarildi · ${debt.person_name}`
+    category: debt.direction === 'receivable' ? 'Qarz qaytdi' : 'Qarz qaytarildi'
   });
 
   async function createDebtSettlementTx(debt) {
@@ -397,7 +397,8 @@
     if (!draft.type) return showErr(tt('err_cat_type_missing', 'Tur tanlanmagan'));
 
     const payload = { user_id: UID, name, icon: selIcon, type: draft.type, keywords };
-    const existing = (cats[draft.type] || []).find(c => String(c.name || '').toLowerCase() === name.toLowerCase());
+    const nextKey = normalizeCategoryKey(name);
+    const existing = (cats[draft.type] || []).find(c => normalizeCategoryKey(c.name) === nextKey);
     if (existing) return showErr(currentLang === 'ru' ? "Bu nomdagi kategoriya bor" : currentLang === 'en' ? 'Category already exists' : "Bu nomdagi kategoriya mavjud");
 
     const { data, error } = await insertCategoryEnhanced(payload);
@@ -427,6 +428,9 @@
     const n = $('ec-name')?.value.trim();
     const cat = cats[selCatType]?.[selCatIdx];
     if (!n || !cat) return;
+    const nextKey = normalizeCategoryKey(n);
+    const duplicate = (cats[selCatType] || []).find(item => Number(item.id) !== Number(cat.id) && normalizeCategoryKey(item.name) === nextKey);
+    if (duplicate) return showErr(currentLang === 'ru' ? "Bu nomdagi kategoriya bor" : currentLang === 'en' ? 'Category already exists' : "Bu nomdagi kategoriya mavjud");
     const keywords = normalizeWords($('ec-keywords')?.value || '');
     const icon = window.__EDIT_CAT_ICON__ || cat.icon || 'star';
     const next = { ...cat, name: n, keywords, icon };

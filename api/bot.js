@@ -85,6 +85,14 @@ Qarz berilganda balans darhol o'zgarmaydi. Qarz qaytganda yoki qaytarganingizda 
 const DEFAULT_RATE = 12200;
 const ADMIN_IDS = new Set((process.env.ADMIN_IDS || '').split(',').map(v => v.trim()).filter(Boolean));
 const ADMIN_USERS_PAGE_SIZE = 10;
+const CATEGORY_CACHE_TTL_MS = 30 * 1000;
+const REGISTRATION_STICKER = String(
+  process.env.ADMIN_REGISTRATION_STICKER
+  || process.env.ADMIN_NOTIFY_STICKER_ID
+  || process.env.ADMIN_NOTIFY_STICKER_URL
+  || ''
+).trim();
+const userCategoryCache = new Map();
 
 // ─── LOGGING ─────────────────────────────────────────────
 function getAdminNotifyChatId() {
@@ -92,15 +100,19 @@ function getAdminNotifyChatId() {
 }
 
 function getAppLogger() {
-  return createTelegramOps({
-    botToken: process.env.BOT_TOKEN || BOT_TOKEN,
-    logChannelId: process.env.LOG_CHANNEL_ID,
-    adminChatId: getAdminNotifyChatId(),
-    loggingEnabled: process.env.TELEGRAM_LOGGING_ENABLED,
-    logLevel: process.env.LOG_LEVEL || 'INFO',
-    localLevel: process.env.LOCAL_LOG_LEVEL || 'ERROR',
-    source: 'BOT',
-  });
+  if (!global.__KASSA_BOT_LOGGER__) {
+    global.__KASSA_BOT_LOGGER__ = createTelegramOps({
+      botToken: process.env.BOT_TOKEN || BOT_TOKEN,
+      logChannelId: process.env.LOG_CHANNEL_ID,
+      adminChatId: getAdminNotifyChatId(),
+      loggingEnabled: process.env.TELEGRAM_LOGGING_ENABLED,
+      logLevel: process.env.LOG_LEVEL || 'INFO',
+      localLevel: process.env.LOCAL_LOG_LEVEL || 'ERROR',
+      source: 'BOT',
+      newUserSticker: REGISTRATION_STICKER,
+    });
+  }
+  return global.__KASSA_BOT_LOGGER__;
 }
 
 const log = (scope, data) => getAppLogger().local('INFO', scope, data);
@@ -138,6 +150,48 @@ function normalizePhoneNumber(value) {
 
 function hasRegisteredPhone(user) {
   return normalizePhoneNumber(user?.phone_number || '').length > 0;
+}
+
+function detectClientPlatform(msg = {}) {
+  const from = msg?.from || {};
+  const parts = ['Telegram Bot'];
+  if (from.language_code) parts.push(`lang=${from.language_code}`);
+  if (from.is_premium) parts.push('premium');
+  return parts.join(' · ');
+}
+
+async function sendRegistrationPrompt(chatId) {
+  return bot.sendMessage(chatId, `👋 Assalomu alaykum!
+Botdan to'liq foydalanish uchun telefon raqamingizni bir marta tasdiqlang.`, {
+    reply_markup: {
+      keyboard: [[{ text: '📱 Telefon raqamni yuborish', request_contact: true }]],
+      resize_keyboard: true,
+      one_time_keyboard: true,
+    },
+  }).catch(() => null);
+}
+
+function invalidateUserCategoryCache(userId) {
+  if (userId == null || userId === '') return;
+  userCategoryCache.delete(String(userId));
+}
+
+function getCachedUserCategories(userId) {
+  const cached = userCategoryCache.get(String(userId));
+  if (!cached) return null;
+  if (Date.now() - cached.at > CATEGORY_CACHE_TTL_MS) {
+    userCategoryCache.delete(String(userId));
+    return null;
+  }
+  return cached.rows;
+}
+
+function setCachedUserCategories(userId, rows) {
+  if (userId == null || userId === '') return;
+  userCategoryCache.set(String(userId), {
+    at: Date.now(),
+    rows: Array.isArray(rows) ? rows : [],
+  });
 }
 
 // ─── UTILS ───────────────────────────────────────────────
@@ -427,6 +481,30 @@ async function insertTransactions(rows, source = 'bot') {
 
   const plain = payload.map(({ source_ref, ...rest }) => ({ ...rest }));
   return db.from('transactions').insert(plain).select();
+}
+
+async function findTransactionBySourceRef(userId, sourceRef) {
+  if (!userId || !sourceRef || txSourceRefColumnSupported === false) return null;
+  const res = await db
+    .from('transactions')
+    .select('*')
+    .eq('user_id', userId)
+    .eq('source_ref', sourceRef)
+    .order('date', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (!res.error) {
+    txSourceRefColumnSupported = true;
+    return res.data || null;
+  }
+
+  if (isMissingColumnError(res.error, 'source_ref')) {
+    txSourceRefColumnSupported = false;
+    return null;
+  }
+
+  throw res.error;
 }
 
 
@@ -1056,13 +1134,20 @@ function buildBroadcastResultMarkup(bc, result) {
   return { inline_keyboard: rows };
 }
 
-async function fetchUserCategories(userId) {
+async function fetchUserCategories(userId, { force = false } = {}) {
+  if (!force) {
+    const cached = getCachedUserCategories(userId);
+    if (cached) return cached;
+  }
+
   let res = await db.from('categories').select('id, name, type, keywords').eq('user_id', userId);
   if (res.error && isMissingColumnError(res.error, 'keywords')) {
     res = await db.from('categories').select('id, name, type').eq('user_id', userId);
   }
   if (res.error) throw res.error;
-  return res.data || [];
+  const rows = res.data || [];
+  setCachedUserCategories(userId, rows);
+  return rows;
 }
 
 const CATEGORY_ALIASES = {
@@ -1072,6 +1157,7 @@ const CATEGORY_ALIASES = {
     Kvartira: ['ijara', 'kvartira', 'uy', 'kommunal', 'svet', 'gaz', 'suv', 'internet', 'wifi', 'arenda'],
     Kredit: ['kredit', 'bank', 'tolov', "to'lov", 'uzum'],
     Qarz: ['qarz', 'nasiya', 'loan', 'qarzdorlik'],
+    "O'tkazma": ["o'tkazma", "otkazma", "transfer", "perevod", "jonatma", "jo'natma"],
     "Sog'liq": ['dori', 'apteka', 'klinika', 'shifoxona', 'stomatolog', "sog'liq"],
     Aloqa: ['telefon', 'nomer', 'aloqa', 'sim', 'megabayt', 'internet paket'],
     "Ko'ngilochar": ['kino', 'oyin', "o'yin", 'game', 'subscription', 'netflix', 'spotify'],
@@ -1083,16 +1169,138 @@ const CATEGORY_ALIASES = {
     Bonus: ['bonus', 'cashback', 'mukofot'],
     "Sovg'a": ["sovg'a", 'gift'],
     Sotuv: ['sotuv', 'savdo', 'mijoz', 'zakaz'],
-    Astatka: ['astatka', 'qaytim', 'qoldiq']
+    Astatka: ['astatka', 'qaytim', 'qoldiq'],
+    Kirim: ['kirim', 'tushum', 'pul keldi', 'tushdi']
   }
 };
 
 function normalizeTextForMatch(value) {
   return String(value || '')
+    .normalize('NFKD')
     .toLowerCase()
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/[ʻ’`]/g, "'")
     .replace(/[^a-zа-яё0-9\sЀ-ӿ؀-ۿ']/gi, ' ')
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+const FAMILY_SOURCE_WORDS = new Set([
+  'dadam', 'onam', 'akam', 'ukam', 'opam', 'singlim', "do'stim", 'dostim', 'ustozim', 'togam', 'amaki', 'holam',
+]);
+
+const SOURCE_INCOME_WORDS = /\b(?:keldi|kelib tushdi|tushdi|yubordi|jo'?natdi|o'?tkazdi|berdi|berdilar|tashladi|to'?ladi|oldim|oldik|qabul qildim)\b/i;
+const SOURCE_WORDS = /\b(?:keldi|kelib tushdi|tushdi|yubordi|jo'?natdi|o'?tkazdi|berdi|berdilar|tashladi|to'?ladi)\b/i;
+const TAKE_WORDS = /\b(?:oldim|oldik|qabul qildim)\b/i;
+const GIVE_WORDS = /\b(?:berdim|to'?ladim|sarfladim|jo'?natdim|o'?tkazdim|uzatdim)\b/i;
+const BUY_WORDS = /\b(?:sotib oldim|xarid qildim)\b/i;
+const RETURN_WORDS = /\b(?:qaytdi|qaytardi|qaytardim|qaytarildi|qaytarib berdi|qaytarib berdim|uzdim|uzildi)\b/i;
+const PLAN_INTENT_WORDS = /\b(?:reja|plan|limit|byudjet|budjet)\b/i;
+const DEBT_HINT_WORDS = /\b(?:qarz(?:ga|ni|dan|imga|imni|imdan)?|nasiya(?:ga|ni|dan|mga|mni|mdan)?)\b/i;
+const DEBT_SETTLEMENT_HINT_WORDS = /\b(?:qarzimga|qarzimni|nasiyamga|nasiyamni|qarzini|qarzimdan)\b/i;
+const INCOME_HINT_WORDS = /\b(?:oylik|maosh|avans|bonus|cashback|daromad|foyda|grant|stipendiya|mukofot)\b/i;
+const EXPENSE_HINT_WORDS = /\b(?:taksi|yandex|ovqat|tushlik|kechki ovqat|non|market|korzinka|bozor|ijara|kommunal|kredit|dori|apteka|internet|wifi|benzin|zapravka|subscription|obuna|kiyim|krossovka)\b/i;
+
+function stripUzbekCaseSuffix(token) {
+  const raw = String(token || '').trim();
+  if (!raw) return '';
+  const suffixes = ['ning', 'dan', 'tan', 'ga', 'ka', 'qa', 'ni', 'da'];
+  for (const suffix of suffixes) {
+    if (raw.length > suffix.length + 1 && raw.toLowerCase().endsWith(suffix)) {
+      return raw.slice(0, -suffix.length);
+    }
+  }
+  return raw;
+}
+
+function normalizeEntityToken(token) {
+  return titleCaseWords(stripUzbekCaseSuffix(
+    String(token || '')
+      .replace(/[.,!?;:]+/g, ' ')
+      .trim()
+  ));
+}
+
+function collectDirectionalEntities(text) {
+  const source = [];
+  const target = [];
+  const purpose = [];
+  const safe = String(text || '');
+
+  for (const match of safe.matchAll(/\b([\p{L}0-9'’`\-]{2,}?)(dan|tan)\b/giu)) {
+    const entity = normalizeEntityToken(match[1]);
+    if (entity) source.push(entity);
+  }
+
+  for (const match of safe.matchAll(/\b([\p{L}0-9'’`\-]{2,}?)(ga|ka|qa)\b/giu)) {
+    const entity = normalizeEntityToken(match[1]);
+    if (entity) target.push(entity);
+  }
+
+  const purposeMatch = safe.match(/(.+?)\s+uchun\b/i);
+  if (purposeMatch?.[1]) {
+    const entity = cleanupIntentName(purposeMatch[1]);
+    if (entity) purpose.push(entity);
+  }
+
+  return {
+    source,
+    target,
+    purpose,
+  };
+}
+
+function isFamilySource(entityName = '') {
+  return FAMILY_SOURCE_WORDS.has(normalizeTextForMatch(entityName));
+}
+
+function buildTransactionSemantics(text, amountMeta = null) {
+  const lower = String(text || '').toLowerCase();
+  const textWithoutAmount = amountMeta ? stripAmountFragment(text, amountMeta) : text;
+  const roles = collectDirectionalEntities(textWithoutAmount);
+  const hasSource = roles.source.length > 0;
+  const hasTarget = roles.target.length > 0;
+
+  let incomeScore = 0;
+  let expenseScore = 0;
+
+  if (/^\+/.test(lower)) incomeScore += 5;
+  if (/^-/.test(lower)) expenseScore += 5;
+
+  if (INCOME_HINT_WORDS.test(lower)) incomeScore += 7;
+  if (SOURCE_WORDS.test(lower)) incomeScore += 4;
+  if (SOURCE_INCOME_WORDS.test(lower) && hasSource) incomeScore += 6;
+  if (RETURN_WORDS.test(lower)) incomeScore += 4;
+  if (hasSource) incomeScore += 4;
+  if (hasSource && !GIVE_WORDS.test(lower) && !BUY_WORDS.test(lower)) incomeScore += 2;
+
+  if (GIVE_WORDS.test(lower)) expenseScore += 8;
+  if (BUY_WORDS.test(lower)) expenseScore += 8;
+  if (EXPENSE_HINT_WORDS.test(lower)) expenseScore += 5;
+  if (hasTarget) expenseScore += 4;
+  if (hasTarget && !SOURCE_WORDS.test(lower)) expenseScore += 2;
+  if (/\boldim\b/i.test(lower) && !hasSource && !INCOME_HINT_WORDS.test(lower)) expenseScore += 3;
+
+  let type = null;
+  if (incomeScore > expenseScore) type = 'income';
+  if (expenseScore > incomeScore) type = 'expense';
+
+  if (!type && hasSource && !hasTarget) type = 'income';
+  if (!type && hasTarget && !hasSource) type = 'expense';
+  if (!type && INCOME_HINT_WORDS.test(lower)) type = 'income';
+  if (!type && EXPENSE_HINT_WORDS.test(lower)) type = 'expense';
+
+  return {
+    type,
+    incomeScore,
+    expenseScore,
+    roles,
+    hasSource,
+    hasTarget,
+    hasGiveVerb: GIVE_WORDS.test(lower),
+    hasTakeVerb: TAKE_WORDS.test(lower),
+    hasReturnVerb: RETURN_WORDS.test(lower),
+  };
 }
 
 function genericCategoryName(value) {
@@ -1268,51 +1476,55 @@ function extractAmountMeta(raw) {
 }
 
 function inferTransactionType(lower) {
-  let incomeScore = 0;
-  let expenseScore = 0;
-
-  if (/^\+/.test(lower)) incomeScore += 5;
-  if (/^-/.test(lower)) expenseScore += 5;
-
-  if (/\b(?:oylik|maosh|avans|bonus|cashback|daromad|foyda|grant|stipendiya)\b/i.test(lower)) incomeScore += 7;
-  if (/\b(?:dadam|onam|akam|ukam|opam|singlim|do'?stim|mijoz|klient|boshliq|ishxona|kompaniya|ustoz)\b.*\b(?:berdi|berdilar|yubordi|jo'?natdi|o'?tkazdi|tashladi|to'?ladi)\b/i.test(lower)) incomeScore += 8;
-  if (/\b(?:menga|hisobimga|kartamga)\b.*\b(?:tushdi|keldi|o'?tdi|kelib tushdi)\b/i.test(lower)) incomeScore += 8;
-  if (/\b(?:mijozdan|klientdan|dadamdan|onamdan|akamdan|ukamdan|opamdan|singlimdan|do'?stimdan|boshliqdan)\b.*\b(?:oldim|oldik|qabul qildim)\b/i.test(lower)) incomeScore += 7;
-  if (/\b(?:qaytdi|qaytarib berdi|qaytarildi)\b/i.test(lower)) incomeScore += 4;
-  if (/\b(?:sovg'a|sovga|hadya)\b/i.test(lower)) incomeScore += 4;
-
-  if (/\b(?:berdim|to'?ladim|sarfladim|jo'?natdim|o'?tkazdim|uzatdim|chiqim|xarajat)\b/i.test(lower)) expenseScore += 8;
-  if (/\b(?:sotib oldim|xarid qildim)\b/i.test(lower)) expenseScore += 8;
-  if (/\boldim\b/i.test(lower) && !/\b(?:mijozdan|klientdan|dadamdan|onamdan|akamdan|ukamdan|opamdan|singlimdan|do'?stimdan|boshliqdan)\b/i.test(lower) && !/\b(?:oylik|maosh|avans|bonus|cashback|daromad|foyda|qaytim|astatka)\b/i.test(lower)) expenseScore += 4;
-  if (/\b\S+ga\b.*\b(?:berdim|to'?ladim|o'?tkazdim)\b/i.test(lower)) expenseScore += 5;
-  if (/\b(?:taksi|yandex|ovqat|tushlik|kechki ovqat|non|market|korzinka|bozor|ijara|kommunal|kredit|dori|apteka|internet|wifi|benzin|zapravka|subscription|obuna|kiyim|krossovka)\b/i.test(lower)) expenseScore += 5;
-
+  const semantics = buildTransactionSemantics(lower);
   return {
-    incomeScore,
-    expenseScore,
-    type: incomeScore > expenseScore ? 'income' : 'expense'
+    incomeScore: semantics.incomeScore,
+    expenseScore: semantics.expenseScore,
+    type: semantics.type || 'expense',
+    roles: semantics.roles,
   };
 }
 
-function inferSemanticCategory(lower, type, rawCategory) {
+function isRoleEntityCategory(rawCategory, roles = {}) {
+  const normalized = normalizeTextForMatch(rawCategory);
+  if (!normalized) return false;
+  const entities = []
+    .concat(roles.source || [])
+    .concat(roles.target || [])
+    .concat(roles.purpose || [])
+    .map(normalizeTextForMatch)
+    .filter(Boolean);
+  return entities.includes(normalized);
+}
+
+function inferSemanticCategory(text, type, rawCategory) {
+  const lower = String(text || '').toLowerCase();
+  const semantics = buildTransactionSemantics(text);
+  const cleanedRaw = titleCaseWords(cleanupCategoryText(rawCategory));
+  const aliasHit = scoreCategoryFromAliases(type, normalizeTextForMatch(`${text} ${rawCategory}`));
+
   if (type === 'income') {
     if (/\b(?:oylik|maosh)\b/i.test(lower)) return 'Oylik';
     if (/\bavans\b/i.test(lower)) return 'Avans';
     if (/\b(?:bonus|cashback|mukofot)\b/i.test(lower)) return 'Bonus';
     if (/\b(?:mijoz|klient|sotuv|zakaz|savdo)\b/i.test(lower)) return 'Sotuv';
-    if (/\b(?:dadam|onam|akam|ukam|opam|singlim|do'?stim|sovg'a|sovga|hadya)\b/i.test(lower)) return "Sovg'a";
+    if (aliasHit.best) return aliasHit.best;
+    if ((semantics.roles.source || []).some(isFamilySource) || /\b(?:sovg'a|sovga|hadya)\b/i.test(lower)) return "Sovg'a";
     if (/\b(?:qaytdi|qaytarib berdi|qaytarildi)\b/i.test(lower)) return 'Astatka';
+    if (semantics.hasSource) return 'Kirim';
+    return cleanedRaw || 'Kirim';
   }
 
-  const aliasHit = scoreCategoryFromAliases(type, normalizeTextForMatch(`${lower} ${rawCategory}`));
   if (aliasHit.best) return aliasHit.best;
-
-  return rawCategory;
+  if (semantics.hasTarget) return "O'tkazma";
+  if (cleanedRaw && !isRoleEntityCategory(cleanedRaw, semantics.roles)) return cleanedRaw;
+  return 'Xarajat';
 }
 
 function cleanupCategoryText(value) {
   const cleaned = String(value || '')
-    .replace(/\b(so'?m|sum|uzs|usd|dollar|kirim|chiqim|berdim|berdi|berdilar|oldim|oldik|tushdi|ketdi|keldi|oylik|bonus|avans|maosh|menga|hisobimga|kartamga|to'?ladim|sarfladim|sotib|xarid|qildim|plan|reja|limit|byudjet)\b/gi, ' ')
+    .replace(/\b(so'?m|sum|uzs|usd|dollar|kirim|chiqim|berdim|berdi|berdilar|oldim|oldik|tushdi|ketdi|keldi|oylik|bonus|avans|maosh|menga|hisobimga|kartamga|to'?ladim|sarfladim|sotib|xarid|qildim|plan|reja|limit|byudjet|dan|ga|ka|qa|ni|uchun)\b/gi, ' ')
+    .replace(/[.,!?;:]+/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
   return cleaned;
@@ -1335,7 +1547,12 @@ function cleanupPersonName(value) {
     .replace(/\b(?:men|menga|meni|mendan|biz|bizga|bizni|u|unga|undan|undanam|pul|summa|uchun|bilan|qilgan|qilib|qaytarib|berib|oldim|berdim|oldi|berdi|qaytardi|qaytdi|qaytardim|qaytarildi|to'?ladim|uzdim|qarz|nasiya|qarzni|kerak|bo'?lgan|boyicha)\b/gi, ' ')
     .replace(/[.,!?;:]+/g, ' ')
     .replace(/\s+/g, ' ')
-    .trim());
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .map(normalizeEntityToken)
+    .filter(Boolean)
+    .join(' '));
 }
 
 function extractNameBySuffix(text, suffix) {
@@ -1349,24 +1566,32 @@ function extractNameBySuffix(text, suffix) {
 
 function extractLooseName(text) {
   return cleanupPersonName(String(text || '')
-    .replace(/\b(?:qaytdi|qaytardi|qaytardim|qaytarildi|qaytarib berdi|qaytarib berdim|to'?ladim|uzdim|berdim|oldim|qarz|nasiya)\b/gi, ' '));
+    .replace(/\b(?:qaytdi|qaytardi|qaytardim|qaytarildi|qaytarib berdi|qaytarib berdim|to'?ladim|uzdim|berdim|oldim|qarz|nasiya|qarzimga|qarzimni|qarzni)\b/gi, ' '));
+}
+
+function pickDirectionalPersonName(text, direction) {
+  const roles = collectDirectionalEntities(text);
+  const blocked = new Set(['Qarz', 'Nasiya']);
+  const candidates = direction === 'receivable' ? (roles.target || []) : (roles.source || []);
+  return candidates.find((name) => !blocked.has(name)) || '';
 }
 
 function parsePlanIntent(raw) {
   const text = String(raw || '').trim();
-  if (!text || !/\b(?:reja|plan|limit|byudjet|budjet)\b/i.test(text)) return null;
+  if (!text || !PLAN_INTENT_WORDS.test(text)) return null;
 
   const amountMeta = extractAmountMeta(text);
   if (!amountMeta) return null;
 
   const noPrimaryAmount = stripAmountFragment(text, amountMeta);
   const alertMeta = /\b(?:qolganda|ogohlantir|ogohlantirgin|ogohlantirish)\b/i.test(text) ? extractAmountMeta(noPrimaryAmount) : null;
-  const cleaned = cleanupCategoryText(String(noPrimaryAmount)
+  const rawIntentText = String(noPrimaryAmount)
     .replace(alertMeta?.rawMatch || '', ' ')
-    .replace(/\b(?:reja|plan|limit|byudjet|budjet|oylik|oyiga|kerak|qilib qo'y|qilib qoy|qilib ber|tuzib ber|tuzib qo'y|tuzib qoy|tuz|tuzing|ogohlantir|ogohlantirgin|ogohlantirish|qolganda)\b/gi, ' '));
+    .replace(/\b(?:reja|plan|limit|byudjet|budjet|oylik|oyiga|kerak|qilib qo'y|qilib qoy|qilib ber|tuzib ber|tuzib qo'y|tuzib qoy|tuz|tuzing|ogohlantir|ogohlantirgin|ogohlantirish|qolganda)\b/gi, ' ');
+  const cleaned = cleanupCategoryText(rawIntentText);
 
   let categoryName = '';
-  const beforeUchun = cleaned.match(/(.+?)\s+uchun\b/i);
+  const beforeUchun = rawIntentText.match(/(.+?)\s+uchun\b/i);
   if (beforeUchun?.[1]) categoryName = beforeUchun[1];
   if (!categoryName) {
     const afterIntent = cleaned.match(/\b(?:reja|plan|limit|byudjet|budjet)\b\s+(.+)$/i);
@@ -1374,8 +1599,33 @@ function parsePlanIntent(raw) {
   }
   if (!categoryName) categoryName = cleaned;
 
-  categoryName = cleanupIntentName(categoryName);
-  if (!categoryName) return null;
+  const aliasHit = scoreCategoryFromAliases('expense', normalizeTextForMatch(text));
+  if (aliasHit.best) {
+    categoryName = aliasHit.best;
+  } else {
+    categoryName = cleanupIntentName(categoryName);
+  }
+
+  if (!categoryName) {
+    return {
+      handled: true,
+      needsClarification: true,
+      prompt: `🎯 Qaysi <b>xarajat turi</b> uchun limit qo'yay?
+
+Masalan: <i>transport uchun 500 ming limit</i> yoki <i>ovqat uchun 1 mln plan</i>.`,
+    };
+  }
+
+  if (beforeUchun?.[1] && !aliasHit.best && normalizeTextForMatch(categoryName) === normalizeTextForMatch(cleanupIntentName(beforeUchun[1]))) {
+    return {
+      handled: true,
+      needsClarification: true,
+      prompt: `🎯 Limitni tushundim, lekin kategoriya hali noaniq.
+
+<b>Kishi nomi</b> emas, <b>xarajat turi</b>ni yozib yuboring.
+Masalan: <i>ozodbek uchun transportga 500 ming limit</i>.`,
+    };
+  }
 
   return {
     amount: amountMeta.amount,
@@ -1388,25 +1638,30 @@ function parsePlanIntent(raw) {
 function parseDebtIntent(raw) {
   const text = String(raw || '').trim();
   const lower = text.toLowerCase();
-  if (!text || !/\b(?:qarz|nasiya)\b/i.test(lower)) return null;
+  if (!text || !DEBT_HINT_WORDS.test(lower)) return null;
+  if (DEBT_SETTLEMENT_HINT_WORDS.test(lower) || RETURN_WORDS.test(lower)) return null;
 
   const amountMeta = extractAmountMeta(text);
   if (!amountMeta) return null;
 
   const noAmount = stripAmountFragment(text, amountMeta);
+  const roles = collectDirectionalEntities(noAmount);
   const hasGiveVerb = /\b(?:berdim|berib turdim|yozib berdim|beraman)\b/i.test(lower);
   const hasTakeVerb = /\b(?:oldim|olib turdim|olaman)\b/i.test(lower);
-  const hasGa = /[\p{L}0-9'’`\-]+ga\b/iu.test(noAmount);
-  const hasDan = /[\p{L}0-9'’`\-]+dan\b/iu.test(noAmount);
+  const hasGa = (roles.target || []).length > 0;
+  const hasDan = (roles.source || []).length > 0;
 
   let direction = null;
   if (hasGa || hasGiveVerb) direction = 'receivable';
   if (!direction && (hasDan || hasTakeVerb)) direction = 'payable';
   if (!direction) return null;
 
-  let personName = direction === 'receivable'
-    ? extractNameBySuffix(noAmount, 'ga')
-    : extractNameBySuffix(noAmount, 'dan');
+  const blocked = new Set(['Qarz', 'Qarzim', 'Nasiya']);
+  let personName = (direction === 'receivable' ? (roles.target || []) : (roles.source || []))
+    .find((name) => !blocked.has(name))
+    || (direction === 'receivable'
+      ? extractNameBySuffix(noAmount, 'ga')
+      : extractNameBySuffix(noAmount, 'dan'));
 
   if (!personName) personName = extractLooseName(noAmount);
   if (!personName) return null;
@@ -1426,28 +1681,37 @@ function parseDebtSettlementIntent(raw) {
 
   const amountMeta = extractAmountMeta(text);
   const noAmount = stripAmountFragment(text, amountMeta);
-  const hasReturnVerb = /\b(?:qaytdi|qaytardi|qaytardim|qaytarildi|qaytarib berdi|qaytarib berdim|uzdim|uzildi|to'?ladim)\b/i.test(lower);
-  const hasDebtHint = /\b(?:qarz|nasiya)\b/i.test(lower);
-  if (hasDebtHint && !hasReturnVerb) return null;
-  const hasGa = /[\p{L}0-9'’`\-]+ga\b/iu.test(noAmount);
-  const hasDan = /[\p{L}0-9'’`\-]+dan\b/iu.test(noAmount);
+  const roles = collectDirectionalEntities(noAmount);
+  const hasReturnVerb = RETURN_WORDS.test(lower) || /\bto'?ladim\b/i.test(lower);
+  const hasDebtHint = DEBT_HINT_WORDS.test(lower);
+  const hasSettlementHint = DEBT_SETTLEMENT_HINT_WORDS.test(lower);
+  const hasGiveVerb = GIVE_WORDS.test(lower) || /\bto'?ladim\b/i.test(lower);
+  const hasTakeVerb = TAKE_WORDS.test(lower);
+  if (hasDebtHint && !hasReturnVerb && !hasSettlementHint) return null;
+  const hasGa = (roles.target || []).length > 0;
+  const hasDan = (roles.source || []).length > 0;
 
   let direction = null;
   if (/\b(?:qaytardi|qaytdi|qaytarildi|qaytarib berdi)\b/i.test(lower)) direction = 'receivable';
   if (!direction && /\b(?:qaytardim|qaytarib berdim|uzdim|to'?ladim)\b/i.test(lower)) direction = 'payable';
-  if (!direction && hasDan) direction = 'receivable';
-  if (!direction && hasGa) direction = 'payable';
+  if (!direction && hasSettlementHint && hasDan && hasTakeVerb) direction = 'receivable';
+  if (!direction && hasSettlementHint && hasGa && hasGiveVerb) direction = 'payable';
+  if (!direction && hasSettlementHint && hasDan) direction = 'receivable';
+  if (!direction && hasSettlementHint && hasGa) direction = 'payable';
   if (!direction) return null;
 
-  let personName = direction === 'receivable'
-    ? extractNameBySuffix(noAmount, 'dan')
-    : extractNameBySuffix(noAmount, 'ga');
+  const blocked = new Set(['Qarz', 'Qarzim', 'Nasiya']);
+  let personName = (direction === 'receivable' ? (roles.source || []) : (roles.target || []))
+    .find((name) => !blocked.has(name))
+    || (direction === 'receivable'
+      ? extractNameBySuffix(noAmount, 'dan')
+      : extractNameBySuffix(noAmount, 'ga'));
 
   if (!personName) personName = extractLooseName(noAmount);
   if (!personName) return null;
 
-  const explicit = hasReturnVerb || hasDebtHint;
-  if (!explicit && !amountMeta) return null;
+  const explicit = hasReturnVerb || hasSettlementHint;
+  if (!explicit) return null;
 
   return {
     amount: amountMeta?.amount || null,
@@ -1471,9 +1735,13 @@ async function ensureExpenseCategory(userId, categoryName) {
     .maybeSingle();
 
   if (error && !String(error.message || '').toLowerCase().includes('duplicate')) throw error;
-  if (data) return data;
+  if (data) {
+    invalidateUserCategoryCache(userId);
+    return data;
+  }
 
-  const fresh = await fetchUserCategories(userId);
+  invalidateUserCategoryCache(userId);
+  const fresh = await fetchUserCategories(userId, { force: true });
   return fresh.find(cat => cat.type === 'expense' && normalizeTextForMatch(cat.name) === normalized) || null;
 }
 
@@ -1663,9 +1931,11 @@ async function updateDebtSettlementMeta(debtId, userId, values) {
 
 async function createDebtSettlementTx(userId, debt, amount) {
   const category = debt.direction === 'receivable'
-    ? `Qarz qaytdi · ${debt.person_name}`
-    : `Qarz qaytarildi · ${debt.person_name}`;
-  const sourceRef = `debt:${debt.id}:${Date.now()}`;
+    ? 'Qarz qaytdi'
+    : 'Qarz qaytarildi';
+  const sourceRef = `debt:${debt.id}:settlement:${Number(debt.amount || 0)}:${Number(amount || 0)}`;
+  const existing = await findTransactionBySourceRef(userId, sourceRef);
+  if (existing) return existing;
   const row = {
     user_id: userId,
     amount,
@@ -1779,20 +2049,30 @@ function parseText(raw) {
   if (!raw) return null;
   const text = String(raw).trim();
   if (!text) return null;
+  if (PLAN_INTENT_WORDS.test(text) || DEBT_HINT_WORDS.test(text)) return null;
 
-  const lower = text.toLowerCase();
   const amountMeta = extractAmountMeta(text);
   if (!amountMeta) return null;
 
-  const typeMeta = inferTransactionType(lower);
+  const typeMeta = inferTransactionType(text);
   const type = typeMeta.type;
+  if (!type) return null;
 
   let catPart = amountMeta.clean.replace(amountMeta.rawMatch, ' ').replace(/^\s*[+\-]\s*/, '').trim();
   catPart = cleanupCategoryText(catPart);
   if (!catPart || catPart.length < 2) catPart = type === 'income' ? 'kirim' : 'xarajat';
 
-  const inferredCategory = inferSemanticCategory(lower, type, titleCaseWords(catPart));
+  const inferredCategory = inferSemanticCategory(text, type, titleCaseWords(catPart));
   const category = titleCaseWords(inferredCategory || catPart || (type === 'income' ? 'Kirim' : 'Xarajat'));
+
+  if (!category || (type === 'expense' && normalizeTextForMatch(category) === normalizeTextForMatch('xarajat') && (typeMeta.roles?.target || []).length)) {
+    return {
+      amount: amountMeta.amount,
+      type,
+      category: "O'tkazma",
+      isUSD: amountMeta.isUSD
+    };
+  }
 
   return {
     amount: amountMeta.amount,
@@ -1819,7 +2099,6 @@ async function saveTx(userId, chatId, parsed, receiptUrl = null, exRate = DEFAUL
 
   if (parsed.isUSD) {
     amount = Math.round(parsed.amount * safeRate);
-    category = `${parsed.category} ($${parsed.amount})`;
     amtTxt = `${numFmt(amount)} so'm\n<i>($${numFmt(parsed.amount)} × ${numFmt(safeRate)})</i>`;
   }
 
@@ -2226,12 +2505,13 @@ module.exports = async (req, res) => {
     let { data: user, error: uErr } = await db
       .from('users').select('*').eq('user_id', userId).maybeSingle();
     if (uErr) warn('user-fetch', { userId, msg: uErr.message });
+    const registeredUser = hasRegisteredPhone(user);
 
     // ── Telefon raqami ro'yxatdan o'tkazish ──
     if (msg.contact) {
       // Faqat o'z kontaktini yuborishga ruxsat
       if (msg.contact.user_id !== userId) return res.status(200).json({ ok: true });
-      const shouldNotifyNewRegistration = !hasRegisteredPhone(user) && !!normalizePhoneNumber(msg.contact.phone_number);
+      const shouldNotifyNewRegistration = !registeredUser && !!normalizePhoneNumber(msg.contact.phone_number);
       const userContext = buildUserLogContext(msg, user, { phone_number: msg.contact.phone_number });
 
       const { error: regErr } = await db.from('users').upsert({
@@ -2257,9 +2537,16 @@ module.exports = async (req, res) => {
           source: 'bot start/register',
           registered_at: iso(),
           phone_number: msg.contact.phone_number,
+          platform: detectClientPlatform(msg),
         };
+        getAppLogger().info({
+          scope: 'register.info',
+          ...userContext,
+          message: "Yangi foydalanuvchi ro'yxatdan o'tdi",
+          payload: successPayload,
+        }).catch(() => { });
         await getAppLogger().success({
-          scope: 'register',
+          scope: 'register.success',
           ...userContext,
           message: "Yangi foydalanuvchi muvaffaqiyatli ro'yxatdan o'tdi",
           payload: successPayload,
@@ -2518,28 +2805,22 @@ module.exports = async (req, res) => {
       return res.status(200).json({ ok: true });
     }
 
-    // ── Yangi foydalanuvchi — telefon so'rash ──
-    if (!user) {
+    // ── Telefon tasdiqlanmagan foydalanuvchi — telefon so'rash ──
+    if (!registeredUser) {
       if (text === '/start') {
-        await getAppLogger().success({
-          scope: 'start-new-user',
+        getAppLogger().info({
+          scope: 'start.contact_request',
           ...buildUserLogContext(msg, null),
           message: "Yangi foydalanuvchiga /start bo'yicha telefon so'rovi yuborildi",
           payload: {
             source: 'bot /start',
             registered: false,
             contact_requested: true,
+            platform: detectClientPlatform(msg),
           },
         }).catch(() => { });
       }
-      await bot.sendMessage(chatId, `👋 Assalomu alaykum!\nBotdan foydalanish uchun telefon raqamingizni tasdiqlang.`, {
-        reply_markup: {
-          keyboard: [[{ text: '📱 Telefon raqamni yuborish', request_contact: true }]],
-          resize_keyboard: true,
-          one_time_keyboard: true,
-        },
-      }
-      ).catch(() => { });
+      await sendRegistrationPrompt(chatId);
       return res.status(200).json({ ok: true });
     }
 
@@ -2558,7 +2839,7 @@ module.exports = async (req, res) => {
       if (isNew) {
         await db.from('users').update({ last_start_date: iso() }).eq('user_id', userId);
       }
-      await getAppLogger().success({
+      getAppLogger().info({
         scope: 'start',
         ...buildUserLogContext(msg, user),
         message: "Foydalanuvchi /start bosdi",
@@ -2566,6 +2847,7 @@ module.exports = async (req, res) => {
           source: 'bot /start',
           first_start_today: isNew,
           registered: true,
+          platform: detectClientPlatform(msg),
         },
       }).catch(() => { });
       return res.status(200).json({ ok: true });
@@ -2690,6 +2972,10 @@ module.exports = async (req, res) => {
       const planIntent = parsePlanIntent(text);
       if (planIntent) {
         try {
+          if (planIntent.needsClarification) {
+            await bot.sendMessage(chatId, planIntent.prompt, { parse_mode: 'HTML' }).catch(() => null);
+            return res.status(200).json({ ok: true });
+          }
           await savePlanIntent(userId, chatId, planIntent);
           return res.status(200).json({ ok: true });
         } catch (error) {
@@ -2720,9 +3006,8 @@ module.exports = async (req, res) => {
 
         if (proc) await bot.editMessageText(`📝 <b>Eshitdim:</b> "${esc(spoken)}"\n⏳ Tahlil qilinmoqda...`, { chat_id: chatId, message_id: proc.message_id, parse_mode: 'HTML' }).catch(() => { });
 
-        // Intent parsing (GPT first, then regex)
-        let parsed = await gptParse(spoken);
-        if (!parsed) parsed = parseText(spoken);
+        // Ovoz matnga aylangach, klassifikatsiya faqat ichki semantic parser orqali qilinadi.
+        const parsed = parseText(spoken);
 
         if (!parsed) {
           if (proc) await bot.editMessageText(`🤷 <b>Tushundim:</b> "${esc(spoken)}"\n\nLekin moliyaviy ma'lumot topa olmadim.\n<i>Masalan: "Taksiga 20 ming berdim" deb ayting.</i>`, { chat_id: chatId, message_id: proc.message_id, parse_mode: 'HTML' }).catch(() => { });
@@ -2743,11 +3028,6 @@ module.exports = async (req, res) => {
 
     // ── Matn (rasm bilan yoki yolg'iz) ──
     let parsed = parseText(text);
-
-    // Agar regex matnni taniy olmasa va OpenAI bo'lsa, GPT dan so'rab ko'ramiz
-    if (!parsed && text.length > 5 && openai) {
-      parsed = await gptParse(text);
-    }
 
     if (parsed) {
       let receiptUrl = null;
@@ -2808,4 +3088,16 @@ module.exports = async (req, res) => {
     await logErr('handler', e);
     return res.status(500).json({ ok: false, error: e.message });
   }
+};
+
+module.exports.__test__ = {
+  parseText,
+  parsePlanIntent,
+  parseDebtIntent,
+  parseDebtSettlementIntent,
+  normalizeTextForMatch,
+  buildTransactionSemantics,
+  hasRegisteredPhone,
+  collectDirectionalEntities,
+  pickDirectionalPersonName,
 };

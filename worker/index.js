@@ -742,16 +742,18 @@ async function fetchUsersForDailyReminderPage(env, dayStartIso, { afterUserId = 
   }
 }
 
-async function markDailyReminderSent(env, userId, nowIso) {
+async function claimDailyReminderSend(env, userId, dayStartIso, claimIso) {
   try {
-    await sbFetch(env, `/users?user_id=eq.${encodeURIComponent(userId)}`, {
+    const encodedOr = encodeURIComponent(`(last_daily_reminder_at.is.null,last_daily_reminder_at.lt.${dayStartIso})`);
+    const rows = await sbFetch(env, `/users?user_id=eq.${encodeURIComponent(userId)}&or=${encodedOr}&select=user_id`, {
       method: "PATCH",
       headers: {
         "content-type": "application/json",
-        Prefer: "return=minimal",
+        Prefer: "return=representation",
       },
-      body: JSON.stringify({ last_daily_reminder_at: nowIso }),
+      body: JSON.stringify({ last_daily_reminder_at: claimIso }),
     });
+    return Array.isArray(rows) ? rows[0] || null : null;
   } catch (error) {
     if (sbMissingColumn(error, "last_daily_reminder_at")) return;
     throw error;
@@ -785,15 +787,49 @@ async function fetchUsersForDailyReportPage(env, dayStartIso, { afterUserId = nu
   }
 }
 
-async function markDailyReportSent(env, userId, nowIso) {
+async function releaseDailyReminderClaim(env, userId, claimIso) {
   try {
-    await sbFetch(env, `/users?user_id=eq.${encodeURIComponent(userId)}`, {
+    await sbFetch(env, `/users?user_id=eq.${encodeURIComponent(userId)}&last_daily_reminder_at=eq.${encodeURIComponent(claimIso)}`, {
       method: "PATCH",
       headers: {
         "content-type": "application/json",
         Prefer: "return=minimal",
       },
-      body: JSON.stringify({ last_daily_report_at: nowIso }),
+      body: JSON.stringify({ last_daily_reminder_at: null }),
+    });
+  } catch (error) {
+    if (sbMissingColumn(error, "last_daily_reminder_at")) return;
+    throw error;
+  }
+}
+
+async function claimDailyReportSend(env, userId, dayStartIso, claimIso) {
+  try {
+    const encodedOr = encodeURIComponent(`(last_daily_report_at.is.null,last_daily_report_at.lt.${dayStartIso})`);
+    const rows = await sbFetch(env, `/users?user_id=eq.${encodeURIComponent(userId)}&or=${encodedOr}&select=user_id`, {
+      method: "PATCH",
+      headers: {
+        "content-type": "application/json",
+        Prefer: "return=representation",
+      },
+      body: JSON.stringify({ last_daily_report_at: claimIso }),
+    });
+    return Array.isArray(rows) ? rows[0] || null : null;
+  } catch (error) {
+    if (sbMissingColumn(error, "last_daily_report_at")) return;
+    throw error;
+  }
+}
+
+async function releaseDailyReportClaim(env, userId, claimIso) {
+  try {
+    await sbFetch(env, `/users?user_id=eq.${encodeURIComponent(userId)}&last_daily_report_at=eq.${encodeURIComponent(claimIso)}`, {
+      method: "PATCH",
+      headers: {
+        "content-type": "application/json",
+        Prefer: "return=minimal",
+      },
+      body: JSON.stringify({ last_daily_report_at: null }),
     });
   } catch (error) {
     if (sbMissingColumn(error, "last_daily_report_at")) return;
@@ -816,6 +852,7 @@ async function processDailyReminders(env, now = new Date(), meta = {}) {
     checked: 0,
     sent: 0,
     failed: [],
+    skipped: 0,
     todayKey: uzDateKey(now, timeZone),
     local_now: timeInZoneLabel(now, timeZone),
     time_zone: timeZone,
@@ -879,10 +916,16 @@ async function processDailyReminders(env, now = new Date(), meta = {}) {
 
     for (const row of candidates) {
       const html = buildDailyReminderText(dailySetting, row.full_name, now);
+      let claimed = null;
 
       try {
+        claimed = await claimDailyReminderSend(env, row.user_id, dayStartIso, nowIso);
+        if (!claimed) {
+          result.skipped += 1;
+          continue;
+        }
+
         await tgSendMessage(env, row.user_id, html);
-        await markDailyReminderSent(env, row.user_id, nowIso);
 
         await sbInsertNotificationLog(env, {
           setting_key: "daily_reminder",
@@ -903,6 +946,11 @@ async function processDailyReminders(env, now = new Date(), meta = {}) {
           user_id: row.user_id,
           error: error?.message || String(error),
         });
+        if (claimed) {
+          try {
+            await releaseDailyReminderClaim(env, row.user_id, nowIso);
+          } catch (_) { }
+        }
 
         await sbInsertNotificationLog(env, {
           setting_key: "daily_reminder",
@@ -949,6 +997,7 @@ async function processDailyReports(env, now = new Date(), meta = {}) {
     checked: 0,
     sent: 0,
     failed: [],
+    skipped: 0,
     todayKey: uzDateKey(now, timeZone),
     local_now: timeInZoneLabel(now, timeZone),
     time_zone: timeZone,
@@ -1012,10 +1061,16 @@ async function processDailyReports(env, now = new Date(), meta = {}) {
 
     for (const row of candidates) {
       const html = buildDailyReportText(reportSetting, row.full_name, now);
+      let claimed = null;
 
       try {
+        claimed = await claimDailyReportSend(env, row.user_id, dayStartIso, nowIso);
+        if (!claimed) {
+          result.skipped += 1;
+          continue;
+        }
+
         await tgSendMessage(env, row.user_id, html);
-        await markDailyReportSent(env, row.user_id, nowIso);
 
         await sbInsertNotificationLog(env, {
           setting_key: "daily_report",
@@ -1036,6 +1091,11 @@ async function processDailyReports(env, now = new Date(), meta = {}) {
           user_id: row.user_id,
           error: error?.message || String(error),
         });
+        if (claimed) {
+          try {
+            await releaseDailyReportClaim(env, row.user_id, nowIso);
+          } catch (_) { }
+        }
 
         await sbInsertNotificationLog(env, {
           setting_key: "daily_report",
@@ -1519,8 +1579,26 @@ async function handleDebugTelegram(env) {
 
 async function handleClientLog(request, env) {
   const body = await safeJson(request);
+  const logger = getWorkerLogger(env);
+  const level = String(body.level || body.type || "info").trim().toLowerCase();
+
   if (parseBoolean(env?.CLIENT_CONSOLE_LOGS_ENABLED, false)) {
-    getWorkerLogger(env).local("INFO", "client-log", body);
+    logger.local(level === "error" ? "ERROR" : "INFO", "client-log", body);
+  }
+
+  if (level === "error") {
+    await logger.error({
+      scope: `miniapp.${String(body.scope || "client").trim() || "client"}`,
+      user_id: body.currentUserId || body.tgUserId || body.user_id || null,
+      username: body.username || null,
+      full_name: body.full_name || null,
+      message: body.message || "Mini app client error",
+      payload: {
+        url: body.url || "",
+        user_agent: body.userAgent || request.headers.get("user-agent") || "",
+        payload: body.payload || {},
+      },
+    }).catch(() => { });
   }
   return json({ ok: true });
 }

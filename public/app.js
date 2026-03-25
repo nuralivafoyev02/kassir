@@ -192,6 +192,8 @@ let txSourceRefColumnSupported = null;
 let currentReceipt = { src: '', name: '' };
 let receiptBlobUrl = null;
 let userAvatarColumnSupported = null;
+let chartLibRequested = false;
+let pdfLibRequested = false;
 
 const TX_FETCH_BATCH = 500;
 const RECEIPT_MAX_EDGE = 1480;
@@ -214,12 +216,60 @@ const profileEditState = {
 
 let currentLang = store.get('lang') || 'uz';
 let T = {};
+const CLIENT_LOG_DEDUPE_MS = 15000;
+const clientLogSeen = new Map();
 
 function tt(key, fallback = '') {
   return (T && T[key]) || fallback || key;
 }
 
 // ─── HELPERS ────────────────────────────────────────────
+function shouldSkipClientLog(level, scope, message) {
+  const key = `${String(level || 'info').toLowerCase()}|${String(scope || 'client')}|${String(message || '').slice(0, 240)}`;
+  const now = Date.now();
+  const expiresAt = clientLogSeen.get(key) || 0;
+  if (expiresAt > now) return true;
+  clientLogSeen.set(key, now + CLIENT_LOG_DEDUPE_MS);
+  if (clientLogSeen.size > 200) {
+    for (const [entryKey, entryExpiry] of clientLogSeen.entries()) {
+      if (entryExpiry <= now) clientLogSeen.delete(entryKey);
+    }
+  }
+  return false;
+}
+
+function postClientLog(level = 'info', scope = 'client', message = '', payload = {}) {
+  if (shouldSkipClientLog(level, scope, message)) return;
+  const body = {
+    level,
+    scope,
+    message,
+    payload,
+    currentUserId: UID || null,
+    tgUserId: Number(tg?.initDataUnsafe?.user?.id || UID || 0) || null,
+    username: tg?.initDataUnsafe?.user?.username || '',
+    url: location.href,
+    userAgent: navigator.userAgent,
+  };
+  const serialized = JSON.stringify(body);
+
+  try {
+    if (navigator.sendBeacon) {
+      const blob = new Blob([serialized], { type: 'application/json' });
+      if (navigator.sendBeacon('/api/client-log', blob)) return;
+    }
+  } catch { }
+
+  fetch('/api/client-log', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: serialized,
+    keepalive: true,
+  }).catch(() => { });
+}
+
+window.__postClientLog = postClientLog;
+
 const fmt = n => {
   const v = Number(n);
   if (!Number.isFinite(v)) return '0';
@@ -817,6 +867,7 @@ function hideLoader() {
       initRealtime(); // Real-time ulanishni yoqish
     } catch (e) {
       console.error('[boot]', e);
+      postClientLog('error', 'boot', e?.message || 'Mini app boot failed', { stack: e?.stack || null });
       showErr(tt('err_boot_data_load', "Ma'lumotlar yuklanmadi") + ': ' + (e?.message || e));
     }
   } else if (!UID) {
@@ -1137,6 +1188,19 @@ function renderChart(data) {
   const entries = Object.entries(grouped).sort((a, b) => b[1] - a[1]);
 
   if (myChart) { myChart.destroy(); myChart = null; }
+
+  if (src.length > 0 && !window.Chart && !chartLibRequested) {
+    chartLibRequested = true;
+    window.__kassaEnsureChartLib?.()
+      .then(() => {
+        chartLibRequested = false;
+        renderAll();
+      })
+      .catch((error) => {
+        chartLibRequested = false;
+        console.warn('[renderChart:lazy-load]', error);
+      });
+  }
 
   if (src.length > 0 && window.Chart) {
     const ctx = canvas.getContext('2d');
@@ -1528,10 +1592,11 @@ async function submitFlow() {
       const saved = Array.isArray(data) ? data[0] : data;
       const i = txList.findIndex(t => t.id === tempId);
       if (i !== -1 && saved) txList[i] = normTx({ ...txList[i], ...saved, receipt: localReceipt });
-      if (saved) await notifyMiniAppTxSaved({ ...saved, receipt: localReceipt, source: 'mini_app' });
+      if (saved) void notifyMiniAppTxSaved({ ...saved, receipt: localReceipt, source: 'mini_app' });
     }
   } catch (error) {
     console.warn('[submitFlow]', error);
+    postClientLog('error', 'submitFlow', error?.message || 'Transaction save failed', { stack: error?.stack || null });
     if (tempId !== null) {
       txList = txList.filter(t => t.id !== tempId);
       renderAll();
@@ -2287,7 +2352,18 @@ async function notifyMiniAppTxSaved(row) {
   }
 }
 
-function makePDF() {
+async function makePDF() {
+  if (!window.pdfMake?.createPdf && !pdfLibRequested) {
+    pdfLibRequested = true;
+    try {
+      await window.__kassaEnsurePdfLibs?.();
+    } catch (error) {
+      console.warn('[makePDF:lazy-load]', error);
+    } finally {
+      pdfLibRequested = false;
+    }
+  }
+
   const pdfMake = window.pdfMake;
   const createBtn = $('ex-create-btn');
   if (!pdfMake?.createPdf) {
@@ -2710,7 +2786,15 @@ function openSupport() {
 // ─── GLOBAL ERROR HANDLER ────────────────────────────────
 window.addEventListener('unhandledrejection', e => {
   console.error('[unhandled]', e.reason);
+  postClientLog('error', 'unhandledrejection', e?.reason?.message || String(e.reason || 'Unhandled promise rejection'), {
+    reason: e?.reason?.stack || String(e.reason || ''),
+  });
 });
 window.addEventListener('error', e => {
   console.error('[error]', e.message);
+  postClientLog('error', 'window.error', e?.message || 'Window error', {
+    filename: e?.filename || '',
+    lineno: e?.lineno || null,
+    colno: e?.colno || null,
+  });
 });
