@@ -2,6 +2,7 @@
 
 const TelegramBot = require('node-telegram-bot-api');
 const { createClient } = require('@supabase/supabase-js');
+const { createTelegramOps } = require('../lib/telegram-ops.cjs');
 
 const BOT_TOKEN = process.env.BOT_TOKEN;
 const SUPA_URL = process.env.SUPABASE_URL;
@@ -65,6 +66,27 @@ if (!SUPA_KEY) throw new Error("SUPABASE_KEY yo'q");
 
 const bot = new TelegramBot(BOT_TOKEN, { polling: false });
 const db = createClient(SUPA_URL, SUPA_KEY);
+const cronLogger = createTelegramOps({
+  botToken: BOT_TOKEN,
+  logChannelId: process.env.LOG_CHANNEL_ID,
+  adminChatId: process.env.ADMIN_NOTIFY_CHAT_ID || process.env.OWNER_ID || '',
+  loggingEnabled: process.env.TELEGRAM_LOGGING_ENABLED,
+  logLevel: process.env.LOG_LEVEL,
+  localLevel: process.env.LOCAL_LOG_LEVEL || 'ERROR',
+  source: 'CRON',
+});
+
+function summarizeCronResult(result = {}) {
+  return {
+    checked: Number(result.checked || 0),
+    sent: Number(result.sent || 0),
+    failed: Array.isArray(result.failed) ? result.failed.length : 0,
+    scheduled_for: result.scheduled_for || null,
+    time_zone: result.time_zone || null,
+    local_now: result.local_now || null,
+    note: result.note || null,
+  };
+}
 
 function relationMissing(error, table) {
   const msg = String(error?.message || error?.details || '').toLowerCase();
@@ -801,6 +823,37 @@ module.exports = async (req, res) => {
       processDebtReminders(now),
     ]);
 
+    const payload = {
+      daily: summarizeCronResult(daily),
+      report: summarizeCronResult(report),
+      debts: summarizeCronResult(debts),
+      source: 'api-manual',
+      at: now.toISOString(),
+    };
+    const totalFailures = payload.daily.failed + payload.report.failed + payload.debts.failed;
+    const totalSent = payload.daily.sent + payload.report.sent + payload.debts.sent;
+
+    if (totalFailures > 0) {
+      await cronLogger.error({
+        scope: 'cron-run',
+        message: 'Cron run xatolar bilan yakunlandi',
+        payload: {
+          ...payload,
+          samples: {
+            daily: (daily.failed || []).slice(0, 3),
+            report: (report.failed || []).slice(0, 3),
+            debts: (debts.failed || []).slice(0, 3),
+          },
+        },
+      }).catch(() => { });
+    } else if (totalSent > 0) {
+      await cronLogger.success({
+        scope: 'cron-run',
+        message: 'Cron run muvaffaqiyatli yakunlandi',
+        payload,
+      }).catch(() => { });
+    }
+
     return res.status(200).json({
       ok: true,
       at: now.toISOString(),
@@ -809,6 +862,11 @@ module.exports = async (req, res) => {
       debts,
     });
   } catch (error) {
+    await cronLogger.error({
+      scope: 'cron-handler',
+      message: error.message || String(error),
+      payload: { error },
+    }).catch(() => { });
     return res.status(500).json({ ok: false, error: error.message || String(error) });
   }
 };

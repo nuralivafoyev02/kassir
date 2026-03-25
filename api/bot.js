@@ -4,6 +4,7 @@ const { createClient } = require('@supabase/supabase-js');
 const fs = require('fs');
 const path = require('path');
 const axios = require('axios');
+const { createTelegramOps } = require('../lib/telegram-ops.cjs');
 
 // ─── ENV CHECKS ──────────────────────────────────────────
 const BOT_TOKEN = process.env.BOT_TOKEN;
@@ -85,9 +86,50 @@ const DEFAULT_RATE = 12200;
 const ADMIN_IDS = new Set((process.env.ADMIN_IDS || '').split(',').map(v => v.trim()).filter(Boolean));
 
 // ─── LOGGING ─────────────────────────────────────────────
-const log = (scope, data) => console.log(`[BOT:${scope}]`, JSON.stringify(data));
-const warn = (scope, data) => console.warn(`[BOT:${scope}]`, JSON.stringify(data));
-const logErr = (scope, e, extra = {}) => console.error(`[BOT:${scope}]`, { msg: e?.message || String(e), ...extra });
+function getAdminNotifyChatId() {
+  return String(process.env.ADMIN_NOTIFY_CHAT_ID || process.env.OWNER_ID || [...ADMIN_IDS][0] || '').trim();
+}
+
+function getAppLogger() {
+  return createTelegramOps({
+    botToken: process.env.BOT_TOKEN || BOT_TOKEN,
+    logChannelId: process.env.LOG_CHANNEL_ID,
+    adminChatId: getAdminNotifyChatId(),
+    loggingEnabled: process.env.TELEGRAM_LOGGING_ENABLED,
+    logLevel: process.env.LOG_LEVEL,
+    localLevel: process.env.LOCAL_LOG_LEVEL || 'ERROR',
+    source: 'BOT',
+  });
+}
+
+const log = (scope, data) => getAppLogger().local('INFO', scope, data);
+const warn = (scope, data) => getAppLogger().local('SUCCESS', scope, data);
+const logErr = (scope, e, extra = {}) => {
+  const payload = { error: e, ...extra };
+  const logger = getAppLogger();
+  logger.local('ERROR', scope, payload);
+  void logger.error({
+    scope,
+    user_id: extra.userId || extra.user_id || null,
+    chat_id: extra.chatId || extra.chat_id || null,
+    username: extra.username || null,
+    full_name: extra.full_name || null,
+    phone_number: extra.phone_number || null,
+    message: e?.message || String(e),
+    payload,
+  });
+};
+
+function buildUserLogContext(msg = {}, user = null, extra = {}) {
+  const fallbackFullName = `${msg?.from?.first_name || ''} ${msg?.from?.last_name || ''}`.trim() || null;
+  return {
+    user_id: extra.user_id ?? msg?.from?.id ?? user?.user_id ?? null,
+    chat_id: extra.chat_id ?? msg?.chat?.id ?? null,
+    username: extra.username ?? msg?.from?.username ?? null,
+    full_name: extra.full_name ?? user?.full_name ?? fallbackFullName,
+    phone_number: extra.phone_number ?? user?.phone_number ?? null,
+  };
+}
 
 // ─── UTILS ───────────────────────────────────────────────
 const iso = (ms = Date.now()) => new Date(ms).toISOString();
@@ -2130,6 +2172,8 @@ module.exports = async (req, res) => {
     if (msg.contact) {
       // Faqat o'z kontaktini yuborishga ruxsat
       if (msg.contact.user_id !== userId) return res.status(200).json({ ok: true });
+      const isBrandNewUser = !user;
+      const userContext = buildUserLogContext(msg, user, { phone_number: msg.contact.phone_number });
 
       const { error: regErr } = await db.from('users').upsert({
         user_id: userId,
@@ -2140,7 +2184,7 @@ module.exports = async (req, res) => {
       }, { onConflict: 'user_id' });
 
       if (regErr) {
-        logErr('reg', regErr, { userId });
+        logErr('reg', regErr, userContext);
         return res.status(200).json({ ok: false });
       }
 
@@ -2148,6 +2192,25 @@ module.exports = async (req, res) => {
         `🎉 <b>Ro'yxatdan o'tdingiz!</b>\n\nEndi kirim-chiqimlarni yozishingiz mumkin.\n\n${GUIDE}`,
         { reply_markup: KB, parse_mode: 'HTML' }
       ).catch(() => { });
+
+      if (isBrandNewUser) {
+        const successPayload = {
+          source: 'bot start/register',
+          registered_at: iso(),
+          phone_number: msg.contact.phone_number,
+        };
+        await getAppLogger().success({
+          scope: 'register',
+          ...userContext,
+          message: "Yangi foydalanuvchi muvaffaqiyatli ro'yxatdan o'tdi",
+          payload: successPayload,
+        }).catch(() => { });
+        await getAppLogger().notifyNewUser({
+          source: 'bot start/register',
+          ...userContext,
+          payload: successPayload,
+        }).catch(() => { });
+      }
 
       return res.status(200).json({ ok: true });
     }
@@ -2161,6 +2224,12 @@ module.exports = async (req, res) => {
 
       try {
         await sendAdminPanel(chatId);
+        await getAppLogger().info({
+          scope: 'admin-open',
+          ...buildUserLogContext(msg, user),
+          message: 'Admin panel ochildi',
+          payload: { source: '/admin' },
+        }).catch(() => { });
       } catch (e) {
         await bot.sendMessage(chatId, `⚠️ Admin panelni ochishda xatolik: ${esc(tgErr(e))}`, { parse_mode: 'HTML' }).catch(() => { });
       }
@@ -2181,11 +2250,23 @@ module.exports = async (req, res) => {
       try {
         if (!sub || sub === 'list') {
           await sendNotificationPanel(chatId);
+          await getAppLogger().info({
+            scope: 'notif-panel',
+            ...buildUserLogContext(msg, user),
+            message: 'Notification panel ochildi',
+            payload: { source: '/notif' },
+          }).catch(() => { });
           return res.status(200).json({ ok: true });
         }
 
         if (sub === 'help') {
           await bot.sendMessage(chatId, buildNotificationHelpText(), { parse_mode: 'HTML' }).catch(() => { });
+          await getAppLogger().info({
+            scope: 'notif-help',
+            ...buildUserLogContext(msg, user),
+            message: "Notification qo'llanmasi ochildi",
+            payload: { source: '/notif help' },
+          }).catch(() => { });
           return res.status(200).json({ ok: true });
         }
 
@@ -2197,6 +2278,12 @@ module.exports = async (req, res) => {
           }
           const saved = await saveNotificationSetting(key, { enabled: sub === 'on' });
           await bot.sendMessage(chatId, `✅ ${saved.title} holati: <b>${saved.enabled ? 'yoqildi' : "o'chirildi"}</b>`, { parse_mode: 'HTML' }).catch(() => { });
+          await getAppLogger().info({
+            scope: 'notif-toggle',
+            ...buildUserLogContext(msg, user),
+            message: 'Notification holati yangilandi',
+            payload: { key, enabled: saved.enabled },
+          }).catch(() => { });
           return res.status(200).json({ ok: true });
         }
 
@@ -2214,6 +2301,12 @@ module.exports = async (req, res) => {
           }
           const saved = await saveNotificationSetting(key, { send_time: normalized });
           await bot.sendMessage(chatId, `✅ ${saved.title} vaqti <b>${saved.send_time}</b> qilib saqlandi.`, { parse_mode: 'HTML' }).catch(() => { });
+          await getAppLogger().info({
+            scope: 'notif-time',
+            ...buildUserLogContext(msg, user),
+            message: 'Notification vaqti yangilandi',
+            payload: { key, send_time: saved.send_time, timezone: saved.timezone },
+          }).catch(() => { });
           return res.status(200).json({ ok: true });
         }
 
@@ -2232,6 +2325,12 @@ module.exports = async (req, res) => {
             config: base.config || {}
           });
           await bot.sendMessage(chatId, `♻️ ${saved.title} default holatiga qaytarildi.`, { parse_mode: 'HTML' }).catch(() => { });
+          await getAppLogger().info({
+            scope: 'notif-reset',
+            ...buildUserLogContext(msg, user),
+            message: 'Notification default holatiga qaytarildi',
+            payload: { key, enabled: saved.enabled, send_time: saved.send_time },
+          }).catch(() => { });
           return res.status(200).json({ ok: true });
         }
 
@@ -2242,6 +2341,12 @@ module.exports = async (req, res) => {
             return res.status(200).json({ ok: true });
           }
           await sendNotificationPreview(chatId, key);
+          await getAppLogger().info({
+            scope: 'notif-test',
+            ...buildUserLogContext(msg, user),
+            message: 'Notification preview yuborildi',
+            payload: { key },
+          }).catch(() => { });
           return res.status(200).json({ ok: true });
         }
 
@@ -2259,6 +2364,12 @@ module.exports = async (req, res) => {
           }
           const saved = await saveNotificationSetting(key, { message_template: template });
           await bot.sendMessage(chatId, `✅ ${saved.title} matni yangilandi.\n\n<i>Test uchun /notif test ${key}</i>`, { parse_mode: 'HTML' }).catch(() => { });
+          await getAppLogger().info({
+            scope: 'notif-text',
+            ...buildUserLogContext(msg, user),
+            message: 'Notification matni yangilandi',
+            payload: { key, template_preview: clipText(template, 160) },
+          }).catch(() => { });
           return res.status(200).json({ ok: true });
         }
 
@@ -2350,6 +2461,18 @@ module.exports = async (req, res) => {
 
     // ── Yangi foydalanuvchi — telefon so'rash ──
     if (!user) {
+      if (text === '/start') {
+        await getAppLogger().success({
+          scope: 'start-new-user',
+          ...buildUserLogContext(msg, null),
+          message: "Yangi foydalanuvchiga /start bo'yicha telefon so'rovi yuborildi",
+          payload: {
+            source: 'bot /start',
+            registered: false,
+            contact_requested: true,
+          },
+        }).catch(() => { });
+      }
       await bot.sendMessage(chatId, `👋 Assalomu alaykum!\nBotdan foydalanish uchun telefon raqamingizni tasdiqlang.`, {
         reply_markup: {
           keyboard: [[{ text: '📱 Telefon raqamni yuborish', request_contact: true }]],
@@ -2376,6 +2499,16 @@ module.exports = async (req, res) => {
       if (isNew) {
         await db.from('users').update({ last_start_date: iso() }).eq('user_id', userId);
       }
+      await getAppLogger().success({
+        scope: 'start',
+        ...buildUserLogContext(msg, user),
+        message: "Foydalanuvchi /start bosdi",
+        payload: {
+          source: 'bot /start',
+          first_start_today: isNew,
+          registered: true,
+        },
+      }).catch(() => { });
       return res.status(200).json({ ok: true });
     }
 
