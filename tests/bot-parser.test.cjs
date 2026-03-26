@@ -12,6 +12,7 @@ const {
   parseDebtIntent,
   parseDebtSettlementIntent,
   hasRegisteredPhone,
+  parseStartCommand,
 } = botModule.__test__;
 
 test('bare source phrase becomes income instead of expense', () => {
@@ -72,4 +73,11 @@ test('debt settlement parser detects incoming repayment phrase', () => {
 test('registration completeness requires phone number', () => {
   assert.equal(hasRegisteredPhone({ phone_number: null }), false);
   assert.equal(hasRegisteredPhone({ phone_number: '+998 90 123 45 67' }), true);
+});
+
+test('/start deep-link is parsed as start command', () => {
+  const parsed = parseStartCommand('/start promo_2026');
+  assert.ok(parsed);
+  assert.equal(parsed.command, '/start');
+  assert.equal(parsed.payload, 'promo_2026');
 });

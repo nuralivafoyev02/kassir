@@ -116,7 +116,7 @@ function getAppLogger() {
 }
 
 const log = (scope, data) => getAppLogger().local('INFO', scope, data);
-const warn = (scope, data) => getAppLogger().local('SUCCESS', scope, data);
+const warn = (scope, data) => getAppLogger().local('WARN', scope, data);
 const logErr = async (scope, e, extra = {}) => {
   const payload = { error: e, ...extra };
   const logger = getAppLogger();
@@ -141,6 +141,31 @@ function buildUserLogContext(msg = {}, user = null, extra = {}) {
     username: extra.username ?? msg?.from?.username ?? null,
     full_name: extra.full_name ?? user?.full_name ?? fallbackFullName,
     phone_number: extra.phone_number ?? user?.phone_number ?? null,
+  };
+}
+
+function buildCallbackLogContext(query = {}, user = null, extra = {}) {
+  const actor = query?.from || {};
+  const fallbackFullName = `${actor.first_name || ''} ${actor.last_name || ''}`.trim() || null;
+  return {
+    user_id: extra.user_id ?? actor.id ?? user?.user_id ?? null,
+    chat_id: extra.chat_id ?? query?.message?.chat?.id ?? null,
+    username: extra.username ?? actor.username ?? null,
+    full_name: extra.full_name ?? user?.full_name ?? fallbackFullName,
+    phone_number: extra.phone_number ?? user?.phone_number ?? null,
+  };
+}
+
+function parseStartCommand(text = '') {
+  const raw = String(text || '').trim();
+  if (!raw) return null;
+  const match = raw.match(/^\/start(?:@([A-Za-z0-9_]+))?(?:\s+([\s\S]+))?$/i);
+  if (!match) return null;
+  return {
+    command: '/start',
+    mention: match[1] || null,
+    payload: String(match[2] || '').trim() || null,
+    raw,
   };
 }
 
@@ -2376,6 +2401,13 @@ module.exports = async (req, res) => {
 
         if (data === 'admin_panel' || data === 'admin_stats') {
           await sendAdminPanel(chatId, msgId);
+          await getAppLogger().info({
+            scope: 'admin-open',
+            status: 200,
+            ...buildCallbackLogContext(q),
+            message: 'Admin panel ochildi',
+            payload: { source: 'callback:admin_panel', callback_data: data },
+          }).catch(() => { });
           return res.status(200).json({ ok: true });
         }
 
@@ -2494,6 +2526,8 @@ module.exports = async (req, res) => {
     if (!chatId || !userId) return res.status(200).json({ ok: true });
 
     const text = (msg.text || msg.caption || '').trim();
+    const startCommand = parseStartCommand(text);
+    const isStartCommand = !!startCommand;
 
     log('msg', {
       userId,
@@ -2539,20 +2573,23 @@ module.exports = async (req, res) => {
           phone_number: msg.contact.phone_number,
           platform: detectClientPlatform(msg),
         };
-        getAppLogger().info({
+        await getAppLogger().info({
           scope: 'register.info',
+          status: 201,
           ...userContext,
           message: "Yangi foydalanuvchi ro'yxatdan o'tdi",
           payload: successPayload,
         }).catch(() => { });
         await getAppLogger().success({
           scope: 'register.success',
+          status: 201,
           ...userContext,
           message: "Yangi foydalanuvchi muvaffaqiyatli ro'yxatdan o'tdi",
           payload: successPayload,
         }).catch(() => { });
         await getAppLogger().notifyNewUser({
           source: 'bot start/register',
+          status: 201,
           ...userContext,
           payload: successPayload,
         }).catch(() => { });
@@ -2572,6 +2609,7 @@ module.exports = async (req, res) => {
         await sendAdminPanel(chatId);
         await getAppLogger().info({
           scope: 'admin-open',
+          status: 200,
           ...buildUserLogContext(msg, user),
           message: 'Admin panel ochildi',
           payload: { source: '/admin' },
@@ -2807,9 +2845,10 @@ module.exports = async (req, res) => {
 
     // ── Telefon tasdiqlanmagan foydalanuvchi — telefon so'rash ──
     if (!registeredUser) {
-      if (text === '/start') {
-        getAppLogger().info({
+      if (isStartCommand) {
+        await getAppLogger().info({
           scope: 'start.contact_request',
+          status: 200,
           ...buildUserLogContext(msg, null),
           message: "Yangi foydalanuvchiga /start bo'yicha telefon so'rovi yuborildi",
           payload: {
@@ -2817,6 +2856,7 @@ module.exports = async (req, res) => {
             registered: false,
             contact_requested: true,
             platform: detectClientPlatform(msg),
+            ...(startCommand?.payload ? { start_payload: startCommand.payload, deep_link: true } : {}),
           },
         }).catch(() => { });
       }
@@ -2825,7 +2865,7 @@ module.exports = async (req, res) => {
     }
 
     // ── /start ──
-    if (text === '/start') {
+    if (isStartCommand) {
       const now = new Date();
       const todayStr = now.toDateString();
       const lastStr = user.last_start_date ? new Date(user.last_start_date).toDateString() : null;
@@ -2839,8 +2879,9 @@ module.exports = async (req, res) => {
       if (isNew) {
         await db.from('users').update({ last_start_date: iso() }).eq('user_id', userId);
       }
-      getAppLogger().info({
+      await getAppLogger().info({
         scope: 'start',
+        status: 200,
         ...buildUserLogContext(msg, user),
         message: "Foydalanuvchi /start bosdi",
         payload: {
@@ -2848,6 +2889,7 @@ module.exports = async (req, res) => {
           first_start_today: isNew,
           registered: true,
           platform: detectClientPlatform(msg),
+          ...(startCommand?.payload ? { start_payload: startCommand.payload, deep_link: true } : {}),
         },
       }).catch(() => { });
       return res.status(200).json({ ok: true });
@@ -3075,7 +3117,7 @@ module.exports = async (req, res) => {
     }
 
     // ── Tushunilmagan matn ──
-    if (text && text !== '/start') {
+    if (text && !isStartCommand) {
       await bot.sendMessage(chatId,
         `Tushunmadim 🤔\n\n${GUIDE}`,
         { parse_mode: 'HTML', reply_markup: KB }
@@ -3100,4 +3142,5 @@ module.exports.__test__ = {
   hasRegisteredPhone,
   collectDirectionalEntities,
   pickDirectionalPersonName,
+  parseStartCommand,
 };
