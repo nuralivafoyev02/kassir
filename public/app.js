@@ -192,8 +192,6 @@ let txSourceRefColumnSupported = null;
 let currentReceipt = { src: '', name: '' };
 let receiptBlobUrl = null;
 let userAvatarColumnSupported = null;
-let chartLibRequested = false;
-let pdfLibRequested = false;
 
 const TX_FETCH_BATCH = 500;
 const RECEIPT_MAX_EDGE = 1480;
@@ -216,65 +214,726 @@ const profileEditState = {
 
 let currentLang = store.get('lang') || 'uz';
 let T = {};
-const CLIENT_LOG_DEDUPE_MS = 15000;
-const clientLogSeen = new Map();
+let pushNotificationState = {
+  supported: false,
+  supportReason: 'pending',
+  status: 'idle',
+  permission: typeof Notification === 'undefined' ? 'unsupported' : Notification.permission,
+  provider: 'telegram',
+  publicEnabled: false,
+  tokenRegistered: false,
+  lastSyncAt: null,
+  lastError: null,
+  embeddedTelegram: !!tg,
+  appKind: tg ? 'mini_app' : 'web_app',
+  userSettingsReady: null,
+  notificationEnabled: null,
+  lastReminderAt: null,
+  lastReportAt: null,
+};
+const subscriptionHelpers = window.KassaSubscription || {};
+const SUBSCRIPTION_USER_FIELDS = Array.isArray(subscriptionHelpers.SUBSCRIPTION_FIELDS)
+  ? subscriptionHelpers.SUBSCRIPTION_FIELDS.slice()
+  : ['plan_code', 'subscription_status', 'subscription_start_at', 'subscription_end_at', 'trial_end_at', 'canceled_at', 'grace_until', 'created_at', 'updated_at'];
+const NOTIFICATION_USER_FIELDS = ['daily_reminder_enabled', 'last_daily_reminder_at', 'last_daily_report_at'];
+let userSubscriptionColumnsSupported = null;
+let userNotificationColumnsSupported = null;
+let currentPaywallFeatureKey = null;
+let currentPaywallSource = 'settings';
+let lastFinanceTab = 'debt';
+let subscriptionState = {
+  schemaReady: false,
+  rawUser: null,
+  snapshot: null,
+};
+
+const FALLBACK_PRICING_SALE_START_AT = '2026-03-26T00:00:00+05:00';
+const FALLBACK_PRICING_SALE_END_AT = '2026-04-26T23:59:59+05:00';
+const FALLBACK_PLAN_FEATURE_KEYS = Object.freeze({
+  free: Object.freeze([
+    'basic_income',
+    'basic_expense',
+    'history',
+    'basic_dashboard',
+    'basic_categories',
+    'basic_sync',
+    'one_plan',
+    'one_debt',
+    'one_limit',
+    'basic_reminder',
+  ]),
+  premium_monthly: Object.freeze([
+    'unlimited_plans',
+    'unlimited_debts',
+    'unlimited_limits',
+    'morning_evening_reminders',
+    'custom_reminders',
+    'pdf_reports',
+    'deep_analytics',
+    'ai_ready',
+  ]),
+});
 
 function tt(key, fallback = '') {
   return (T && T[key]) || fallback || key;
 }
 
-// ─── HELPERS ────────────────────────────────────────────
-function shouldSkipClientLog(level, scope, message) {
-  const key = `${String(level || 'info').toLowerCase()}|${String(scope || 'client')}|${String(message || '').slice(0, 240)}`;
-  const now = Date.now();
-  const expiresAt = clientLogSeen.get(key) || 0;
-  if (expiresAt > now) return true;
-  clientLogSeen.set(key, now + CLIENT_LOG_DEDUPE_MS);
-  if (clientLogSeen.size > 200) {
-    for (const [entryKey, entryExpiry] of clientLogSeen.entries()) {
-      if (entryExpiry <= now) clientLogSeen.delete(entryKey);
-    }
-  }
-  return false;
+function notifText(uz, ru, en) {
+  return currentLang === 'ru' ? ru : currentLang === 'en' ? en : uz;
 }
 
-function postClientLog(level = 'info', scope = 'client', message = '', payload = {}) {
-  if (shouldSkipClientLog(level, scope, message)) return;
-  const body = {
-    level,
-    scope,
-    message,
-    payload,
-    currentUserId: UID || null,
-    tgUserId: Number(tg?.initDataUnsafe?.user?.id || UID || 0) || null,
-    username: tg?.initDataUnsafe?.user?.username || '',
-    url: location.href,
-    userAgent: navigator.userAgent,
+function hasSubscriptionSchema(record) {
+  if (typeof subscriptionHelpers.hasSubscriptionSchema === 'function') {
+    return subscriptionHelpers.hasSubscriptionSchema(record || {});
+  }
+  return SUBSCRIPTION_USER_FIELDS.some((field) => Object.prototype.hasOwnProperty.call(record || {}, field));
+}
+
+function parseDateSafe(value) {
+  if (!value) return null;
+  const date = value instanceof Date ? value : new Date(value);
+  return Number.isFinite(date.getTime()) ? date : null;
+}
+
+function getLocalizedPlanTitleByCode(code) {
+  return code === 'premium_monthly'
+    ? tt('subscription_plan_premium', 'Premium')
+    : tt('subscription_plan_free', 'Bepul');
+}
+
+function getPricingFeatureFallback(key) {
+  const map = {
+    basic_income: 'Oddiy kirim qo\'shish',
+    basic_expense: 'Oddiy chiqim qo\'shish',
+    history: 'Tarixni ko\'rish',
+    basic_dashboard: 'Basic dashboard',
+    basic_categories: 'Basic kategoriya ishlatish',
+    basic_sync: 'Bot va mini app asosiy sinxron ishlashi',
+    one_plan: '1 ta faol reja',
+    one_debt: '1 ta faol qarz',
+    one_limit: '1 ta faol limit',
+    basic_reminder: 'Basic reminder',
+    unlimited_plans: 'Cheksiz reja yaratish',
+    unlimited_debts: 'Cheksiz qarz yaratish',
+    unlimited_limits: 'Cheksiz limit yaratish',
+    morning_evening_reminders: 'Ertalabgi va kechki eslatmalar',
+    custom_reminders: 'Custom reminder vaqtlarini sozlash',
+    pdf_reports: 'PDF va kengaytirilgan hisobotlar',
+    deep_analytics: 'Chuqur statistika va kengaytirilgan analiz',
+    ai_ready: 'Kelajakdagi premium-only AI qulayliklar',
   };
-  const serialized = JSON.stringify(body);
+  return map[key] || '';
+}
+
+function getLocalizedPlanFeatures(plan = {}) {
+  const featureKeys = Array.isArray(plan.feature_keys)
+    ? plan.feature_keys
+    : Array.isArray(FALLBACK_PLAN_FEATURE_KEYS[plan.code])
+      ? FALLBACK_PLAN_FEATURE_KEYS[plan.code]
+      : [];
+  if (!featureKeys.length) {
+    return Array.isArray(plan.features) ? plan.features.slice() : [];
+  }
+  return featureKeys.map((featureKey, index) => {
+    const rawFallback = Array.isArray(plan.features) ? plan.features[index] : '';
+    return tt(`pricing_feature_${featureKey}`, rawFallback || getPricingFeatureFallback(featureKey));
+  });
+}
+
+function formatPriceAmountUzs(amount) {
+  return `${fmt(amount)} ${tt('suffix_uzs', "so'm")}`;
+}
+
+function formatPlanPriceLabelByAmount(amount, billingPeriod = 'monthly') {
+  const normalized = formatPriceAmountUzs(amount || 0);
+  return billingPeriod === 'monthly'
+    ? `${normalized} ${tt('pricing_monthly_suffix', '/ oy')}`
+    : normalized;
+}
+
+function resolvePlanPricingMeta(plan = {}, now = new Date()) {
+  const nowMs = now instanceof Date ? now.getTime() : toMs(now);
+  const billingPeriod = plan.billing_period || (plan.code === 'free' ? 'free' : 'monthly');
+  const originalPriceCandidate = Number(plan.original_monthly_price_uzs ?? plan.list_price_uzs ?? plan.monthly_price_uzs ?? 0);
+  const monthlyPriceCandidate = Number(plan.monthly_price_uzs ?? 0);
+  const salePriceCandidate = Number(plan.sale_price_uzs ?? 0);
+  const saleStartsAt = parseDateSafe(plan.sale_starts_at || plan.sale_start_at);
+  const saleEndsAt = parseDateSafe(plan.sale_ends_at || plan.sale_end_at);
+  const explicitSaleActive = plan.sale_active === true;
+  const hasSaleWindow = (!saleStartsAt || saleStartsAt.getTime() <= nowMs) && (!!saleEndsAt && saleEndsAt.getTime() > nowMs);
+  const inferredSaleActive = plan.code === 'premium_monthly'
+    && salePriceCandidate > 0
+    && (originalPriceCandidate > salePriceCandidate || monthlyPriceCandidate === salePriceCandidate)
+    && hasSaleWindow;
+  const saleActive = explicitSaleActive || inferredSaleActive;
+  const salePrice = salePriceCandidate > 0 ? salePriceCandidate : null;
+  const originalPrice = Math.max(
+    saleActive && originalPriceCandidate > 0 ? originalPriceCandidate : 0,
+    (!saleActive && monthlyPriceCandidate > 0 ? monthlyPriceCandidate : 0),
+    salePrice || 0
+  );
+  const currentPrice = saleActive
+    ? (salePrice || monthlyPriceCandidate || originalPrice || 0)
+    : (originalPrice || monthlyPriceCandidate || 0);
+
+  return {
+    billingPeriod,
+    currentPrice,
+    originalPrice: originalPrice || currentPrice || 0,
+    salePrice,
+    saleActive,
+    saleStartsAt: saleStartsAt ? saleStartsAt.toISOString() : null,
+    saleEndsAt: saleEndsAt ? saleEndsAt.toISOString() : null,
+    discountAmount: saleActive ? Math.max(0, (originalPrice || 0) - (currentPrice || 0)) : 0,
+  };
+}
+
+function localizePricingPlan(plan = {}) {
+  const pricing = resolvePlanPricingMeta(plan, new Date());
+  return {
+    ...plan,
+    title: getLocalizedPlanTitleByCode(plan.code),
+    price_label: formatPlanPriceLabelByAmount(pricing.currentPrice, pricing.billingPeriod),
+    monthly_price_uzs: pricing.currentPrice,
+    original_monthly_price_uzs: pricing.originalPrice,
+    sale_price_uzs: pricing.salePrice,
+    sale_active: pricing.saleActive,
+    sale_starts_at: pricing.saleStartsAt,
+    sale_ends_at: pricing.saleEndsAt,
+    discount_amount_uzs: pricing.discountAmount,
+    features: getLocalizedPlanFeatures(plan),
+    pricing,
+  };
+}
+
+function getFallbackPricingPlansRaw() {
+  return [
+    {
+      code: 'free',
+      title: 'Bepul',
+      billing_period: 'free',
+      price_label: '0 so\'m',
+      monthly_price_uzs: 0,
+      original_monthly_price_uzs: 0,
+      feature_keys: FALLBACK_PLAN_FEATURE_KEYS.free.slice(),
+      features: FALLBACK_PLAN_FEATURE_KEYS.free.map(getPricingFeatureFallback),
+    },
+    {
+      code: 'premium_monthly',
+      title: 'Premium',
+      billing_period: 'monthly',
+      price_label: '14 999 so\'m / oy',
+      monthly_price_uzs: 21999,
+      original_monthly_price_uzs: 21999,
+      sale_price_uzs: 14999,
+      sale_starts_at: FALLBACK_PRICING_SALE_START_AT,
+      sale_ends_at: FALLBACK_PRICING_SALE_END_AT,
+      feature_keys: FALLBACK_PLAN_FEATURE_KEYS.premium_monthly.slice(),
+      features: FALLBACK_PLAN_FEATURE_KEYS.premium_monthly.map(getPricingFeatureFallback),
+    },
+  ];
+}
+
+function localizeSubscriptionSnapshot(snapshot = {}) {
+  const planDescriptor = {
+    code: snapshot.planCode || 'free',
+    billing_period: snapshot.billingPeriod || (snapshot.planCode === 'free' ? 'free' : 'monthly'),
+    monthly_price_uzs: snapshot.originalMonthlyPriceUzs ?? snapshot.monthlyPriceUzs ?? 0,
+    original_monthly_price_uzs: snapshot.originalMonthlyPriceUzs ?? snapshot.monthlyPriceUzs ?? 0,
+    sale_price_uzs: snapshot.salePriceUzs ?? null,
+    sale_active: snapshot.saleActive === true,
+    sale_starts_at: snapshot.saleStartsAt || null,
+    sale_ends_at: snapshot.saleEndsAt || null,
+    feature_keys: Array.isArray(snapshot.featureKeys)
+      ? snapshot.featureKeys
+      : (Array.isArray(FALLBACK_PLAN_FEATURE_KEYS[snapshot.planCode]) ? FALLBACK_PLAN_FEATURE_KEYS[snapshot.planCode].slice() : []),
+    features: Array.isArray(snapshot.features) ? snapshot.features.slice() : [],
+  };
+  const pricing = resolvePlanPricingMeta(planDescriptor, new Date(snapshot.now || Date.now()));
+  return {
+    ...snapshot,
+    planTitle: getLocalizedPlanTitleByCode(planDescriptor.code),
+    priceLabel: formatPlanPriceLabelByAmount(pricing.currentPrice, pricing.billingPeriod),
+    monthlyPriceUzs: pricing.currentPrice,
+    originalMonthlyPriceUzs: pricing.originalPrice,
+    salePriceUzs: pricing.salePrice,
+    saleActive: pricing.saleActive,
+    saleStartsAt: pricing.saleStartsAt,
+    saleEndsAt: pricing.saleEndsAt,
+    discountAmountUzs: pricing.discountAmount,
+    featureKeys: planDescriptor.feature_keys.slice(),
+  };
+}
+
+function buildFallbackSubscriptionSnapshot(record = {}, options = {}) {
+  const schemaReady = options.schemaReady !== false;
+  const planCode = String(record.plan_code || '') === 'premium_monthly' ? 'premium_monthly' : 'free';
+  const isPremium = schemaReady && planCode === 'premium_monthly' && String(record.subscription_status || '') === 'active';
+  const rawPlans = getFallbackPricingPlansRaw();
+  const rawPlan = rawPlans.find((item) => item.code === planCode) || rawPlans[0];
+  const pricing = resolvePlanPricingMeta(rawPlan, new Date(options.now || Date.now()));
+  return {
+    schemaReady,
+    planCode,
+    rawStatus: isPremium ? 'active' : 'free',
+    effectiveStatus: isPremium ? 'active' : 'free',
+    planTitle: getLocalizedPlanTitleByCode(planCode),
+    priceLabel: formatPlanPriceLabelByAmount(pricing.currentPrice, pricing.billingPeriod),
+    monthlyPriceUzs: pricing.currentPrice,
+    originalMonthlyPriceUzs: pricing.originalPrice,
+    salePriceUzs: pricing.salePrice,
+    saleActive: pricing.saleActive,
+    saleStartsAt: pricing.saleStartsAt,
+    saleEndsAt: pricing.saleEndsAt,
+    discountAmountUzs: pricing.discountAmount,
+    isPremium,
+    uiStatusLabel: isPremium ? 'Obuna bo\'lgan' : 'Obuna bo\'lmagan',
+    featureKeys: Array.isArray(rawPlan.feature_keys) ? rawPlan.feature_keys.slice() : [],
+    limits: {
+      activePlans: isPremium ? null : 1,
+      activeDebts: isPremium ? null : 1,
+      activeLimits: isPremium ? null : 1,
+    },
+    features: {
+      customReminderTime: isPremium,
+      advancedReports: isPremium,
+      deepAnalytics: isPremium,
+      aiInsights: isPremium,
+      dailyMorningReminder: isPremium,
+      dailyEveningReminder: isPremium,
+    },
+    badge: {
+      label: isPremium ? 'Obuna bo\'lgan' : 'Obuna bo\'lmagan',
+      tone: isPremium ? 'premium' : 'free',
+      plan_title: isPremium ? 'Premium' : 'Bepul',
+    },
+    subscriptionStartAt: null,
+    subscriptionEndAt: null,
+    trialEndAt: null,
+    canceledAt: null,
+    graceUntil: null,
+    accessUntil: null,
+  };
+}
+
+function buildSubscriptionSnapshot(record = {}, options = {}) {
+  const schemaReady = options.schemaReady !== false;
+  if (typeof subscriptionHelpers.getSubscriptionSnapshot === 'function') {
+    return localizeSubscriptionSnapshot(subscriptionHelpers.getSubscriptionSnapshot(record, { ...options, schemaReady }));
+  }
+  return localizeSubscriptionSnapshot(buildFallbackSubscriptionSnapshot(record, { ...options, schemaReady }));
+}
+
+function syncSubscriptionState(record = null, options = {}) {
+  const raw = record || subscriptionState.rawUser || {};
+  const schemaReady = options.schemaReady !== false;
+  subscriptionState.rawUser = raw;
+  subscriptionState.schemaReady = schemaReady;
+  subscriptionState.snapshot = buildSubscriptionSnapshot(raw, { now: options.now || new Date(), schemaReady });
+  return subscriptionState.snapshot;
+}
+
+function getSubscriptionSnapshotLocal() {
+  return subscriptionState.snapshot || syncSubscriptionState(subscriptionState.rawUser || {}, { schemaReady: subscriptionState.schemaReady !== false });
+}
+
+function getPricingPlansData() {
+  const rawPlans = typeof subscriptionHelpers.getPricingPlans === 'function'
+    ? subscriptionHelpers.getPricingPlans()
+    : getFallbackPricingPlansRaw();
+  return (rawPlans || []).map((plan) => localizePricingPlan(plan));
+}
+
+function getFeatureGateResult(featureKey, context = {}) {
+  const snapshot = context.snapshot || getSubscriptionSnapshotLocal();
+  const record = context.record || subscriptionState.rawUser || {};
+  if (typeof subscriptionHelpers.evaluateFeatureGate === 'function') {
+    return subscriptionHelpers.evaluateFeatureGate(featureKey, record, {
+      ...context,
+      snapshot,
+      schemaReady: context.schemaReady ?? snapshot.schemaReady,
+    });
+  }
+  return {
+    allowed: true,
+    featureKey,
+    snapshot,
+    premiumBenefitKeys: [],
+    freeLimit: null,
+    usage: null,
+    remaining: null,
+    reason: null,
+    degraded: true,
+  };
+}
+
+function hasNotificationSchema(record) {
+  return NOTIFICATION_USER_FIELDS.some((field) => Object.prototype.hasOwnProperty.call(record || {}, field));
+}
+
+function notificationSetupHelp() {
+  return notifText(
+    'Bildirishnomalar hozircha sozlanmoqda. Bir ozdan keyin qayta urinib ko‘ring yoki administratorga murojaat qiling.',
+    'Уведомления пока настраиваются. Попробуйте чуть позже или обратитесь к администратору.',
+    'Notifications are still being set up. Please try again shortly or contact the administrator.'
+  );
+}
+
+function notificationErrorHelp() {
+  return notifText(
+    'Bildirishnomalarni yangilab bo‘lmadi. Iltimos, keyinroq qayta urinib ko‘ring.',
+    'Не удалось обновить уведомления. Попробуйте позже.',
+    'Could not refresh notifications. Please try again later.'
+  );
+}
+
+function syncNotificationUserState(record = null, options = {}) {
+  const raw = record || {};
+  const schemaReady = options.schemaReady !== false;
+  const notificationEnabled = schemaReady ? raw.daily_reminder_enabled !== false : null;
+  pushNotificationState = {
+    ...pushNotificationState,
+    userSettingsReady: schemaReady,
+    notificationEnabled,
+    lastReminderAt: schemaReady ? raw.last_daily_reminder_at || null : null,
+    lastReportAt: schemaReady ? raw.last_daily_report_at || null : null,
+    status: options.status || (schemaReady ? (notificationEnabled ? 'ready' : 'disabled') : 'migration_required'),
+  };
+  return pushNotificationState;
+}
+
+function notificationStatusLabel(state = pushNotificationState) {
+  if (state?.status === 'migration_required' || state?.userSettingsReady === false) {
+    return notifText('Sozlanmoqda', 'Настраивается', 'Setting up');
+  }
+  if (state?.status === 'syncing') return notifText('Sinxronlanmoqda', 'Синхронизация', 'Syncing');
+  if (state?.status === 'error') return notifText('Xatolik', 'Ошибка', 'Error');
+  if (state?.status === 'waiting_user' || !UID) return notifText('User kutilmoqda', 'Ожидается user', 'Waiting for user');
+  if (state?.notificationEnabled === false) return notifText('O‘chiq', 'Выключено', 'Disabled');
+  if (state?.notificationEnabled === true) return notifText('Yoqilgan', 'Включено', 'Enabled');
+  return notifText('Tayyor emas', 'Не готово', 'Not ready');
+}
+
+function notificationBadgeState(state = pushNotificationState) {
+  if (state?.status === 'error') return 'error';
+  if (state?.notificationEnabled === true) return 'ready';
+  return 'warn';
+}
+
+function notificationSupportLabel(state = pushNotificationState) {
+  if (state?.userSettingsReady === false) {
+    return notifText('Sozlanmoqda', 'Настраивается', 'Setting up');
+  }
+  return notifText('Telegram bot', 'Telegram bot', 'Telegram bot');
+}
+
+function notificationPermissionLabel(state = pushNotificationState) {
+  if (state?.userSettingsReady === false) {
+    return notifText('Hali tayyor emas', 'Пока не готово', 'Not ready yet');
+  }
+  return state?.notificationEnabled === false
+    ? notifText('O‘chirilgan', 'Отключено', 'Disabled')
+    : notifText('Yoqilgan', 'Включено', 'Enabled');
+}
+
+function notificationReminderLabel(state = pushNotificationState) {
+  if (state?.userSettingsReady === false) {
+    return notifText('Hali tayyor emas', 'Пока не готово', 'Not ready yet');
+  }
+  return state?.notificationEnabled === false
+    ? notifText('Basic reminder o‘chiq', 'Базовые напоминания выключены', 'Basic reminders are off')
+    : notifText('Basic reminder yoqilgan', 'Базовые напоминания включены', 'Basic reminders are on');
+}
+
+function notificationPremiumLabel() {
+  const snapshot = getSubscriptionSnapshotLocal();
+  if (snapshot?.schemaReady === false) {
+    return notifText('Tarif sinxronlanmoqda', 'Тариф синхронизируется', 'Plan is syncing');
+  }
+  return snapshot?.isPremium
+    ? notifText('Ertalabgi va kechki reminder ochiq', 'Утренние и вечерние напоминания доступны', 'Morning and evening reminders are available')
+    : notifText('Faqat basic reminder', 'Только базовое напоминание', 'Basic reminder only');
+}
+
+function formatNotificationSyncTime(value) {
+  if (!value) return notifText('Hali yo‘q', 'Пока нет', 'Not yet');
+  try {
+    return new Intl.DateTimeFormat(localeTag(), {
+      dateStyle: 'short',
+      timeStyle: 'short'
+    }).format(new Date(value));
+  } catch {
+    return String(value);
+  }
+}
+
+function notificationHelpText(state = pushNotificationState) {
+  const snapshot = getSubscriptionSnapshotLocal();
+
+  if (state?.userSettingsReady === false) {
+    return notificationSetupHelp();
+  }
+
+  if (state?.lastError) {
+    return notificationErrorHelp();
+  }
+
+  if (state?.notificationEnabled === false) {
+    return notifText(
+      'Telegram eslatmalari o‘chiq. “Yoqish” tugmasi basic reminderni qayta yoqadi va premium bo‘lsa kunlik xabarlarni ham faollashtiradi.',
+      'Telegram-напоминания выключены. Кнопка “Включить” вернёт базовое напоминание и при Premium снова активирует ежедневные сообщения.',
+      'Telegram reminders are off. “Enable” restores the basic reminder and re-enables daily messages if the user has Premium.'
+    );
+  }
+
+  if (snapshot?.isPremium) {
+    return notifText(
+      'Telegram eslatmalari faol. Premium sabab ertalabgi va kechki xabarlar ham ishlaydi.',
+      'Telegram-напоминания активны. Благодаря Premium утренние и вечерние сообщения тоже включены.',
+      'Telegram reminders are active. Premium also unlocks morning and evening messages.'
+    );
+  }
+
+  return notifText(
+    'Telegram eslatmalari faol. Hozir basic reminder ishlaydi, ertalabgi va kechki xabarlar esa Premium tarifida ochiladi.',
+    'Telegram-напоминания активны. Сейчас работает базовое напоминание, а утренние и вечерние сообщения доступны в Premium.',
+    'Telegram reminders are active. The basic reminder is on, while morning and evening messages are unlocked on Premium.'
+  );
+}
+
+function updateNotificationSettingsUI() {
+  const state = pushNotificationState || {};
+  const badge = $('notif-state-badge');
+  if (badge) {
+    badge.textContent = notificationStatusLabel(state);
+    badge.dataset.state = notificationBadgeState(state);
+  }
+
+  const setText = (id, value) => {
+    const el = $(id);
+    if (el) el.textContent = value;
+  };
+
+  setText('notif-support-value', notificationSupportLabel(state));
+  setText('notif-permission-value', notificationPermissionLabel(state));
+  setText('notif-sync-value', formatNotificationSyncTime(state.lastSyncAt || state.lastReminderAt || state.lastReportAt));
+  setText('notif-reminders-value', notificationReminderLabel(state));
+  setText('notif-premium-value', notificationPremiumLabel(state));
+  setText('notif-help-text', notificationHelpText(state));
+
+  const busy = state?.status === 'syncing';
+  const canManage = !!UID;
+  const schemaReady = state?.userSettingsReady !== false;
+  const enableBtn = $('notif-enable-btn');
+  if (enableBtn) {
+    enableBtn.disabled = !canManage || busy || !schemaReady || state.notificationEnabled === true;
+  }
+  const refreshBtn = $('notif-refresh-btn');
+  if (refreshBtn) {
+    refreshBtn.disabled = !UID || busy;
+  }
+  const disableBtn = $('notif-disable-btn');
+  if (disableBtn) {
+    disableBtn.disabled = !UID || busy || !schemaReady || (state.notificationEnabled === false && !state.tokenRegistered);
+  }
+}
+
+window.addEventListener('kassa:push-state', (event) => {
+  pushNotificationState = { ...pushNotificationState, ...(event?.detail || {}) };
+  updateNotificationSettingsUI();
+});
+
+window.addEventListener('kassa:push-message', (event) => {
+  const detail = event?.detail || {};
+  const title = detail.title || tt('stg_notifications', 'Bildirishnomalar');
+  const body = detail.body || '';
+  showErr(body ? `${title}: ${body}` : title, 4200);
+});
+
+async function configurePushNotifications() {
+  const manager = window.__KASSA_PUSH__;
+  if (!manager?.configure) return pushNotificationState;
+  try {
+    const state = await manager.configure({
+      userId: UID,
+      appConfig: window.__APP_CONFIG__ || {},
+    });
+    if (state) pushNotificationState = { ...pushNotificationState, ...state, lastError: null };
+  } catch (error) {
+    console.warn('[push-configure]', error);
+    pushNotificationState = {
+      ...pushNotificationState,
+      status: 'error',
+      lastError: error?.message || String(error),
+    };
+  }
+  updateNotificationSettingsUI();
+  return pushNotificationState;
+}
+
+async function refreshNotificationPreferences(options = {}) {
+  if (!UID) {
+    pushNotificationState = { ...pushNotificationState, status: 'waiting_user' };
+    updateNotificationSettingsUI();
+    return null;
+  }
+
+  pushNotificationState = {
+    ...pushNotificationState,
+    status: 'syncing',
+    lastError: null,
+  };
+  updateNotificationSettingsUI();
 
   try {
-    if (navigator.sendBeacon) {
-      const blob = new Blob([serialized], { type: 'application/json' });
-      if (navigator.sendBeacon('/api/client-log', blob)) return;
+    const { data, error } = await selectUserRow(NOTIFICATION_USER_FIELDS);
+    if (error) throw error;
+    syncNotificationUserState(data || {}, { schemaReady: hasNotificationSchema(data) && userNotificationColumnsSupported !== false });
+    pushNotificationState = {
+      ...pushNotificationState,
+      lastError: null,
+      lastSyncAt: new Date().toISOString(),
+    };
+    updateNotificationSettingsUI();
+    if (options.showToast) {
+      if (pushNotificationState.userSettingsReady === false) {
+        showErr(notificationSetupHelp());
+      } else {
+        showErr(notifText('Notification holati yangilandi ✅', 'Статус уведомлений обновлён ✅', 'Notification status refreshed ✅'));
+      }
     }
-  } catch { }
-
-  fetch('/api/client-log', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: serialized,
-    keepalive: true,
-  }).catch(() => { });
+    return pushNotificationState;
+  } catch (error) {
+    console.warn('[notif-refresh]', error);
+    pushNotificationState = {
+      ...pushNotificationState,
+      status: 'error',
+      lastError: error?.message || String(error),
+    };
+    updateNotificationSettingsUI();
+    if (options.showToast) {
+      showErr(notifText('Notification holatini yangilab bo‘lmadi', 'Не удалось обновить статус уведомлений', 'Failed to refresh notification status'));
+    }
+    return null;
+  }
 }
 
-window.__postClientLog = postClientLog;
+async function syncLegacyPushState(options = {}) {
+  const manager = window.__KASSA_PUSH__;
+  if (!manager?.sync || !pushNotificationState.publicEnabled || !pushNotificationState.supported) {
+    return pushNotificationState;
+  }
 
+  try {
+    const state = await manager.sync(options);
+    if (state) pushNotificationState = { ...pushNotificationState, ...state };
+  } catch (error) {
+    console.warn('[legacy-push-sync]', error);
+    pushNotificationState = {
+      ...pushNotificationState,
+      lastError: error?.message || String(error),
+    };
+  }
+  return pushNotificationState;
+}
+
+async function saveNotificationPreference(enabled) {
+  if (!UID) {
+    showErr(notifText('Foydalanuvchi topilmadi', 'Пользователь не найден', 'User not found'));
+    return null;
+  }
+
+  if (userNotificationColumnsSupported === false) {
+    showErr(notificationSetupHelp());
+    return null;
+  }
+
+  pushNotificationState = {
+    ...pushNotificationState,
+    status: 'syncing',
+    lastError: null,
+  };
+  updateNotificationSettingsUI();
+
+  try {
+    const result = await db.from('users')
+      .update({ daily_reminder_enabled: !!enabled })
+      .eq('user_id', UID)
+      .select(`user_id, ${NOTIFICATION_USER_FIELDS.join(', ')}`)
+      .maybeSingle();
+
+    if (result.error && NOTIFICATION_USER_FIELDS.some((field) => userFieldMissing(result.error, field))) {
+      userNotificationColumnsSupported = false;
+      syncNotificationUserState({}, { schemaReady: false, status: 'error' });
+      updateNotificationSettingsUI();
+      showErr(notificationSetupHelp());
+      return null;
+    }
+    if (result.error) throw result.error;
+
+    if (enabled) {
+      await syncLegacyPushState({ requestPermission: true, force: true });
+    } else if (pushNotificationState.tokenRegistered && window.__KASSA_PUSH__?.disable) {
+      try {
+        const state = await window.__KASSA_PUSH__.disable('telegram_notifications_disabled');
+        if (state) pushNotificationState = { ...pushNotificationState, ...state };
+      } catch (error) {
+        console.warn('[notif-disable-legacy]', error);
+      }
+    }
+
+    syncNotificationUserState(result.data || { daily_reminder_enabled: !!enabled }, { schemaReady: true });
+    pushNotificationState = {
+      ...pushNotificationState,
+      lastError: null,
+      lastSyncAt: new Date().toISOString(),
+    };
+    updateNotificationSettingsUI();
+
+    showErr(
+      enabled
+        ? notifText('Telegram eslatmalari yoqildi ✅', 'Telegram-напоминания включены ✅', 'Telegram reminders enabled ✅')
+        : notifText('Telegram eslatmalari o‘chirildi', 'Telegram-напоминания отключены', 'Telegram reminders disabled')
+    );
+
+    return pushNotificationState;
+  } catch (error) {
+    console.warn('[notif-save]', error);
+    pushNotificationState = {
+      ...pushNotificationState,
+      status: 'error',
+      lastError: error?.message || String(error),
+    };
+    updateNotificationSettingsUI();
+    showErr(notifText('Notification sozlamasini saqlab bo‘lmadi', 'Не удалось сохранить настройки уведомлений', 'Failed to save notification settings'));
+    return null;
+  }
+}
+
+async function enablePushNotifications() {
+  return saveNotificationPreference(true);
+}
+
+async function refreshPushNotifications() {
+  await configurePushNotifications();
+  return refreshNotificationPreferences({ showToast: true });
+}
+
+async function disablePushNotifications() {
+  return saveNotificationPreference(false);
+}
+
+window.enablePushNotifications = enablePushNotifications;
+window.refreshPushNotifications = refreshPushNotifications;
+window.disablePushNotifications = disablePushNotifications;
+
+// ─── HELPERS ────────────────────────────────────────────
 const fmt = n => {
   const v = Number(n);
   if (!Number.isFinite(v)) return '0';
   return new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 2 }).format(v);
 };
+const DAY_MS = 86400000;
 const isoNow = (ms = Date.now()) => new Date(ms).toISOString();
 const toMs = v => {
   if (typeof v === 'number') return v;
@@ -595,6 +1254,628 @@ function errorText(error, fallback = '') {
   return fallback || 'Unknown error';
 }
 
+function formatSubscriptionDate(value) {
+  if (!value) return '—';
+  try {
+    const date = new Date(value);
+    if (!Number.isFinite(date.getTime())) return String(value);
+    const day = String(date.getDate()).padStart(2, '0');
+    const year = date.getFullYear();
+    const monthIndex = date.getMonth();
+    const monthMap = currentLang === 'ru'
+      ? ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря']
+      : currentLang === 'en'
+        ? ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
+        : ['yanvar', 'fevral', 'mart', 'aprel', 'may', 'iyun', 'iyul', 'avgust', 'sentabr', 'oktabr', 'noyabr', 'dekabr'];
+    const month = monthMap[monthIndex] || '';
+    if (currentLang === 'en') return `${month} ${Number(day)}, ${year}`;
+    return `${Number(day)} ${month} ${year}`;
+  } catch {
+    return String(value);
+  }
+}
+
+function formatSubscriptionDateTime(value) {
+  if (!value) return '—';
+  try {
+    const date = new Date(value);
+    if (!Number.isFinite(date.getTime())) return String(value);
+    return new Intl.DateTimeFormat(localeTag(), {
+      day: 'numeric',
+      month: 'long',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      hourCycle: 'h23',
+    }).format(date);
+  } catch {
+    return formatSubscriptionDate(value);
+  }
+}
+
+function getSubscriptionRelativeDayInfo(value) {
+  const targetMs = toMs(value);
+  const now = Date.now();
+  const todayStart = getDayStartMs(now);
+  const targetStart = getDayStartMs(targetMs);
+  return Math.round((targetStart - todayStart) / DAY_MS);
+}
+
+function subscriptionText(uz, ru, en) {
+  return currentLang === 'ru' ? ru : currentLang === 'en' ? en : uz;
+}
+
+function getCountdownParts(value) {
+  const targetMs = typeof value === 'number' ? value : toMs(value);
+  const totalMs = Math.max(0, targetMs - Date.now());
+  const totalSeconds = Math.floor(totalMs / 1000);
+  const days = Math.floor(totalSeconds / 86400);
+  const hours = Math.floor((totalSeconds % 86400) / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  const totalHours = Math.floor(totalSeconds / 3600);
+  const totalMinutes = Math.floor(totalSeconds / 60);
+  return { totalMs, totalSeconds, totalHours, totalMinutes, days, hours, minutes, seconds };
+}
+
+function formatCountdownSummary(parts) {
+  if (!parts || parts.totalMs <= 0) {
+    return subscriptionText('Muddat tugadi', 'Срок истёк', 'Expired');
+  }
+  if (parts.days > 0) {
+    return `${parts.days} ${tt('countdown_days_short', 'kun')} ${parts.hours} ${tt('countdown_hours_short', 'soat')}`;
+  }
+  if (parts.totalHours > 0) {
+    return `${parts.totalHours} ${tt('countdown_hours_short', 'soat')} ${parts.minutes} ${tt('countdown_minutes_short', 'min')}`;
+  }
+  if (parts.totalMinutes > 0) {
+    return `${parts.totalMinutes} ${tt('countdown_minutes_short', 'min')} ${parts.seconds} ${tt('countdown_seconds_short', 'sek')}`;
+  }
+  return `${parts.seconds} ${tt('countdown_seconds_short', 'sek')}`;
+}
+
+function formatSaleEndsSummary(value) {
+  const formatted = formatSubscriptionDateTime(value);
+  return subscriptionText(
+    `${formatted} gacha`,
+    `До ${formatted}`,
+    `Until ${formatted}`
+  );
+}
+
+function getSubscriptionEndHint(value) {
+  if (!value) return subscriptionText(
+    'Faol muddat ko‘rsatilmagan',
+    'Срок действия не указан',
+    'Access period is not available'
+  );
+  const parts = getCountdownParts(value);
+  if (parts.totalMs > 0 && parts.totalMs < DAY_MS) {
+    return formatCountdownSummary(parts);
+  }
+  const diffDays = getSubscriptionRelativeDayInfo(value);
+  if (diffDays > 1) {
+    return subscriptionText(
+      `${diffDays} kun qoldi`,
+      `Осталось ${diffDays} дн`,
+      `${diffDays} days left`
+    );
+  }
+  if (diffDays === 1) {
+    return subscriptionText('1 kun qoldi', 'Остался 1 день', '1 day left');
+  }
+  if (diffDays === 0) {
+    return subscriptionText('Bugun tugaydi', 'Заканчивается сегодня', 'Ends today');
+  }
+  if (diffDays === -1) {
+    return subscriptionText('Kecha tugagan', 'Закончилось вчера', 'Ended yesterday');
+  }
+  return subscriptionText(
+    `${Math.abs(diffDays)} kun oldin tugagan`,
+    `Закончилось ${Math.abs(diffDays)} дн. назад`,
+    `Ended ${Math.abs(diffDays)} days ago`
+  );
+}
+
+function getSubscriptionPeriodBadge(snapshot) {
+  const target = snapshot?.accessUntil || snapshot?.subscriptionEndAt || snapshot?.trialEndAt || snapshot?.graceUntil;
+  if (!target) {
+    if (snapshot?.isPremium) {
+      return subscriptionText('Faol', 'Активно', 'Active');
+    }
+    return subscriptionText('Bepul', 'Бесплатно', 'Free');
+  }
+  return getSubscriptionEndHint(target);
+}
+
+function setCountdownUnitValue(unitEl, value, animate = false) {
+  if (!unitEl) return;
+  const nextValue = String(Math.max(0, Number(value) || 0)).padStart(2, '0');
+  const currentEl = unitEl.querySelector('.countdown-roll-current');
+  const nextEl = unitEl.querySelector('.countdown-roll-next');
+  const previousValue = unitEl.dataset.value || nextValue;
+  if (!currentEl || !nextEl) {
+    unitEl.textContent = nextValue;
+    unitEl.dataset.value = nextValue;
+    return;
+  }
+  if (!animate || previousValue === nextValue) {
+    currentEl.textContent = nextValue;
+    nextEl.textContent = nextValue;
+    unitEl.dataset.value = nextValue;
+    unitEl.classList.remove('is-animating');
+    unitEl.classList.remove('is-resetting');
+    return;
+  }
+  currentEl.textContent = previousValue;
+  nextEl.textContent = nextValue;
+  unitEl.dataset.value = nextValue;
+  unitEl.classList.remove('is-animating');
+  void unitEl.offsetWidth;
+  unitEl.classList.add('is-animating');
+  clearTimeout(unitEl.__countdownResetTimer);
+  unitEl.__countdownResetTimer = setTimeout(() => {
+    unitEl.classList.add('is-resetting');
+    currentEl.textContent = nextValue;
+    nextEl.textContent = nextValue;
+    unitEl.classList.remove('is-animating');
+    void unitEl.offsetWidth;
+    requestAnimationFrame(() => {
+      unitEl.classList.remove('is-resetting');
+    });
+  }, 460);
+}
+
+function syncCountdownBoard(boardEl, values = {}, options = {}) {
+  if (!boardEl) return;
+  const units = boardEl.querySelectorAll('.countdown-unit[data-unit]');
+  units.forEach((unitEl) => {
+    const unitKey = unitEl.dataset.unit;
+    const nextValue = values[unitKey] ?? 0;
+    setCountdownUnitValue(unitEl, nextValue, options.animate === true);
+    unitEl.dataset.urgent = options.urgent === true ? 'true' : 'false';
+  });
+}
+
+function updatePricingSaleCountdownUI(plan = null) {
+  const bannerEl = $('pricing-premium-sale-banner');
+  const summaryEl = $('pricing-premium-sale-summary');
+  const discountEl = $('pricing-premium-sale-discount');
+  const currentPriceEl = $('pricing-premium-price-current');
+  const oldWrapEl = $('pricing-premium-price-old-wrap');
+  const oldPriceEl = $('pricing-premium-price-old');
+  const countdownCardEl = $('pricing-premium-countdown-card');
+  const countdownSummaryEl = $('pricing-premium-countdown-summary');
+  const countdownBoardEl = $('pricing-premium-countdown-board');
+  const pricing = plan?.pricing || resolvePlanPricingMeta(plan || {}, new Date());
+
+  if (currentPriceEl) currentPriceEl.textContent = formatPriceAmountUzs(pricing.currentPrice);
+
+  const hasVisibleDiscount = pricing.saleActive && pricing.originalPrice > pricing.currentPrice;
+  if (oldWrapEl) oldWrapEl.style.display = hasVisibleDiscount ? 'inline-flex' : 'none';
+  if (oldPriceEl) oldPriceEl.textContent = formatPriceAmountUzs(pricing.originalPrice);
+  if (discountEl) discountEl.textContent = pricing.discountAmount > 0 ? `-${formatPriceAmountUzs(pricing.discountAmount)}` : '';
+
+  if (bannerEl) bannerEl.style.display = hasVisibleDiscount ? 'flex' : 'none';
+  if (summaryEl) {
+    summaryEl.textContent = hasVisibleDiscount && pricing.saleEndsAt
+      ? formatSaleEndsSummary(pricing.saleEndsAt)
+      : '';
+  }
+
+  const saleTarget = pricing.saleActive ? parseDateSafe(pricing.saleEndsAt) : null;
+  if (!saleTarget || !countdownCardEl || !countdownSummaryEl || !countdownBoardEl) {
+    if (countdownCardEl) countdownCardEl.style.display = 'none';
+    return;
+  }
+
+  const parts = getCountdownParts(saleTarget.getTime());
+  if (parts.totalMs <= 0) {
+    countdownCardEl.style.display = 'none';
+    return;
+  }
+
+  countdownCardEl.style.display = 'block';
+  countdownSummaryEl.textContent = formatCountdownSummary(parts);
+  syncCountdownBoard(countdownBoardEl, {
+    days: parts.days,
+    hours: parts.hours,
+    minutes: parts.minutes,
+    seconds: parts.seconds,
+  }, {
+    animate: countdownBoardEl.dataset.initialized === 'true',
+    urgent: parts.totalMs <= 3600000,
+  });
+  countdownBoardEl.dataset.initialized = 'true';
+}
+
+function updateSubscriptionExpiryCountdownUI(snapshot = null) {
+  const wrapEl = $('stg-subscription-live-countdown');
+  const summaryEl = $('stg-subscription-live-summary');
+  const boardEl = $('stg-subscription-live-board');
+  if (!wrapEl || !summaryEl || !boardEl) return;
+
+  const currentSnapshot = snapshot || getSubscriptionSnapshotLocal();
+  const target = parseDateSafe(
+    currentSnapshot?.accessUntil
+    || currentSnapshot?.subscriptionEndAt
+    || currentSnapshot?.trialEndAt
+    || currentSnapshot?.graceUntil
+  );
+
+  if (!target || !currentSnapshot?.isPremium) {
+    wrapEl.style.display = 'none';
+    return;
+  }
+
+  const parts = getCountdownParts(target.getTime());
+  const shouldShow = parts.totalMs > 0 && parts.totalMs < DAY_MS;
+  if (!shouldShow) {
+    wrapEl.style.display = 'none';
+    return;
+  }
+
+  wrapEl.style.display = 'flex';
+  summaryEl.textContent = formatCountdownSummary(parts);
+  syncCountdownBoard(boardEl, {
+    hours: parts.totalHours,
+    minutes: parts.minutes,
+    seconds: parts.seconds,
+  }, {
+    animate: boardEl.dataset.initialized === 'true',
+    urgent: parts.totalMs <= 3600000,
+  });
+  boardEl.dataset.initialized = 'true';
+}
+
+function extractUpgradeFeatureKey(error, fallbackFeatureKey = null) {
+  const raw = [
+    String(error?.details || ''),
+    String(error?.hint || ''),
+    String(error?.message || ''),
+    errorText(error, ''),
+  ].join(' ');
+  const match = raw.match(/upgrade_required:([a-z_]+)/i);
+  return match?.[1] || fallbackFeatureKey || null;
+}
+
+function getPaywallCopy(featureKey, gate) {
+  const feature = String(featureKey || '').trim();
+  if (feature === 'plan_create' || feature === 'limit_create') {
+    return {
+      title: tt('paywall_limit_title', 'Siz bepul tarif limitiga yetdingiz'),
+      body: tt('paywall_plan_body', 'Bepul tarifda faqat 1 ta faol reja va limit ishlatish mumkin. Premium orqali cheksiz reja, qarz, limit va kengaytirilgan hisobotlardan foydalanishingiz mumkin.'),
+    };
+  }
+  if (feature === 'debt_create') {
+    return {
+      title: tt('paywall_limit_title', 'Siz bepul tarif limitiga yetdingiz'),
+      body: tt('paywall_debt_body', 'Bepul tarifda faqat 1 ta faol qarz saqlanadi. Premium orqali cheksiz qarz, reja, limit va qulay eslatmalardan foydalanishingiz mumkin.'),
+    };
+  }
+  if (feature === 'custom_reminder_time') {
+    return {
+      title: tt('paywall_custom_reminder_title', 'Custom eslatma vaqti Premium tarifida'),
+      body: tt('paywall_custom_reminder_body', 'Bepul tarifda basic reminder ishlaydi. Premium bilan eslatma uchun istalgan sana va vaqtni alohida sozlashingiz mumkin.'),
+    };
+  }
+  if (feature === 'advanced_reports') {
+    return {
+      title: tt('paywall_reports_title', 'PDF hisobot Premium tarifida'),
+      body: tt('paywall_reports_body', 'Premium orqali PDF va Excel ko‘rinishidagi kengaytirilgan hisobotlarni yuklab olishingiz mumkin.'),
+    };
+  }
+  if (feature === 'premium_dashboard') {
+    return {
+      title: tt('dashboard_premium_locked_title', 'Premium dashboardni oching'),
+      body: tt('dashboard_premium_locked_body', 'Balans prognozi, xavfsiz xarajat, limit xavfi va moliyaviy salomatlik skori Premium foydalanuvchilarga ochiladi.'),
+    };
+  }
+  if (feature === 'daily_morning_reminder' || feature === 'daily_evening_reminder') {
+    return {
+      title: tt('paywall_reminders_title', 'Kunlik eslatmalar Premium tarifida'),
+      body: tt('paywall_reminders_body', 'Premium foydalanuvchilar ertalabgi va kechki eslatmalarni oladi. Bepul tarifda esa basic reminder saqlanib qoladi.'),
+    };
+  }
+  if (feature === 'deep_analytics' || feature === 'ai_insights') {
+    return {
+      title: tt('paywall_analytics_title', 'Kengaytirilgan analiz Premium tarifida'),
+      body: tt('paywall_analytics_body', 'Premium orqali chuqur statistika, kengaytirilgan analiz va AI bilan ishlaydigan qulayliklar ochiladi.'),
+    };
+  }
+  return {
+    title: tt('paywall_generic_title', 'Premium orqali ko‘proq imkoniyatlarga ega bo‘ling'),
+    body: tt('paywall_generic_body', 'Bu imkoniyat Premium tarifida mavjud. Premium orqali ko‘proq funksiyalar va yuqori limitlardan foydalanishingiz mumkin.'),
+  };
+}
+
+function renderSubscriptionFeatureList(targetId, items = []) {
+  const el = $(targetId);
+  if (!el) return;
+  el.innerHTML = (items || []).map((item) => `<li>${escapeHtml(item)}</li>`).join('');
+}
+
+function getPremiumPlanActionLabel(snapshot) {
+  if (snapshot?.isPremium && snapshot?.planCode === 'premium_monthly') {
+    return tt('pricing_current_plan_action', 'Faol tarif');
+  }
+  if (snapshot?.effectiveStatus === 'expired') {
+    return tt('pricing_restore_premium', 'Premiumni qayta yoqish');
+  }
+  return tt('subscription_upgrade_action', 'Premium ga o‘tish');
+}
+
+function getLocalizedSubscriptionPlanTitle(snapshot) {
+  return snapshot?.planCode === 'premium_monthly'
+    ? tt('subscription_plan_premium', 'Premium')
+    : tt('subscription_plan_free', 'Bepul');
+}
+
+function getLocalizedSubscriptionStatusLabel(snapshot) {
+  if (snapshot?.effectiveStatus === 'trial') {
+    return tt('subscription_status_trial', 'Sinov muddati');
+  }
+  if (snapshot?.effectiveStatus === 'expired') {
+    return tt('subscription_status_expired', 'Obuna muddati tugagan');
+  }
+  if (snapshot?.effectiveStatus === 'active' || snapshot?.effectiveStatus === 'grace' || snapshot?.effectiveStatus === 'canceled') {
+    return tt('subscription_status_active', 'Obuna bo‘lgan');
+  }
+  return tt('subscription_status_free', 'Obuna bo‘lmagan');
+}
+
+function getHeaderPlanIconMarkup(isPremium) {
+  if (isPremium) {
+    return `
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M7 3h10l4 6-9 12L3 9z"></path>
+        <path d="M3 9h18"></path>
+        <path d="M9.5 3 7 9l5 12 5-12-2.5-6"></path>
+      </svg>
+    `;
+  }
+
+  return `
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="12" cy="12" r="7"></circle>
+      <path d="M12 8v8"></path>
+      <path d="M8 12h8"></path>
+    </svg>
+  `;
+}
+
+function openSubscriptionPanel(source = 'settings') {
+  currentPaywallSource = source;
+  closeOv('ov-upgrade');
+  openStgSub('stg-sub-subscription');
+}
+
+function requestPremiumUpgrade(source = 'settings', featureKey = null) {
+  currentPaywallSource = source;
+  currentPaywallFeatureKey = featureKey || currentPaywallFeatureKey || null;
+  showErr(tt('subscription_contact_hint', 'Premium ulash uchun qo‘llab-quvvatlash bilan bog‘laning.'), 2600);
+  openSupport();
+}
+
+function handlePricingPlanAction(planCode) {
+  const snapshot = getSubscriptionSnapshotLocal();
+  if (planCode === 'free') {
+    showErr(tt('pricing_free_current', 'Sizda hozir bepul tarif faol.'));
+    return;
+  }
+  if (snapshot?.isPremium && snapshot?.planCode === 'premium_monthly') {
+    showErr(tt('pricing_current_plan_notice', 'Premium tarifi allaqachon faol.'));
+    return;
+  }
+  requestPremiumUpgrade('pricing', 'advanced_reports');
+}
+
+function updateSubscriptionUI() {
+  const snapshot = getSubscriptionSnapshotLocal();
+  const plans = getPricingPlansData();
+  const freePlan = plans.find((item) => item.code === 'free') || plans[0] || { features: [] };
+  const premiumPlan = plans.find((item) => item.code === 'premium_monthly') || plans[1] || { features: [] };
+  const statusText = getLocalizedSubscriptionStatusLabel(snapshot);
+  const planText = getLocalizedSubscriptionPlanTitle(snapshot);
+  const statusBadge = {
+    ...(snapshot?.badge || {}),
+    label: statusText,
+    tone: snapshot?.badge?.tone || (snapshot?.isPremium ? 'premium' : (snapshot?.effectiveStatus === 'expired' ? 'expired' : 'free')),
+  };
+  const priceText = snapshot?.priceLabel || '0 so\'m';
+  const startValue = formatSubscriptionDate(snapshot?.subscriptionStartAt);
+  const endValue = formatSubscriptionDate(snapshot?.accessUntil || snapshot?.subscriptionEndAt || snapshot?.trialEndAt || snapshot?.graceUntil);
+  const startRowVisible = !!snapshot?.subscriptionStartAt;
+  const endRowVisible = !!(snapshot?.accessUntil || snapshot?.subscriptionEndAt || snapshot?.trialEndAt || snapshot?.graceUntil);
+
+  const itemSub = $('stg-subscription-sub');
+  const itemBadge = $('stg-subscription-badge');
+  const headerPlanIndicator = $('dash-plan-indicator');
+  const headerPlanIcon = $('dash-plan-indicator-icon');
+  if (itemSub) {
+    itemSub.textContent = snapshot?.schemaReady === false
+      ? tt('subscription_syncing', 'Tarif ma\'lumotlari sinxronlanmoqda')
+      : `${planText} · ${statusText}`;
+  }
+  if (itemBadge) {
+    itemBadge.textContent = statusBadge.label || statusText;
+    itemBadge.dataset.state = statusBadge.tone || 'free';
+  }
+  if (headerPlanIndicator) {
+    const indicatorTone = snapshot?.isPremium ? 'premium' : (snapshot?.effectiveStatus === 'expired' ? 'expired' : 'free');
+    const indicatorLabel = snapshot?.schemaReady === false
+      ? tt('subscription_syncing', 'Tarif ma\'lumotlari sinxronlanmoqda')
+      : `${planText} · ${statusText}`;
+    headerPlanIndicator.dataset.state = indicatorTone;
+    headerPlanIndicator.classList.toggle('is-premium', !!snapshot?.isPremium);
+    headerPlanIndicator.setAttribute('aria-label', indicatorLabel);
+    headerPlanIndicator.setAttribute('title', indicatorLabel);
+  }
+  if (headerPlanIcon) {
+    headerPlanIcon.innerHTML = getHeaderPlanIconMarkup(!!snapshot?.isPremium);
+  }
+
+  const planEl = $('stg-subscription-plan');
+  const statusEl = $('stg-subscription-status');
+  const priceEl = $('stg-subscription-price');
+  const badgeEl = $('stg-subscription-status-badge');
+  const periodCard = $('stg-subscription-period-card');
+  const periodGrid = $('stg-subscription-period-grid');
+  const periodDivider = $('stg-subscription-period-divider');
+  const periodBadge = $('stg-subscription-period-badge');
+  const startRow = $('stg-subscription-start-row');
+  const endRow = $('stg-subscription-end-row');
+  const startEl = $('stg-subscription-start');
+  const endEl = $('stg-subscription-end');
+  const statusCardEl = $('stg-subscription-status-card');
+  const priceCardEl = $('stg-subscription-price-card');
+  const priceMetaEl = $('stg-subscription-price-meta');
+  const priceOldEl = $('stg-subscription-price-old');
+  const noteEl = $('stg-subscription-note');
+  if (planEl) planEl.textContent = planText;
+  if (statusEl) statusEl.textContent = statusText;
+  if (priceEl) priceEl.textContent = priceText;
+  if (badgeEl) {
+    badgeEl.textContent = statusBadge.label || statusText;
+    badgeEl.dataset.state = statusBadge.tone || 'free';
+  }
+  if (startRow) startRow.style.display = startRowVisible ? 'flex' : 'none';
+  if (endRow) endRow.style.display = endRowVisible ? 'flex' : 'none';
+  if (periodCard) periodCard.style.display = startRowVisible || endRowVisible ? 'flex' : 'none';
+  if (periodDivider) periodDivider.style.display = startRowVisible && endRowVisible ? 'block' : 'none';
+  if (periodGrid) periodGrid.dataset.layout = startRowVisible && endRowVisible ? 'split' : 'single';
+  if (periodBadge) {
+    periodBadge.textContent = getSubscriptionPeriodBadge(snapshot);
+    periodBadge.dataset.state = snapshot?.effectiveStatus || (snapshot?.isPremium ? 'active' : 'free');
+  }
+  if (startEl) startEl.textContent = startValue;
+  if (endEl) endEl.textContent = endValue;
+  if (statusCardEl) statusCardEl.dataset.state = statusBadge.tone || 'free';
+  if (priceCardEl) priceCardEl.dataset.state = snapshot?.planCode === 'premium_monthly' ? 'premium' : 'free';
+  if (priceMetaEl) {
+    const hasDiscount = !!(snapshot?.saleActive && snapshot?.originalMonthlyPriceUzs > snapshot?.monthlyPriceUzs);
+    priceMetaEl.style.display = hasDiscount ? 'flex' : 'none';
+  }
+  if (priceOldEl) {
+    priceOldEl.textContent = formatPriceAmountUzs(snapshot?.originalMonthlyPriceUzs || snapshot?.monthlyPriceUzs || 0);
+  }
+  if (noteEl) {
+    noteEl.textContent = snapshot?.schemaReady === false
+      ? tt('subscription_syncing_hint', 'Tarif ma\'lumotlari bazadan yangilangach avtomatik ko‘rinadi.')
+      : (
+        snapshot?.isPremium
+          ? tt('subscription_premium_ready', 'Premium funksiyalar hozir faol.')
+          : tt('subscription_free_hint', 'Bepul tarifda asosiy funksiyalar va basic limitlar mavjud.')
+      );
+  }
+
+  renderSubscriptionFeatureList('pricing-free-features', freePlan.features || []);
+  renderSubscriptionFeatureList('pricing-premium-features', premiumPlan.features || []);
+
+  const freeCard = $('pricing-card-free');
+  const premiumCard = $('pricing-card-premium');
+  const freeAction = $('pricing-free-action');
+  const premiumAction = $('pricing-premium-action');
+  if (freeCard) freeCard.classList.toggle('is-current', snapshot?.planCode === 'free');
+  if (premiumCard) premiumCard.classList.toggle('is-current', snapshot?.planCode === 'premium_monthly' && snapshot?.isPremium);
+  if (freeAction) {
+    freeAction.textContent = snapshot?.planCode === 'free'
+      ? tt('pricing_current_plan_action', 'Faol tarif')
+      : tt('pricing_free_action', 'Bepul tarif');
+    freeAction.disabled = snapshot?.planCode === 'free';
+  }
+  if (premiumAction) {
+    premiumAction.textContent = getPremiumPlanActionLabel(snapshot);
+    premiumAction.disabled = !!(snapshot?.isPremium && snapshot?.planCode === 'premium_monthly');
+  }
+
+  updatePricingSaleCountdownUI(premiumPlan);
+  updateSubscriptionExpiryCountdownUI(snapshot);
+
+  const currentPlanEl = $('upgrade-current-plan');
+  const currentStatusEl = $('upgrade-current-status');
+  if (currentPlanEl) currentPlanEl.textContent = planText;
+  if (currentStatusEl) currentStatusEl.textContent = statusText;
+  renderDashboardAnalytics();
+}
+
+function openUpgradePaywall(featureKey, options = {}) {
+  currentPaywallFeatureKey = featureKey;
+  currentPaywallSource = options.source || currentPaywallSource || 'feature';
+  const gate = options.gate || getFeatureGateResult(featureKey, options);
+  const copy = getPaywallCopy(featureKey, gate);
+  const titleEl = $('upgrade-feature-title');
+  const bodyEl = $('upgrade-feature-body');
+  const badgeEl = $('upgrade-feature-badge');
+  const benefitsEl = $('upgrade-feature-benefits');
+
+  if (titleEl) titleEl.textContent = copy.title;
+  if (bodyEl) bodyEl.textContent = copy.body;
+  if (badgeEl) {
+    badgeEl.textContent = tt('subscription_upgrade_action', 'Premium ga o‘tish');
+    badgeEl.dataset.state = 'premium';
+  }
+  if (benefitsEl) {
+    const premiumPlan = getPricingPlansData().find((item) => item.code === 'premium_monthly');
+    benefitsEl.innerHTML = (premiumPlan?.features || []).slice(0, 4)
+      .map((item) => `<li>${escapeHtml(item)}</li>`)
+      .join('');
+  }
+
+  updateSubscriptionUI();
+  showOv('ov-upgrade');
+  return false;
+}
+
+function handleUpgradeRequiredError(error, fallbackFeatureKey = null, source = 'feature') {
+  const featureKey = extractUpgradeFeatureKey(error, fallbackFeatureKey);
+  if (!featureKey) return false;
+  openUpgradePaywall(featureKey, { source });
+  return true;
+}
+
+function openDashboardAnalyticsPaywall() {
+  return openUpgradePaywall('premium_dashboard', { source: 'dashboard_analytics', relaxedWhenSchemaMissing: false });
+}
+
+function handleDashboardAnalyticsAction() {
+  const snapshot = getSubscriptionSnapshotLocal();
+  if (snapshot?.isPremium) {
+    return openSubscriptionPanel('dashboard_analytics');
+  }
+  return openDashboardAnalyticsPaywall();
+}
+
+let subscriptionUiTimer = null;
+
+function tickSubscriptionUiTimers() {
+  const plans = getPricingPlansData();
+  const premiumPlan = plans.find((item) => item.code === 'premium_monthly') || plans[1] || null;
+  updatePricingSaleCountdownUI(premiumPlan);
+  updateSubscriptionExpiryCountdownUI();
+}
+
+function ensureSubscriptionUiTimer() {
+  if (subscriptionUiTimer) return;
+  tickSubscriptionUiTimers();
+  subscriptionUiTimer = setInterval(tickSubscriptionUiTimers, 1000);
+}
+
+ensureSubscriptionUiTimer();
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) tickSubscriptionUiTimers();
+});
+
+window.openSubscriptionPanel = openSubscriptionPanel;
+window.requestPremiumUpgrade = requestPremiumUpgrade;
+window.handlePricingPlanAction = handlePricingPlanAction;
+window.openUpgradePaywall = openUpgradePaywall;
+window.handleUpgradeRequiredError = handleUpgradeRequiredError;
+window.openDashboardAnalyticsPaywall = openDashboardAnalyticsPaywall;
+window.handleDashboardAnalyticsAction = handleDashboardAnalyticsAction;
+window.getFeatureGateResult = getFeatureGateResult;
+window.getSubscriptionSnapshot = getSubscriptionSnapshotLocal;
+
 function getTgUser() {
   return tg?.initDataUnsafe?.user || null;
 }
@@ -741,16 +2022,65 @@ function removeProfilePhoto() {
   renderProfileEditorUI();
 }
 
+function userFieldMissing(error, field) {
+  const msg = String(error?.message || error?.details || error?.hint || '').toLowerCase();
+  const target = String(field || '').toLowerCase();
+  return !!target && msg.includes(target) && (
+    msg.includes('schema cache') ||
+    msg.includes('does not exist') ||
+    msg.includes('unknown column') ||
+    msg.includes('could not find the column')
+  );
+}
+
 async function selectUserRow(extraFields = []) {
-  const baseFields = ['user_id', 'full_name', 'phone_number', ...extraFields];
-  const fields = Array.from(new Set([...(userAvatarColumnSupported === false ? [] : ['avatar_url']), ...baseFields])).join(', ');
-  let result = await db.from('users').select(fields).eq('user_id', UID).maybeSingle();
-  if (result.error && userAvatarColumnSupported !== false && /avatar_url/i.test(result.error.message || '')) {
-    userAvatarColumnSupported = false;
-    const fallbackFields = Array.from(new Set(baseFields)).join(', ');
-    result = await db.from('users').select(fallbackFields).eq('user_id', UID).maybeSingle();
-  } else if (!result.error && fields.includes('avatar_url')) {
-    userAvatarColumnSupported = true;
+  const requestedExtraFields = Array.from(new Set(extraFields));
+  const subscriptionFields = requestedExtraFields.filter((field) => SUBSCRIPTION_USER_FIELDS.includes(field));
+  const notificationFields = requestedExtraFields.filter((field) => NOTIFICATION_USER_FIELDS.includes(field));
+  const plainFields = requestedExtraFields.filter((field) => !SUBSCRIPTION_USER_FIELDS.includes(field) && !NOTIFICATION_USER_FIELDS.includes(field));
+  let allowAvatar = userAvatarColumnSupported !== false;
+  let allowSubscription = userSubscriptionColumnsSupported !== false && subscriptionFields.length > 0;
+  let allowNotification = userNotificationColumnsSupported !== false && notificationFields.length > 0;
+  let result = null;
+
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const fields = Array.from(new Set([
+      ...(allowAvatar ? ['avatar_url'] : []),
+      'user_id',
+      'full_name',
+      'phone_number',
+      ...plainFields,
+      ...(allowSubscription ? subscriptionFields : []),
+      ...(allowNotification ? notificationFields : []),
+    ])).join(', ');
+
+    result = await db.from('users').select(fields).eq('user_id', UID).maybeSingle();
+    if (!result.error) {
+      if (allowAvatar) userAvatarColumnSupported = true;
+      if (allowSubscription && subscriptionFields.length) userSubscriptionColumnsSupported = true;
+      if (allowNotification && notificationFields.length) userNotificationColumnsSupported = true;
+      break;
+    }
+
+    if (allowAvatar && userFieldMissing(result.error, 'avatar_url')) {
+      allowAvatar = false;
+      userAvatarColumnSupported = false;
+      continue;
+    }
+
+    if (allowSubscription && subscriptionFields.some((field) => userFieldMissing(result.error, field))) {
+      allowSubscription = false;
+      userSubscriptionColumnsSupported = false;
+      continue;
+    }
+
+    if (allowNotification && notificationFields.some((field) => userFieldMissing(result.error, field))) {
+      allowNotification = false;
+      userNotificationColumnsSupported = false;
+      continue;
+    }
+
+    break;
   }
   return result;
 }
@@ -801,6 +2131,7 @@ function renderProfileUI() {
   setAvatar('stg-avatar-edit', { photoUrl: getProfileEditPhotoUrl() });
   setAvatar('dash-avatar');
   renderProfileEditorUI();
+  updateSubscriptionUI();
 }
 
 function addMsg(text, isUser = false) {
@@ -859,6 +2190,7 @@ function hideLoader() {
   buildIconGrid();
 
   await loadConfig();
+  await configurePushNotifications();
 
   if (db && UID) {
     try {
@@ -867,7 +2199,6 @@ function hideLoader() {
       initRealtime(); // Real-time ulanishni yoqish
     } catch (e) {
       console.error('[boot]', e);
-      postClientLog('error', 'boot', e?.message || 'Mini app boot failed', { stack: e?.stack || null });
       showErr(tt('err_boot_data_load', "Ma'lumotlar yuklanmadi") + ': ' + (e?.message || e));
     }
   } else if (!UID) {
@@ -880,6 +2211,7 @@ function hideLoader() {
 
   renderAll();
   updateSettingsUI();
+  updateNotificationSettingsUI();
   initSettingsUI();
   hideLoader();
   initSwipe();
@@ -981,6 +2313,7 @@ async function ensureUser() {
     setProfileAvatarCache(row.avatar_url || '');
     store.set('display_name', profileState.fullName);
     resetProfileEditState();
+    syncSubscriptionState(row, { schemaReady: false });
     renderProfileUI();
     return;
   }
@@ -995,17 +2328,20 @@ async function ensureUser() {
   }
 
   resetProfileEditState();
+  syncSubscriptionState(existing, { schemaReady: hasSubscriptionSchema(existing) });
   renderProfileUI();
 }
 
 async function loadData() {
-  const { data: u, error: ue } = await selectUserRow(['exchange_rate']);
+  const { data: u, error: ue } = await selectUserRow(['exchange_rate', ...SUBSCRIPTION_USER_FIELDS, ...NOTIFICATION_USER_FIELDS]);
   if (ue) throw ue;
 
   if (u?.exchange_rate) {
     rate = Number(u.exchange_rate) || rate;
     store.set('rate', rate);
   }
+  syncSubscriptionState(u || {}, { schemaReady: hasSubscriptionSchema(u) && userSubscriptionColumnsSupported !== false });
+  syncNotificationUserState(u || {}, { schemaReady: hasNotificationSchema(u) && userNotificationColumnsSupported !== false });
   if (u) {
     profileState.fullName = normalizeName(u.full_name) || profileState.fullName;
     profileState.phone = u.phone_number || profileState.phone || '';
@@ -1051,8 +2387,43 @@ function routeBridge() {
   return window.__KASSA_ROUTER__ || null;
 }
 
+function isFinanceTab(tab) {
+  return tab === 'debt' || tab === 'plan';
+}
+
+function getFinanceViewTab() {
+  const el = $('view-finance');
+  const tab = String(el?.dataset?.activeTab || '').trim();
+  return tab === 'plan' ? 'plan' : 'debt';
+}
+
+function getPreferredFinanceTab() {
+  return lastFinanceTab === 'plan' ? 'plan' : getFinanceViewTab();
+}
+
+function openFinanceSection() {
+  return goTab(getPreferredFinanceTab());
+}
+
+function warmViewChunk(tab) {
+  try {
+    window.__KASSA_VIEW_BRIDGE__?.preloadView?.(tab);
+  } catch (error) {
+    console.warn('[view-bridge] preload request failed', tab, error);
+  }
+}
+
+async function ensureViewReady(tab) {
+  try {
+    await window.__KASSA_VIEW_BRIDGE__?.ensureViewMounted?.(tab);
+  } catch (error) {
+    console.warn('[view-bridge] mount failed', tab, error);
+  }
+}
+
 function getActiveTabFromDom() {
   const id = document.querySelector('.view.active')?.id || '';
+  if (id === 'view-finance') return getFinanceViewTab();
   return id.startsWith('view-') ? id.slice(5) : 'dash';
 }
 
@@ -1080,28 +2451,42 @@ function bindRouteBridge() {
 }
 
 function goTab(tab, opts = {}) {
-  try {
-    syncLegacyRoute(tab, opts);
-    vib('light');
-    document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
-    document.querySelectorAll('.nb').forEach(b => b.classList.remove('active'));
+  return (async () => {
+    try {
+      syncLegacyRoute(tab, opts);
+      await ensureViewReady(tab);
+      vib('light');
+      document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+      document.querySelectorAll('.nb').forEach(b => b.classList.remove('active'));
 
-    const v = $('view-' + tab);
-    const n = $('nb-' + tab);
-    if (v) v.classList.add('active');
-    if (n) n.classList.add('active');
+      if (isFinanceTab(tab)) lastFinanceTab = tab;
 
-    if (tab === 'dash') renderAll();
-    if (tab === 'hist') {
-      renderHistory();
-      initHistScroll();
+      const viewId = isFinanceTab(tab) ? 'view-finance' : `view-${tab}`;
+      const navId = isFinanceTab(tab) ? 'nb-finance' : `nb-${tab}`;
+      const v = $(viewId);
+      const n = $(navId);
+      if (isFinanceTab(tab) && v) v.dataset.activeTab = tab;
+      if (v) v.classList.add('active');
+      if (n) n.classList.add('active');
+
+      if (tab === 'dash') renderAll();
+      if (tab === 'profile') {
+        renderProfileUI();
+        updateSettingsUI();
+      }
+      if (tab === 'hist') {
+        renderHistory();
+        initHistScroll();
+      }
+    } catch (e) {
+      console.error('[goTab] Error:', e);
     }
-  } catch (e) {
-    console.error('[goTab] Error:', e);
-  }
+  })();
 }
 
 bindRouteBridge();
+window.openFinanceSection = openFinanceSection;
+window.warmViewChunk = warmViewChunk;
 
 async function loadMore() {
   return;
@@ -1154,12 +2539,1112 @@ function renderAll() {
     if (tci) { tci.classList.toggle('on-i', typeFilt === 'income'); }
     if (tce) { tce.classList.toggle('on-e', typeFilt === 'expense'); }
 
+    renderDashboardWidgets(ranged);
     renderChart(shown);
     renderTrends();
   } catch (e) {
     console.error('[renderAll] Error:', e);
   }
 }
+
+function formatDashboardAmount(value, { signed = false } = {}) {
+  const amount = Number(value) || 0;
+  const prefix = signed ? (amount > 0 ? '+' : amount < 0 ? '-' : '') : '';
+  const abs = Math.abs(amount);
+  if (currency === 'USD' && rate > 0) {
+    return `${prefix}$${fmt(abs / rate)}`;
+  }
+  return `${prefix}${fmt(abs)} ${tt('suffix_uzs', "so'm")}`;
+}
+
+function getDashboardRangeLabel() {
+  if (dateFilt === 'week') return tt('dashboard_widget_range_week', 'So‘nggi hafta');
+  if (dateFilt === 'month') return tt('dashboard_widget_range_month', 'Shu oy');
+  if (dateFilt === 'custom') return tt('dashboard_widget_range_custom', 'Maxsus davr');
+  return tt('dashboard_widget_range_all', 'Barcha davr');
+}
+
+function getWeekStartMs(ms = Date.now()) {
+  const d = new Date(ms);
+  const day = d.getDay();
+  const diff = day === 0 ? 6 : day - 1;
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate() - diff).getTime();
+}
+
+function getMonthStartMs(ms = Date.now()) {
+  const d = new Date(ms);
+  return new Date(d.getFullYear(), d.getMonth(), 1).getTime();
+}
+
+function getRowsInWindow(rows = [], start = 0, end = Date.now(), type = 'all') {
+  return (rows || []).filter((row) => {
+    const withinRange = row.ms >= start && row.ms <= end;
+    if (!withinRange) return false;
+    return type === 'all' ? true : row.type === type;
+  });
+}
+
+function groupCategoryTotals(rows = []) {
+  const grouped = {};
+  (rows || []).forEach((row) => {
+    const name = String(row?.category || '').trim() || '—';
+    grouped[name] = (grouped[name] || 0) + (Number(row?.amount) || 0);
+  });
+  return Object.entries(grouped).sort((a, b) => b[1] - a[1]);
+}
+
+function getTopCategoryInfo(rows = [], preferredType = 'expense') {
+  const preferred = rows.filter((row) => row.type === preferredType);
+  const source = preferred.length ? preferred : rows;
+  const entries = groupCategoryTotals(source);
+  if (!entries.length) return null;
+  const total = entries.reduce((sum, [, amount]) => sum + amount, 0);
+  const [name, amount] = entries[0];
+  return {
+    name,
+    amount,
+    share: total > 0 ? (amount / total) * 100 : 0,
+    type: preferred.length ? preferredType : (source[0]?.type || preferredType),
+  };
+}
+
+function summarizeDashboardRows(rows = []) {
+  let income = 0;
+  let expense = 0;
+  let absoluteTotal = 0;
+  (rows || []).forEach((row) => {
+    const amount = Number(row?.amount) || 0;
+    absoluteTotal += Math.abs(amount);
+    if (row?.type === 'income') income += amount;
+    else expense += amount;
+  });
+  return {
+    count: rows.length,
+    income,
+    expense,
+    balance: income - expense,
+    averageTicket: rows.length ? absoluteTotal / rows.length : 0,
+    topCategory: getTopCategoryInfo(rows, 'expense'),
+  };
+}
+
+function getChangeMeta(currentValue = 0, previousValue = 0) {
+  const current = Number(currentValue) || 0;
+  const previous = Number(previousValue) || 0;
+  if (current === 0 && previous === 0) {
+    return { state: 'flat', raw: 0, label: '0%' };
+  }
+  if (previous === 0) {
+    return { state: current === 0 ? 'flat' : 'new', raw: null, label: current === 0 ? '0%' : tt('dashboard_widget_new', 'Yangi') };
+  }
+  const raw = ((current - previous) / Math.abs(previous)) * 100;
+  if (!Number.isFinite(raw) || Math.abs(raw) < 0.5) {
+    return { state: 'flat', raw: 0, label: '0%' };
+  }
+  return {
+    state: raw > 0 ? 'up' : 'down',
+    raw,
+    label: `${raw > 0 ? '+' : '-'}${Math.round(Math.abs(raw))}%`,
+  };
+}
+
+function getDeltaTone(meta, metricKey = 'balance') {
+  if (!meta || meta.state === 'flat') return 'neutral';
+  if (meta.state === 'new') return 'accent';
+  const positive = metricKey === 'expense' ? meta.state === 'down' : meta.state === 'up';
+  return positive ? 'good' : 'bad';
+}
+
+function getPeriodComparison(period = 'week') {
+  const now = Date.now();
+  if (period === 'month') {
+    const currentStart = getMonthStartMs(now);
+    const previousStart = getMonthStartMs(new Date(new Date(now).getFullYear(), new Date(now).getMonth() - 1, 1).getTime());
+    const previousEnd = currentStart - 1;
+    const currentRows = getRowsInWindow(txList, currentStart, now);
+    const previousRows = getRowsInWindow(txList, previousStart, previousEnd);
+    const currentSummary = summarizeDashboardRows(currentRows);
+    const previousSummary = summarizeDashboardRows(previousRows);
+    return {
+      title: tt('dashboard_widget_this_month', 'Shu oy'),
+      compareLabel: tt('dashboard_widget_last_month_compare', 'O‘tgan oy bilan'),
+      currentRows,
+      previousRows,
+      currentSummary,
+      previousSummary,
+      deltas: {
+        income: getChangeMeta(currentSummary.income, previousSummary.income),
+        expense: getChangeMeta(currentSummary.expense, previousSummary.expense),
+        balance: getChangeMeta(currentSummary.balance, previousSummary.balance),
+      }
+    };
+  }
+
+  const currentStart = getWeekStartMs(now);
+  const previousEnd = currentStart - 1;
+  const previousStart = currentStart - (7 * DAY_MS);
+  const currentRows = getRowsInWindow(txList, currentStart, now);
+  const previousRows = getRowsInWindow(txList, previousStart, previousEnd);
+  const currentSummary = summarizeDashboardRows(currentRows);
+  const previousSummary = summarizeDashboardRows(previousRows);
+  return {
+    title: tt('dashboard_widget_this_week', 'Shu hafta'),
+    compareLabel: tt('dashboard_widget_last_week_compare', 'O‘tgan hafta bilan'),
+    currentRows,
+    previousRows,
+    currentSummary,
+    previousSummary,
+    deltas: {
+      income: getChangeMeta(currentSummary.income, previousSummary.income),
+      expense: getChangeMeta(currentSummary.expense, previousSummary.expense),
+      balance: getChangeMeta(currentSummary.balance, previousSummary.balance),
+    }
+  };
+}
+
+function getCategoryMomentum(period = 'week', limit = 3) {
+  const comparison = getPeriodComparison(period);
+  const currentEntries = groupCategoryTotals(comparison.currentRows.filter((row) => row.type === 'expense'));
+  const previousEntries = Object.fromEntries(groupCategoryTotals(comparison.previousRows.filter((row) => row.type === 'expense')));
+  const totalCurrent = currentEntries.reduce((sum, [, amount]) => sum + amount, 0);
+  return {
+    title: period === 'month'
+      ? tt('dashboard_widget_category_month', 'Oylik kategoriya ulushi')
+      : tt('dashboard_widget_category_week', 'Haftalik kategoriya ulushi'),
+    compareLabel: comparison.compareLabel,
+    items: currentEntries.slice(0, limit).map(([name, amount]) => ({
+      name,
+      amount,
+      share: totalCurrent > 0 ? (amount / totalCurrent) * 100 : 0,
+      delta: getChangeMeta(amount, previousEntries[name] || 0),
+    })),
+  };
+}
+
+function renderOverviewWidgetCard(card) {
+  return `
+    <article class="dash-widget-card ${escapeHtml(card.tone || 'neutral')}">
+      <div class="dash-widget-label">${escapeHtml(card.label)}</div>
+      <div class="dash-widget-value">${escapeHtml(card.value)}</div>
+      <div class="dash-widget-sub">${escapeHtml(card.sub)}</div>
+    </article>
+  `;
+}
+
+function renderDashboardOverview(rows = []) {
+  const grid = $('dash-overview-grid');
+  if (!grid) return;
+
+  const summary = summarizeDashboardRows(rows);
+  const topCategory = summary.topCategory;
+  const cards = [
+    {
+      tone: 'tone-balance',
+      label: tt('dashboard_widget_net_flow', 'Sof oqim'),
+      value: formatDashboardAmount(summary.balance, { signed: true }),
+      sub: getDashboardRangeLabel(),
+    },
+    {
+      tone: 'tone-count',
+      label: tt('dashboard_widget_transactions', 'Operatsiyalar'),
+      value: fmt(summary.count),
+      sub: getDashboardRangeLabel(),
+    },
+    {
+      tone: 'tone-average',
+      label: tt('dashboard_widget_avg_ticket', 'O‘rtacha chek'),
+      value: summary.count ? formatDashboardAmount(summary.averageTicket) : '—',
+      sub: tt('dashboard_widget_avg_ticket_sub', 'Har tranzaksiya bo‘yicha'),
+    },
+    {
+      tone: 'tone-category',
+      label: tt('dashboard_widget_top_category', 'Top kategoriya'),
+      value: topCategory ? topCategory.name : tt('dashboard_widget_no_category', 'Hali yo‘q'),
+      sub: topCategory
+        ? `${formatDashboardAmount(topCategory.amount)} · ${Math.round(topCategory.share)}%`
+        : tt('dashboard_widget_top_category_sub', 'Xarajatlar yig‘ilgach ko‘rinadi'),
+    },
+  ];
+
+  grid.innerHTML = cards.map(renderOverviewWidgetCard).join('');
+}
+
+function getFinanceFeatureSnapshot() {
+  try {
+    const snapshot = window.__KASSA_FINANCE_FEATURES__?.getSnapshot?.();
+    if (!snapshot || typeof snapshot !== 'object') {
+      return { planReady: false, debtReady: false, plans: [], debts: [] };
+    }
+    return {
+      planReady: snapshot.planReady === true,
+      debtReady: snapshot.debtReady === true,
+      plans: Array.isArray(snapshot.plans) ? snapshot.plans : [],
+      debts: Array.isArray(snapshot.debts) ? snapshot.debts : [],
+    };
+  } catch (error) {
+    console.warn('[dashboard] finance snapshot failed', error);
+    return { planReady: false, debtReady: false, plans: [], debts: [] };
+  }
+}
+
+function getDashboardMonthContext(ms = Date.now()) {
+  const date = new Date(ms);
+  const year = date.getFullYear();
+  const month = date.getMonth();
+  const start = new Date(year, month, 1).getTime();
+  const end = new Date(year, month + 1, 0, 23, 59, 59, 999).getTime();
+  const prevStart = new Date(year, month - 1, 1).getTime();
+  const prevEnd = start - 1;
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const elapsedDays = Math.max(1, date.getDate());
+  const remainingDays = Math.max(1, daysInMonth - date.getDate() + 1);
+  return { start, end, prevStart, prevEnd, daysInMonth, elapsedDays, remainingDays };
+}
+
+function formatDashboardPercent(value, { signed = false, decimals = 0 } = {}) {
+  if (!Number.isFinite(value)) return '—';
+  const amount = Math.abs(value);
+  const fixed = decimals > 0 ? amount.toFixed(decimals) : String(Math.round(amount));
+  const prefix = signed ? (value > 0 ? '+' : value < 0 ? '-' : '') : '';
+  return `${prefix}${fixed}%`;
+}
+
+function clampNumber(value, min, max) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function getDashboardBaseCategoryName(value = '') {
+  return String(value || '').replace(/\s*\(\$.*\)\s*$/u, '').trim();
+}
+
+function normalizeDashboardMatchText(value = '') {
+  return getDashboardBaseCategoryName(value)
+    .toLowerCase()
+    .normalize('NFKD')
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/[ʻ’`']/g, '')
+    .replace(/[^\p{L}\p{N}]+/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function getDashboardMonthKey(ms = Date.now()) {
+  const date = new Date(ms);
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function getTotalBalance(rows = []) {
+  return summarizeDashboardRows(rows).balance;
+}
+
+function getBalanceBefore(rows = [], beforeMs = Date.now()) {
+  return getTotalBalance((rows || []).filter((row) => row.ms < beforeMs));
+}
+
+function groupRowsByDashboardCategory(rows = [], type = 'expense') {
+  const grouped = new Map();
+  (rows || []).forEach((row) => {
+    if (type !== 'all' && row.type !== type) return;
+    const label = getDashboardBaseCategoryName(row.category) || tt('dashboard_premium_uncategorized', 'Kategoriyasiz');
+    const key = normalizeDashboardMatchText(label) || label;
+    if (!grouped.has(key)) {
+      grouped.set(key, { key, name: label, amount: 0, rows: [] });
+    }
+    const bucket = grouped.get(key);
+    bucket.amount += Number(row.amount) || 0;
+    bucket.rows.push(row);
+  });
+  return Array.from(grouped.values()).sort((a, b) => b.amount - a.amount);
+}
+
+function getDashboardPlanStats(plan, monthExpenseRows = []) {
+  const budget = Number(plan?.amount) || 0;
+  const targetMonth = String(plan?.month_key || getDashboardMonthKey()).trim();
+  const spent = (monthExpenseRows || [])
+    .filter((row) => getDashboardMonthKey(row.ms) === targetMonth)
+    .filter((row) => normalizeDashboardMatchText(row.category) === normalizeDashboardMatchText(plan?.category_name))
+    .reduce((sum, row) => sum + (Number(row.amount) || 0), 0);
+  const rawRemaining = budget - spent;
+  const remaining = Math.max(0, rawRemaining);
+  const percentRaw = budget > 0 ? (spent / budget) * 100 : 0;
+  const percent = budget > 0 ? clampNumber(percentRaw, 0, 999) : 0;
+  const exceeded = budget > 0 && spent > budget;
+  const alertBefore = Number(plan?.alert_before) || 0;
+  const near = budget > 0 ? (!exceeded && (remaining <= alertBefore || percent >= 85)) : false;
+  return {
+    budget,
+    spent,
+    rawRemaining,
+    remaining,
+    percent,
+    exceeded,
+    near,
+    overBy: Math.max(0, spent - budget),
+  };
+}
+
+function getDebtDueTimestamp(item) {
+  return item?.due_at ? toMs(item.due_at) : 0;
+}
+
+function formatDashboardDayLabel(ms) {
+  return new Intl.DateTimeFormat(localeTag(), { weekday: 'short' }).format(new Date(ms));
+}
+
+function getTransactionNoteHint(tx) {
+  const explicitNote = String(tx?.note || '').trim();
+  if (explicitNote) return explicitNote;
+  const category = String(tx?.category || '').trim();
+  if (category.includes(' · ')) return category.split(' · ').slice(1).join(' · ').trim();
+  return '';
+}
+
+function averageNumber(values = []) {
+  if (!values.length) return 0;
+  return values.reduce((sum, value) => sum + value, 0) / values.length;
+}
+
+function buildRecurringPayments(rows = []) {
+  const cutoff = Date.now() - (120 * DAY_MS);
+  const grouped = new Map();
+  rows
+    .filter((row) => row.type === 'expense' && row.ms >= cutoff)
+    .forEach((row) => {
+      const label = getDashboardBaseCategoryName(row.category);
+      const key = normalizeDashboardMatchText(label);
+      if (!key) return;
+      if (!grouped.has(key)) grouped.set(key, { name: label, rows: [] });
+      grouped.get(key).rows.push(row);
+    });
+
+  return Array.from(grouped.values())
+    .map((group) => {
+      const items = group.rows.slice().sort((a, b) => a.ms - b.ms);
+      const monthKeys = [...new Set(items.map((row) => getDashboardMonthKey(row.ms)))];
+      if (items.length < 2 || monthKeys.length < 2) return null;
+      const intervals = items.slice(1).map((item, index) => (item.ms - items[index].ms) / DAY_MS);
+      const monthlyLike = intervals.some((value) => value >= 24 && value <= 38) || monthKeys.length >= 3;
+      if (!monthlyLike) return null;
+      const amounts = items.map((item) => Number(item.amount) || 0).filter((item) => item > 0);
+      const avgAmount = averageNumber(amounts);
+      const dayNumbers = items.map((item) => new Date(item.ms).getDate());
+      const daySpread = dayNumbers.length ? Math.max(...dayNumbers) - Math.min(...dayNumbers) : 31;
+      const avgInterval = intervals.length ? averageNumber(intervals) : 30;
+      const nextDateMs = items[items.length - 1].ms + (avgInterval * DAY_MS);
+      const amountSpread = avgAmount > 0 && amounts.length ? (Math.max(...amounts) - Math.min(...amounts)) / avgAmount : 1;
+      const confidence = clampNumber(
+        (daySpread <= 5 ? 0.45 : 0.22)
+          + (amountSpread <= 0.25 ? 0.35 : 0.16)
+          + (monthKeys.length >= 3 ? 0.2 : 0.08),
+        0,
+        1
+      );
+      return {
+        name: group.name,
+        avgAmount,
+        lastDateMs: items[items.length - 1].ms,
+        nextDateMs,
+        confidence,
+        count: items.length,
+      };
+    })
+    .filter(Boolean)
+    .sort((a, b) => {
+      if (b.confidence !== a.confidence) return b.confidence - a.confidence;
+      return b.avgAmount - a.avgAmount;
+    })
+    .slice(0, 5);
+}
+
+function buildAbnormalSpendingAlerts(rows = []) {
+  const now = Date.now();
+  const currentStart = getDayStartMs(now) - (6 * DAY_MS);
+  const previousEnd = currentStart - 1;
+  const previousStart = currentStart - (7 * DAY_MS);
+  const currentRows = getRowsInWindow(rows, currentStart, now, 'expense');
+  const previousRows = getRowsInWindow(rows, previousStart, previousEnd, 'expense');
+  const currentTotal = currentRows.reduce((sum, row) => sum + (Number(row.amount) || 0), 0);
+  const previousTotal = previousRows.reduce((sum, row) => sum + (Number(row.amount) || 0), 0);
+  const alerts = [];
+
+  if (currentTotal > 0 && previousTotal > 0) {
+    const change = ((currentTotal - previousTotal) / previousTotal) * 100;
+    if (change >= 25 && currentTotal - previousTotal >= 200000) {
+      alerts.push({
+        tone: 'danger',
+        title: tt('dashboard_premium_alert_total_title', 'Haftalik xarajat keskin oshdi'),
+        body: notifText(
+          `So‘nggi 7 kunda xarajat ${formatDashboardPercent(change, { signed: true })} ga oshdi.`,
+          `Расходы за последние 7 дней выросли на ${formatDashboardPercent(change, { signed: true })}.`,
+          `Your spending over the last 7 days is up ${formatDashboardPercent(change, { signed: true })}.`
+        ),
+      });
+    }
+  }
+
+  const currentCategories = groupRowsByDashboardCategory(currentRows, 'expense');
+  const previousMap = Object.fromEntries(groupRowsByDashboardCategory(previousRows, 'expense').map((item) => [item.key, item.amount]));
+  currentCategories.slice(0, 4).forEach((item) => {
+    const previousAmount = Number(previousMap[item.key] || 0);
+    if (item.amount >= 150000 && ((previousAmount > 0 && item.amount >= previousAmount * 1.6) || (previousAmount === 0 && item.amount >= 250000))) {
+      const changeText = previousAmount > 0
+        ? formatDashboardPercent(((item.amount - previousAmount) / previousAmount) * 100, { signed: true })
+        : tt('dashboard_widget_new', 'Yangi');
+      alerts.push({
+        tone: 'warn',
+        title: tt('dashboard_premium_alert_category_title', 'Kategoriya bo‘yicha sakrash'),
+        body: notifText(
+          `${item.name} bo‘yicha xarajat ${changeText} ga oshdi.`,
+          `Траты по категории ${item.name} выросли на ${changeText}.`,
+          `${item.name} spending increased by ${changeText}.`
+        ),
+      });
+    }
+  });
+
+  return alerts.slice(0, 3);
+}
+
+function calculateFinancialHealth(model) {
+  const savingsRate = Number.isFinite(model.savingsRate) ? model.savingsRate : null;
+  const savingsScore = savingsRate == null
+    ? 12
+    : clampNumber(((savingsRate + 10) / 30) * 30, 0, 30);
+
+  const activeLimits = model.limitStats.length;
+  const exceededLimits = model.limitStats.filter((item) => item.stats.exceeded).length;
+  const nearLimits = model.limitStats.filter((item) => item.stats.near).length;
+  const limitDisciplineScore = activeLimits
+    ? clampNumber((((activeLimits - exceededLimits) + (nearLimits * 0.5)) / activeLimits) * 25, 0, 25)
+    : 16;
+
+  const payablePressure = model.monthIncome > 0
+    ? model.payableDebts / model.monthIncome
+    : (model.payableDebts > 0 ? 1 : 0);
+  const debtScore = clampNumber((1 - Math.min(1, payablePressure)) * 20, 0, 20) - Math.min(8, model.overdueDebtCount * 4);
+
+  const currentWeek = model.currentWeekExpense;
+  const previousWeek = model.previousWeekExpense;
+  const volatility = previousWeek > 0 ? Math.abs(currentWeek - previousWeek) / previousWeek : (currentWeek > 0 ? 1 : 0);
+  const stabilityScore = clampNumber((1 - Math.min(1, volatility)) * 15, 0, 15) - Math.min(6, model.abnormalAlerts.length * 2);
+
+  const planCount = model.planProgressItems.length;
+  const onTrackCount = model.planProgressItems.filter((item) => !item.stats.exceeded && !item.stats.near).length;
+  const nearCount = model.planProgressItems.filter((item) => item.stats.near).length;
+  const planScore = planCount
+    ? clampNumber((((onTrackCount) + (nearCount * 0.5)) / planCount) * 10, 0, 10)
+    : 6;
+
+  const score = clampNumber(
+    Math.round(savingsScore + limitDisciplineScore + Math.max(0, debtScore) + Math.max(0, stabilityScore) + planScore),
+    0,
+    100
+  );
+
+  const breakdown = [
+    { label: tt('dashboard_premium_health_savings', 'Jamg‘arma'), value: `${Math.round(savingsScore)}/30` },
+    { label: tt('dashboard_premium_health_limits', 'Limit'), value: `${Math.round(limitDisciplineScore)}/25` },
+    { label: tt('dashboard_premium_health_debts', 'Qarz'), value: `${Math.round(Math.max(0, debtScore))}/20` },
+    { label: tt('dashboard_premium_health_stability', 'Barqarorlik'), value: `${Math.round(Math.max(0, stabilityScore))}/15` },
+    { label: tt('dashboard_premium_health_plans', 'Rejalar'), value: `${Math.round(planScore)}/10` },
+  ];
+
+  const weakest = breakdown.slice().sort((a, b) => {
+    const aScore = Number(String(a.value).split('/')[0]) || 0;
+    const bScore = Number(String(b.value).split('/')[0]) || 0;
+    return aScore - bScore;
+  })[0];
+
+  const summary = score >= 80
+    ? tt('dashboard_premium_health_summary_strong', 'Pul oqimi nazoratda, xavflar past.')
+    : score >= 60
+      ? tt('dashboard_premium_health_summary_ok', 'Umumiy holat yaxshi, lekin bir necha xavf signali bor.')
+      : tt('dashboard_premium_health_summary_risk', 'Asosiy ko‘rsatkichlarda bosim bor, reja va xarajatni qayta ko‘ring.');
+
+  return {
+    score,
+    breakdown,
+    summary,
+    weakest,
+  };
+}
+
+function buildPremiumDashboardModel() {
+  const finance = getFinanceFeatureSnapshot();
+  const now = Date.now();
+  const month = getDashboardMonthContext(now);
+  const monthRows = getRowsInWindow(txList, month.start, now);
+  const monthExpenseRows = monthRows.filter((row) => row.type === 'expense');
+  const monthSummary = summarizeDashboardRows(monthRows);
+  const previousMonthRows = getRowsInWindow(txList, month.prevStart, month.prevEnd);
+  const previousMonthSummary = summarizeDashboardRows(previousMonthRows);
+  const totalBalance = getTotalBalance(txList);
+  const monthStartBalance = getBalanceBefore(txList, month.start);
+  const todayStart = getDayStartMs(now);
+  const todayRows = getRowsInWindow(txList, todayStart, todayStart + DAY_MS - 1);
+  const todayNet = summarizeDashboardRows(todayRows).balance;
+  const balanceVsPrevMonth = getChangeMeta(totalBalance, monthStartBalance);
+  const forecastExpense = month.elapsedDays > 0 ? (monthSummary.expense / month.elapsedDays) * month.daysInMonth : monthSummary.expense;
+  const remainingForecastExpense = Math.max(0, forecastExpense - monthSummary.expense);
+  const expectedSavings = monthSummary.income - forecastExpense;
+  const forecastBalance = totalBalance - remainingForecastExpense;
+  const limitStats = finance.plans
+    .filter((plan) => plan?.is_active !== false)
+    .filter((plan) => String(plan?.month_key || getDashboardMonthKey()) === getDashboardMonthKey(now))
+    .map((plan) => ({ plan, stats: getDashboardPlanStats(plan, monthExpenseRows) }));
+  const sortedLimitStats = limitStats.slice().sort((a, b) => {
+    const riskA = a.stats.exceeded ? 3 : a.stats.near ? 2 : 1;
+    const riskB = b.stats.exceeded ? 3 : b.stats.near ? 2 : 1;
+    if (riskB !== riskA) return riskB - riskA;
+    if (b.stats.percent !== a.stats.percent) return b.stats.percent - a.stats.percent;
+    return b.stats.spent - a.stats.spent;
+  });
+  const topExpenseCategories = groupRowsByDashboardCategory(monthExpenseRows, 'expense');
+  const last7Days = Array.from({ length: 7 }, (_, index) => {
+    const dayMs = getDayStartMs(now) - ((6 - index) * DAY_MS);
+    const dayRows = getRowsInWindow(txList, dayMs, dayMs + DAY_MS - 1);
+    const summary = summarizeDashboardRows(dayRows);
+    return {
+      label: formatDashboardDayLabel(dayMs),
+      income: summary.income,
+      expense: summary.expense,
+      ms: dayMs,
+    };
+  });
+  const maxTrendValue = Math.max(1, ...last7Days.flatMap((item) => [item.income, item.expense]));
+  const savingsRate = monthSummary.income > 0 ? ((monthSummary.income - monthSummary.expense) / monthSummary.income) * 100 : null;
+  const largestTransactions = monthRows
+    .slice()
+    .sort((a, b) => {
+      if (b.amount !== a.amount) return b.amount - a.amount;
+      return b.ms - a.ms;
+    })
+    .slice(0, 5);
+  const openDebts = finance.debts.filter((item) => item?.status !== 'paid');
+  const receivableDebts = openDebts
+    .filter((item) => item.direction === 'receivable')
+    .reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
+  const payableDebts = openDebts
+    .filter((item) => item.direction === 'payable')
+    .reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
+  const dueSoonDebt = openDebts
+    .filter((item) => getDebtDueTimestamp(item) > 0)
+    .sort((a, b) => getDebtDueTimestamp(a) - getDebtDueTimestamp(b))[0] || null;
+  const overdueDebtCount = openDebts.filter((item) => {
+    const ts = getDebtDueTimestamp(item);
+    return ts > 0 && ts < now;
+  }).length;
+  const payableDueThisMonth = openDebts
+    .filter((item) => item.direction === 'payable')
+    .filter((item) => {
+      const ts = getDebtDueTimestamp(item);
+      return ts > 0 && ts <= month.end;
+    })
+    .reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
+  const remainingLimitBudget = sortedLimitStats.reduce((sum, item) => sum + item.stats.remaining, 0);
+  const safeByPlan = sortedLimitStats.length ? (remainingLimitBudget / month.remainingDays) : Number.POSITIVE_INFINITY;
+  const safeByCash = Math.max(0, totalBalance - remainingForecastExpense - payableDueThisMonth) / month.remainingDays;
+  const safeToSpend = Math.max(0, Math.floor(Number.isFinite(safeByPlan) ? Math.min(safeByPlan, safeByCash) : safeByCash));
+  const abnormalAlerts = buildAbnormalSpendingAlerts(txList);
+  const planProgressItems = sortedLimitStats.slice(0, 5);
+  const recurringPayments = buildRecurringPayments(txList);
+  const currentWeekExpense = getRowsInWindow(txList, getDayStartMs(now) - (6 * DAY_MS), now, 'expense')
+    .reduce((sum, row) => sum + (Number(row.amount) || 0), 0);
+  const previousWeekExpense = getRowsInWindow(txList, getDayStartMs(now) - (13 * DAY_MS), getDayStartMs(now) - (7 * DAY_MS) - 1, 'expense')
+    .reduce((sum, row) => sum + (Number(row.amount) || 0), 0);
+
+  const model = {
+    financeReady: finance.planReady && finance.debtReady,
+    planReady: finance.planReady,
+    debtReady: finance.debtReady,
+    totalBalance,
+    todayNet,
+    monthStartDelta: totalBalance - monthStartBalance,
+    balanceVsPrevMonth,
+    monthIncome: monthSummary.income,
+    monthExpense: monthSummary.expense,
+    monthNet: monthSummary.balance,
+    previousMonthNet: previousMonthSummary.balance,
+    forecastExpense,
+    forecastBalance,
+    expectedSavings,
+    remainingForecastExpense,
+    limitStats: sortedLimitStats,
+    topExpenseCategories,
+    last7Days,
+    maxTrendValue,
+    safeToSpend,
+    payableDueThisMonth,
+    receivableDebts,
+    payableDebts,
+    dueSoonDebt,
+    overdueDebtCount,
+    savingsRate,
+    largestTransactions,
+    abnormalAlerts,
+    planProgressItems,
+    recurringPayments,
+    monthRemainingDays: month.remainingDays,
+    currentWeekExpense,
+    previousWeekExpense,
+  };
+  model.health = calculateFinancialHealth(model);
+  return model;
+}
+
+function renderPremiumDashboardCard(card) {
+  const classes = ['dash-analytics-card', 'premium-dashboard-card'];
+  if (card.size) classes.push(card.size);
+  if (card.tone) classes.push(`tone-${card.tone}`);
+  if (card.loading) classes.push('is-loading');
+  if (card.empty) classes.push('is-empty');
+
+  let body = '';
+  if (card.loading) {
+    body = `
+      <div class="premium-widget-loading">
+        <div class="dash-analytics-preview-line w-40"></div>
+        <div class="dash-analytics-preview-line w-90"></div>
+        <div class="dash-analytics-preview-line w-72"></div>
+        <div class="dash-analytics-preview-line w-58"></div>
+      </div>
+    `;
+  } else if (card.empty) {
+    body = `
+      <div class="dash-widget-empty premium-widget-empty">
+        <strong>${escapeHtml(card.emptyTitle || tt('dashboard_widget_empty_title', 'Hali ma‘lumot yetarli emas'))}</strong>
+        <span>${escapeHtml(card.emptyBody || tt('dashboard_widget_empty_body', 'Xarajatlar paydo bo‘lgach kategoriya bo‘yicha ulush va o‘sish shu yerda ko‘rinadi.'))}</span>
+      </div>
+    `;
+  } else {
+    body = `
+      ${Array.isArray(card.metrics) && card.metrics.length ? `
+        <div class="premium-widget-metrics">
+          ${card.metrics.map((item) => `
+            <div class="premium-widget-metric ${escapeHtml(item.tone || 'neutral')}">
+              <span>${escapeHtml(item.label)}</span>
+              <strong>${escapeHtml(item.value)}</strong>
+            </div>
+          `).join('')}
+        </div>
+      ` : ''}
+      ${card.body || ''}
+    `;
+  }
+
+  return `
+    <article class="${classes.join(' ')}">
+      <div class="premium-widget-head">
+        <div class="premium-widget-head-copy">
+          <div class="premium-widget-title">${escapeHtml(card.title)}</div>
+          <div class="premium-widget-main">${escapeHtml(card.main)}</div>
+          <div class="premium-widget-subtext">${escapeHtml(card.sub)}</div>
+        </div>
+        <span class="premium-widget-icon" aria-hidden="true">${svgIcon(card.icon || 'star', 'premium-widget-icon-svg')}</span>
+      </div>
+      ${body}
+    </article>
+  `;
+}
+
+function renderDashboardTrendChart(days = [], maxValue = 1) {
+  return `
+    <div class="premium-trend-chart">
+      ${days.map((item) => `
+        <div class="premium-trend-col">
+          <div class="premium-trend-bars">
+            <span class="income" style="height:${Math.max(6, Math.round((item.income / maxValue) * 100))}%"></span>
+            <span class="expense" style="height:${Math.max(6, Math.round((item.expense / maxValue) * 100))}%"></span>
+          </div>
+          <div class="premium-trend-label">${escapeHtml(item.label)}</div>
+        </div>
+      `).join('')}
+    </div>
+  `;
+}
+
+function renderProgressRows(items = [], { exceededLabel, nearLabel, normalLabel } = {}) {
+  return `
+    <div class="premium-progress-list">
+      ${items.map((item) => {
+        const status = item.stats.exceeded ? 'exceeded' : item.stats.near ? 'near' : 'normal';
+        const statusText = item.stats.exceeded ? exceededLabel : item.stats.near ? nearLabel : normalLabel;
+        const width = clampNumber(item.stats.percent, 4, 100);
+        return `
+          <div class="premium-progress-row ${status}">
+            <div class="premium-progress-head">
+              <strong>${escapeHtml(item.plan.category_name || tt('dashboard_premium_uncategorized', 'Kategoriyasiz'))}</strong>
+              <span>${escapeHtml(formatDashboardAmount(item.stats.spent))} / ${escapeHtml(formatDashboardAmount(item.stats.budget))}</span>
+            </div>
+            <div class="premium-progress-bar"><span style="width:${width}%"></span></div>
+            <div class="premium-progress-meta">
+              <span>${escapeHtml(statusText)}</span>
+              <span>${escapeHtml(formatDashboardPercent(item.stats.percent))}</span>
+            </div>
+          </div>
+        `;
+      }).join('')}
+    </div>
+  `;
+}
+
+function renderTopCategoryRows(items = []) {
+  const total = items.reduce((sum, item) => sum + item.amount, 0);
+  return `
+    <div class="premium-progress-list">
+      ${items.map((item) => {
+        const share = total > 0 ? (item.amount / total) * 100 : 0;
+        return `
+          <div class="premium-progress-row normal">
+            <div class="premium-progress-head">
+              <strong>${escapeHtml(item.name)}</strong>
+              <span>${escapeHtml(formatDashboardAmount(item.amount))}</span>
+            </div>
+            <div class="premium-progress-bar"><span style="width:${Math.max(8, Math.round(share))}%"></span></div>
+            <div class="premium-progress-meta">
+              <span>${escapeHtml(tt('dashboard_premium_share', 'Ulush'))}</span>
+              <span>${escapeHtml(formatDashboardPercent(share))}</span>
+            </div>
+          </div>
+        `;
+      }).join('')}
+    </div>
+  `;
+}
+
+function renderTransactionRows(items = []) {
+  return `
+    <div class="premium-list">
+      ${items.map((item) => {
+        const note = getTransactionNoteHint(item);
+        return `
+          <div class="premium-list-row ${item.type === 'income' ? 'income' : 'expense'}">
+            <div class="premium-list-copy">
+              <strong>${escapeHtml(getDashboardBaseCategoryName(item.category) || tt('dashboard_premium_uncategorized', 'Kategoriyasiz'))}</strong>
+              <span>${escapeHtml(new Intl.DateTimeFormat(localeTag(), { day: '2-digit', month: 'short' }).format(new Date(item.ms)))}${note ? ` · ${escapeHtml(note)}` : ''}</span>
+            </div>
+            <div class="premium-list-value">${escapeHtml(formatDashboardAmount(item.amount, { signed: item.type === 'income' }))}</div>
+          </div>
+        `;
+      }).join('')}
+    </div>
+  `;
+}
+
+function renderAlertRows(items = []) {
+  return `
+    <div class="premium-alert-list">
+      ${items.map((item) => `
+        <div class="premium-alert-card ${escapeHtml(item.tone || 'warn')}">
+          <strong>${escapeHtml(item.title)}</strong>
+          <span>${escapeHtml(item.body)}</span>
+        </div>
+      `).join('')}
+    </div>
+  `;
+}
+
+function renderRecurringRows(items = []) {
+  return `
+    <div class="premium-list">
+      ${items.map((item) => `
+        <div class="premium-list-row recurring">
+          <div class="premium-list-copy">
+            <strong>${escapeHtml(item.name)}</strong>
+            <span>${escapeHtml(tt('dashboard_premium_next_expected', 'Keyingi kutilmoqda'))}: ${escapeHtml(new Intl.DateTimeFormat(localeTag(), { day: '2-digit', month: 'short' }).format(new Date(item.nextDateMs)))}</span>
+          </div>
+          <div class="premium-list-value">${escapeHtml(formatDashboardAmount(item.avgAmount))}</div>
+        </div>
+      `).join('')}
+    </div>
+  `;
+}
+
+function renderLockedAnalyticsCards(snapshot) {
+  const syncing = snapshot?.schemaReady === false;
+  return `
+    <article class="dash-analytics-card premium-dashboard-card is-locked wide">
+      <span class="subscription-status-badge premium">${escapeHtml(tt('dashboard_widget_premium_badge', 'Premium'))}</span>
+      <h3>${escapeHtml(tt('dashboard_premium_locked_title', 'Premium dashboardni oching'))}</h3>
+      <p>${escapeHtml(syncing
+        ? tt('subscription_syncing_hint', 'Tarif ma\'lumotlari bazadan yangilangach avtomatik ko‘rinadi.')
+        : tt('dashboard_premium_locked_body', 'Balans prognozi, xavfsiz xarajat, limit xavfi va moliyaviy salomatlik skori Premium foydalanuvchilarga ochiladi.'))}</p>
+      <button type="button" class="bpri pricing-action-btn" onclick="openDashboardAnalyticsPaywall()">${escapeHtml(tt('subscription_upgrade_action', 'Premium ga o‘tish'))}</button>
+    </article>
+    <article class="dash-analytics-card premium-dashboard-card is-preview" aria-hidden="true">
+      <div class="dash-analytics-preview-line w-40"></div>
+      <div class="dash-analytics-preview-line w-90"></div>
+      <div class="dash-analytics-preview-line w-72"></div>
+      <div class="dash-analytics-preview-line w-58"></div>
+    </article>
+    <article class="dash-analytics-card premium-dashboard-card is-preview" aria-hidden="true">
+      <div class="dash-analytics-preview-line w-55"></div>
+      <div class="dash-analytics-preview-line w-82"></div>
+      <div class="dash-analytics-preview-line w-64"></div>
+      <div class="dash-analytics-preview-line w-48"></div>
+    </article>
+  `;
+}
+
+function renderDashboardAnalytics() {
+  const panel = $('dash-analytics-panel');
+  const grid = $('dash-analytics-grid');
+  const action = $('dash-analytics-action');
+  const subtitle = $('dash-analytics-subtitle');
+  if (!panel || !grid) return;
+
+  const gate = getFeatureGateResult('premium_dashboard', { relaxedWhenSchemaMissing: false });
+  const snapshot = gate?.snapshot || getSubscriptionSnapshotLocal();
+  const isPremium = !!(gate?.allowed && snapshot?.isPremium);
+
+  if (action) {
+    action.textContent = isPremium
+      ? tt('pricing_current_plan_action', 'Faol tarif')
+      : tt('subscription_upgrade_action', 'Premium ga o‘tish');
+    action.classList.toggle('is-premium', isPremium);
+  }
+
+  if (subtitle) {
+    subtitle.textContent = isPremium
+      ? tt('dashboard_premium_sub', 'Pul holati, xavf va prognozlar bir joyda')
+      : tt('dashboard_premium_locked_sub', 'Premium bilan balans prognozi, xavf radari va foydali tavsiyalar ochiladi');
+  }
+
+  if (!isPremium) {
+    grid.innerHTML = renderLockedAnalyticsCards(snapshot);
+    return;
+  }
+
+  const model = buildPremiumDashboardModel();
+  const topCategories = model.topExpenseCategories.slice(0, 5);
+  const riskLimits = model.limitStats.slice(0, 5);
+  const largestTx = model.largestTransactions.slice(0, 5);
+  const recurring = model.recurringPayments.slice(0, 4);
+  const dueDebtLabel = model.dueSoonDebt
+    ? `${model.dueSoonDebt.person_name} · ${new Intl.DateTimeFormat(localeTag(), { day: '2-digit', month: 'short' }).format(new Date(model.dueSoonDebt.due_at || model.dueSoonDebt.created_at))}`
+    : tt('dashboard_premium_none', 'Yo‘q');
+
+  const cards = [
+    {
+      size: 'hero',
+      tone: 'balance',
+      icon: 'banknote',
+      title: tt('dashboard_premium_balance_title', 'Total balance'),
+      main: formatDashboardAmount(model.totalBalance, { signed: model.totalBalance < 0 }),
+      sub: notifText(
+        `Bugun ${formatDashboardAmount(model.todayNet, { signed: true })} · Oy boshidan ${formatDashboardAmount(model.monthStartDelta, { signed: true })}`,
+        `Сегодня ${formatDashboardAmount(model.todayNet, { signed: true })} · С начала месяца ${formatDashboardAmount(model.monthStartDelta, { signed: true })}`,
+        `Today ${formatDashboardAmount(model.todayNet, { signed: true })} · Since month start ${formatDashboardAmount(model.monthStartDelta, { signed: true })}`
+      ),
+      metrics: [
+        { label: tt('dashboard_premium_balance_today', 'Bugun'), value: formatDashboardAmount(model.todayNet, { signed: true }), tone: model.todayNet >= 0 ? 'good' : 'bad' },
+        { label: tt('dashboard_premium_balance_month', 'Oy boshidan'), value: formatDashboardAmount(model.monthStartDelta, { signed: true }), tone: model.monthStartDelta >= 0 ? 'good' : 'bad' },
+        { label: tt('dashboard_premium_balance_compare', 'O‘tgan oyga nisbatan'), value: model.balanceVsPrevMonth?.label || '0%', tone: getDeltaTone(model.balanceVsPrevMonth, 'balance') },
+      ],
+    },
+    {
+      icon: 'briefcase',
+      title: tt('dashboard_premium_cashflow_title', 'Monthly cashflow'),
+      main: formatDashboardAmount(model.monthNet, { signed: true }),
+      sub: tt('dashboard_premium_cashflow_sub', 'Shu oy bo‘yicha sof natija'),
+      metrics: [
+        { label: tt('income', 'Kirim'), value: formatDashboardAmount(model.monthIncome), tone: 'good' },
+        { label: tt('expense', 'Chiqim'), value: formatDashboardAmount(model.monthExpense), tone: 'bad' },
+        { label: tt('dashboard_widget_balance', 'Balans'), value: formatDashboardAmount(model.monthNet, { signed: true }), tone: model.monthNet >= 0 ? 'good' : 'bad' },
+      ],
+    },
+    {
+      icon: 'tool',
+      title: tt('dashboard_premium_forecast_title', 'Month-end forecast'),
+      main: formatDashboardAmount(model.forecastBalance, { signed: model.forecastBalance < 0 }),
+      sub: notifText(
+        `Shu temp davom etsa, oy oxirida kutilgan balans ${formatDashboardAmount(model.forecastBalance)} bo‘ladi.`,
+        `Если темп сохранится, ожидаемый баланс к концу месяца составит ${formatDashboardAmount(model.forecastBalance)}.`,
+        `If this pace continues, your expected month-end balance is ${formatDashboardAmount(model.forecastBalance)}.`
+      ),
+      metrics: [
+        { label: tt('dashboard_premium_forecast_expense', 'Prognoz xarajat'), value: formatDashboardAmount(model.forecastExpense), tone: 'bad' },
+        { label: tt('dashboard_premium_forecast_savings', 'Kutilgan jamg‘arma'), value: formatDashboardAmount(model.expectedSavings, { signed: true }), tone: model.expectedSavings >= 0 ? 'good' : 'bad' },
+      ],
+    },
+    {
+      icon: 'gift',
+      title: tt('dashboard_premium_safe_title', 'Safe to spend today'),
+      main: formatDashboardAmount(model.safeToSpend),
+      sub: tt('dashboard_premium_safe_sub', 'Bugungi limit va prognozga xavfsiz summa'),
+      metrics: [
+        { label: tt('dashboard_premium_days_left', 'Qolgan kun'), value: String(model.monthRemainingDays), tone: 'neutral' },
+        { label: tt('dashboard_premium_due_payables', 'Qarz bosimi'), value: formatDashboardAmount(model.payableDueThisMonth), tone: model.payableDueThisMonth > 0 ? 'warn' : 'good' },
+      ],
+    },
+    {
+      icon: 'star',
+      title: tt('dashboard_premium_savings_title', 'Savings rate'),
+      main: Number.isFinite(model.savingsRate) ? formatDashboardPercent(model.savingsRate, { decimals: 1 }) : '—',
+      sub: model.monthIncome > 0
+        ? tt('dashboard_premium_savings_sub', '(income - expense) / income')
+        : tt('dashboard_premium_no_income_sub', 'Shu oy daromad yozilmagan'),
+      metrics: [
+        { label: tt('income', 'Kirim'), value: formatDashboardAmount(model.monthIncome), tone: 'good' },
+        { label: tt('expense', 'Chiqim'), value: formatDashboardAmount(model.monthExpense), tone: 'bad' },
+      ],
+      empty: model.monthIncome === 0,
+      emptyTitle: tt('dashboard_premium_no_income_title', 'Daromad yozuvi topilmadi'),
+      emptyBody: tt('dashboard_premium_no_income_body', 'Jamg‘arma foizi daromad tushgach aniq ko‘rinadi.'),
+    },
+    {
+      icon: 'zap',
+      title: tt('dashboard_premium_health_title', 'Financial health score'),
+      main: `${model.health.score}/100`,
+      sub: model.health.summary,
+      metrics: model.health.breakdown,
+    },
+    {
+      size: 'wide',
+      icon: 'shopping-bag',
+      title: tt('dashboard_premium_limits_title', 'Category limit status'),
+      main: riskLimits.length
+        ? notifText(
+          `${riskLimits.filter((item) => item.stats.exceeded || item.stats.near).length} ta xavfli limit`,
+          `${riskLimits.filter((item) => item.stats.exceeded || item.stats.near).length} рискованных лимита`,
+          `${riskLimits.filter((item) => item.stats.exceeded || item.stats.near).length} risky limits`
+        )
+        : tt('dashboard_premium_none', 'Yo‘q'),
+      sub: tt('dashboard_premium_limits_sub', 'Faol limitlar ichida eng xavflilari tepada'),
+      loading: !model.planReady,
+      empty: model.planReady && !riskLimits.length,
+      emptyTitle: tt('dashboard_premium_limits_empty_title', 'Faol limit topilmadi'),
+      emptyBody: tt('dashboard_premium_limits_empty_body', 'Kategoriya limitlari qo‘shilgach xavf darajasi shu yerda ko‘rinadi.'),
+      body: renderProgressRows(riskLimits, {
+        exceededLabel: tt('dashboard_premium_limit_exceeded', 'Oshib ketgan'),
+        nearLabel: tt('dashboard_premium_limit_near', 'Chegaraga yaqin'),
+        normalLabel: tt('dashboard_premium_limit_normal', 'Nazoratda'),
+      }),
+    },
+    {
+      size: 'wide',
+      icon: 'shopping-cart',
+      title: tt('dashboard_premium_top_categories_title', 'Top expense categories'),
+      main: topCategories[0] ? topCategories[0].name : tt('dashboard_premium_none', 'Yo‘q'),
+      sub: tt('dashboard_premium_top_categories_sub', 'Shu oy eng ko‘p pul ketayotgan yo‘nalishlar'),
+      empty: !topCategories.length,
+      emptyTitle: tt('dashboard_premium_top_categories_empty_title', 'Xarajat kategoriyalari yo‘q'),
+      emptyBody: tt('dashboard_premium_top_categories_empty_body', 'Shu oy xarajatlar paydo bo‘lgach eng katta kategoriyalar chiqadi.'),
+      body: renderTopCategoryRows(topCategories),
+    },
+    {
+      icon: 'credit-card',
+      title: tt('dashboard_premium_debts_title', 'Debts overview'),
+      main: formatDashboardAmount(model.payableDebts),
+      sub: tt('dashboard_premium_debts_sub', 'Beriladigan qarzlar bo‘yicha hozirgi bosim'),
+      loading: !model.debtReady,
+      metrics: [
+        { label: tt('debts_receivable', 'Olinadigan'), value: formatDashboardAmount(model.receivableDebts), tone: 'good' },
+        { label: tt('debts_payable', 'Beriladigan'), value: formatDashboardAmount(model.payableDebts), tone: 'bad' },
+        { label: tt('dashboard_premium_next_due', 'Eng yaqin muddat'), value: dueDebtLabel, tone: model.overdueDebtCount > 0 ? 'warn' : 'neutral' },
+      ],
+      empty: model.debtReady && model.receivableDebts === 0 && model.payableDebts === 0,
+      emptyTitle: tt('dashboard_premium_debts_empty_title', 'Qarzlar yo‘q'),
+      emptyBody: tt('dashboard_premium_debts_empty_body', 'Qarz yozuvlari qo‘shilganda eng yaqin muddat va xavf shu yerda ko‘rinadi.'),
+      body: model.debtReady && (model.receivableDebts > 0 || model.payableDebts > 0)
+        ? renderAlertRows(model.overdueDebtCount > 0 ? [{
+          tone: 'danger',
+          title: tt('dashboard_premium_debts_overdue_title', 'Kechikkan qarz bor'),
+          body: notifText(
+            `${model.overdueDebtCount} ta qarz muddati o‘tgan.`,
+            `${model.overdueDebtCount} долга просрочено.`,
+            `${model.overdueDebtCount} debts are overdue.`
+          ),
+        }] : [{
+          tone: 'good',
+          title: tt('dashboard_premium_debts_ok_title', 'Qarzlar nazoratda'),
+          body: tt('dashboard_premium_debts_ok_body', 'Eng yaqin muddat kuzatilmoqda, kechikkan qarz yo‘q.'),
+        }])
+        : '',
+    },
+    {
+      size: 'wide',
+      icon: 'monitor',
+      title: tt('dashboard_premium_trend_title', 'Last 7 days trend'),
+      main: formatDashboardAmount(model.currentWeekExpense),
+      sub: tt('dashboard_premium_trend_sub', 'Kunlik kirim va chiqim ritmi'),
+      empty: model.last7Days.every((item) => item.income === 0 && item.expense === 0),
+      emptyTitle: tt('dashboard_premium_trend_empty_title', '7 kunlik trend uchun ma‘lumot yo‘q'),
+      emptyBody: tt('dashboard_premium_trend_empty_body', 'So‘nggi 7 kun tranzaksiyalari paydo bo‘lgach grafik chiziladi.'),
+      body: `
+        ${renderDashboardTrendChart(model.last7Days, model.maxTrendValue)}
+        <div class="premium-chart-legend">
+          <span><i class="income"></i>${escapeHtml(tt('income', 'Kirim'))}</span>
+          <span><i class="expense"></i>${escapeHtml(tt('expense', 'Chiqim'))}</span>
+        </div>
+      `,
+    },
+    {
+      size: 'wide',
+      icon: 'banknote',
+      title: tt('dashboard_premium_transactions_title', 'Largest transactions'),
+      main: largestTx[0] ? formatDashboardAmount(largestTx[0].amount, { signed: largestTx[0].type === 'income' }) : '—',
+      sub: tt('dashboard_premium_transactions_sub', 'Shu oy eng katta operatsiyalar'),
+      empty: !largestTx.length,
+      emptyTitle: tt('dashboard_premium_transactions_empty_title', 'Yirik tranzaksiyalar yo‘q'),
+      emptyBody: tt('dashboard_premium_transactions_empty_body', 'Tranzaksiyalar qo‘shilgach eng katta kirim va chiqimlar shu yerda ko‘rinadi.'),
+      body: renderTransactionRows(largestTx),
+    },
+    {
+      size: 'wide',
+      icon: 'zap',
+      title: tt('dashboard_premium_alerts_title', 'Abnormal spending alert'),
+      main: String(model.abnormalAlerts.length),
+      sub: tt('dashboard_premium_alerts_sub', 'Qoidaga asoslangan noodatiy xarajat signallari'),
+      empty: !model.abnormalAlerts.length,
+      emptyTitle: tt('dashboard_premium_alerts_empty_title', 'Keskin spike topilmadi'),
+      emptyBody: tt('dashboard_premium_alerts_empty_body', 'Xarajatlar odatdagi oraliqda. Noodatiy o‘sish bo‘lsa shu yerda ogohlantiramiz.'),
+      body: renderAlertRows(model.abnormalAlerts),
+    },
+    {
+      size: 'wide',
+      icon: 'star',
+      title: tt('dashboard_premium_plans_title', 'Plan / goal progress'),
+      main: model.planProgressItems.length
+        ? notifText(
+          `${model.planProgressItems.filter((item) => !item.stats.exceeded).length}/${model.planProgressItems.length} nazoratda`,
+          `${model.planProgressItems.filter((item) => !item.stats.exceeded).length}/${model.planProgressItems.length} в норме`,
+          `${model.planProgressItems.filter((item) => !item.stats.exceeded).length}/${model.planProgressItems.length} on track`
+        )
+        : tt('dashboard_premium_none', 'Yo‘q'),
+      sub: tt('dashboard_premium_plans_sub', 'Yaqin tugayotgan va xavfdagi rejalarga e‘tibor bering'),
+      loading: !model.planReady,
+      empty: model.planReady && !model.planProgressItems.length,
+      emptyTitle: tt('dashboard_premium_plans_empty_title', 'Rejalar topilmadi'),
+      emptyBody: tt('dashboard_premium_plans_empty_body', 'Maqsad va limit qo‘shilgach progress shu yerda chiqadi.'),
+      body: renderProgressRows(model.planProgressItems, {
+        exceededLabel: tt('dashboard_premium_limit_exceeded', 'Oshib ketgan'),
+        nearLabel: tt('dashboard_premium_goal_at_risk', 'Xavf ostida'),
+        normalLabel: tt('dashboard_premium_goal_near_complete', 'Yakuniga yaqin'),
+      }),
+    },
+    {
+      size: 'wide',
+      icon: 'wifi',
+      title: tt('dashboard_premium_recurring_title', 'Recurring payments'),
+      main: recurring.length ? formatDashboardAmount(recurring.reduce((sum, item) => sum + item.avgAmount, 0)) : '—',
+      sub: tt('dashboard_premium_recurring_sub', 'Takrorlanayotgan oylik xarajatlar heuristikasi'),
+      empty: !recurring.length,
+      emptyTitle: tt('dashboard_premium_recurring_empty_title', 'Takrorlanuvchi to‘lov topilmadi'),
+      emptyBody: tt('dashboard_premium_recurring_empty_body', 'Bir necha oy davomida bir xil xarajat qaytalansa shu yerda chiqadi.'),
+      body: renderRecurringRows(recurring),
+    },
+  ];
+
+  grid.innerHTML = cards.map(renderPremiumDashboardCard).join('');
+}
+
+function renderDashboardWidgets(rows = []) {
+  renderDashboardOverview(rows);
+  renderDashboardAnalytics();
+}
+
+window.renderDashboardAnalytics = renderDashboardAnalytics;
 
 function updateBalSize(txt) {
   const el = $('total-bal');
@@ -1188,19 +3673,6 @@ function renderChart(data) {
   const entries = Object.entries(grouped).sort((a, b) => b[1] - a[1]);
 
   if (myChart) { myChart.destroy(); myChart = null; }
-
-  if (src.length > 0 && !window.Chart && !chartLibRequested) {
-    chartLibRequested = true;
-    window.__kassaEnsureChartLib?.()
-      .then(() => {
-        chartLibRequested = false;
-        renderAll();
-      })
-      .catch((error) => {
-        chartLibRequested = false;
-        console.warn('[renderChart:lazy-load]', error);
-      });
-  }
 
   if (src.length > 0 && window.Chart) {
     const ctx = canvas.getContext('2d');
@@ -1592,11 +4064,10 @@ async function submitFlow() {
       const saved = Array.isArray(data) ? data[0] : data;
       const i = txList.findIndex(t => t.id === tempId);
       if (i !== -1 && saved) txList[i] = normTx({ ...txList[i], ...saved, receipt: localReceipt });
-      if (saved) void notifyMiniAppTxSaved({ ...saved, receipt: localReceipt, source: 'mini_app' });
+      if (saved) await notifyMiniAppTxSaved({ ...saved, receipt: localReceipt, source: 'mini_app' });
     }
   } catch (error) {
     console.warn('[submitFlow]', error);
-    postClientLog('error', 'submitFlow', error?.message || 'Transaction save failed', { stack: error?.stack || null });
     if (tempId !== null) {
       txList = txList.filter(t => t.id !== tempId);
       renderAll();
@@ -1905,7 +4376,7 @@ function hidePinScreen() {
 function cancelPin() {
   $('pin-screen')?.classList.remove('on');
   if (pinContext === 'settings') {
-    showOv('ov-settings');
+    goTab('profile');
     updateSettingsUI();
   }
   pinContext = null;
@@ -1956,7 +4427,10 @@ function toggleBio(ev) {
 }
 
 // ─── SETTINGS ────────────────────────────────────────────
-function openSettings() { updateSettingsUI(); showOv('ov-settings'); }
+function openSettings() {
+  updateSettingsUI();
+  goTab('profile');
+}
 
 function updateSettingsUI() {
   // Legacy check for old IDs (kept for compatibility)
@@ -1982,6 +4456,8 @@ function updateSettingsUI() {
   updatePinUI();
   updateThemeIcon();
   updateAccentThemeUI();
+  updateNotificationSettingsUI();
+  updateSubscriptionUI();
 }
 
 async function saveRate(v) {
@@ -2140,6 +4616,11 @@ function setExportPreset(preset) {
 }
 
 function openExport() {
+  const gate = getFeatureGateResult('advanced_reports');
+  if (!gate.allowed) {
+    closeOv('ov-settings');
+    return openUpgradePaywall(gate.featureKey, { gate, source: 'report' });
+  }
   closeOv('ov-settings');
   setExportPreset('month');
   $('ex-from').onchange = () => {
@@ -2322,7 +4803,9 @@ ${dataset.sStr.replaceAll('-', '.')} — ${dataset.eStr.replaceAll('-', '.')}`,
   try { payload = await resp.json(); } catch { }
   if (!resp.ok || payload?.ok === false) {
     console.warn('[sendReportFilesToBot]', payload || { status: resp.status });
-    throw new Error(payload?.error || `HTTP ${resp.status}`);
+    const error = new Error(payload?.error || `HTTP ${resp.status}`);
+    if (payload?.detail) error.details = payload.detail;
+    throw error;
   }
 }
 
@@ -2352,18 +4835,11 @@ async function notifyMiniAppTxSaved(row) {
   }
 }
 
-async function makePDF() {
-  if (!window.pdfMake?.createPdf && !pdfLibRequested) {
-    pdfLibRequested = true;
-    try {
-      await window.__kassaEnsurePdfLibs?.();
-    } catch (error) {
-      console.warn('[makePDF:lazy-load]', error);
-    } finally {
-      pdfLibRequested = false;
-    }
+function makePDF() {
+  const gate = getFeatureGateResult('advanced_reports');
+  if (!gate.allowed) {
+    return openUpgradePaywall(gate.featureKey, { gate, source: 'report' });
   }
-
   const pdfMake = window.pdfMake;
   const createBtn = $('ex-create-btn');
   if (!pdfMake?.createPdf) {
@@ -2494,6 +4970,10 @@ async function makePDF() {
       closeOv('ov-export');
     } catch (error) {
       console.warn('[makePDF]', error);
+      if (handleUpgradeRequiredError(error, 'advanced_reports', 'report')) {
+        closeOv('ov-export');
+        return;
+      }
       downloadPdfBlob(blob, fileName);
       downloadExcelBlob(excelBlob, excelFileName);
       showErr(currentLang === 'ru' ? 'Botga yuborilmadi. PDF va Excel yuklab olindi.' : currentLang === 'en' ? 'Sending to the bot failed. PDF and Excel were downloaded.' : "Botga yuborilmadi. PDF va Excel yuklab olindi.", 3400);
@@ -2602,7 +5082,10 @@ function applyLang() {
   document.documentElement.lang = currentLang === 'ru' ? 'ru' : currentLang === 'en' ? 'en' : 'uz';
   document.title = tt('app_name', 'Kassa');
   renderProfileUI();
+  updateNotificationSettingsUI();
 }
+
+window.applyLang = applyLang;
 
 async function changeLang(lang) {
   await loadLang(lang);
@@ -2636,6 +5119,15 @@ function openStgSub(id) {
   }
   if (id === 'stg-sub-cats') {
     stgCatTab('income');
+  }
+  if (id === 'stg-sub-notifications') {
+    updateNotificationSettingsUI();
+    configurePushNotifications()
+      .then(() => refreshNotificationPreferences())
+      .catch(() => { });
+  }
+  if (id === 'stg-sub-subscription') {
+    updateSubscriptionUI();
   }
   if (id === 'stg-sub-terms') {
     const el = $('stg-terms-text');
@@ -2786,15 +5278,7 @@ function openSupport() {
 // ─── GLOBAL ERROR HANDLER ────────────────────────────────
 window.addEventListener('unhandledrejection', e => {
   console.error('[unhandled]', e.reason);
-  postClientLog('error', 'unhandledrejection', e?.reason?.message || String(e.reason || 'Unhandled promise rejection'), {
-    reason: e?.reason?.stack || String(e.reason || ''),
-  });
 });
 window.addEventListener('error', e => {
   console.error('[error]', e.message);
-  postClientLog('error', 'window.error', e?.message || 'Window error', {
-    filename: e?.filename || '',
-    lineno: e?.lineno || null,
-    colno: e?.colno || null,
-  });
 });

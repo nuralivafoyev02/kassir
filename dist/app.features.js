@@ -11,6 +11,8 @@
   let featureBooted = false;
   let debtRealtimeBound = false;
   let planRealtimeBound = false;
+  let debtDataReady = false;
+  let planDataReady = false;
   let debtFilterStatus = 'all';
   let debtFilterDirection = 'all';
   let debtSearchQuery = '';
@@ -18,6 +20,28 @@
   let planAppNotifyReady = false;
   let lastFeatureRefreshAt = 0;
   const planNotifyState = new Map();
+  const getSubscriptionSnapshot = () => (
+    typeof window.getSubscriptionSnapshot === 'function'
+      ? window.getSubscriptionSnapshot()
+      : null
+  );
+  const getFeatureGate = (featureKey, context = {}) => (
+    typeof window.getFeatureGateResult === 'function'
+      ? window.getFeatureGateResult(featureKey, context)
+      : { allowed: true, featureKey, snapshot: getSubscriptionSnapshot(), degraded: true }
+  );
+  const openFeaturePaywall = (featureKey, options = {}) => {
+    if (typeof window.openUpgradePaywall === 'function') {
+      return window.openUpgradePaywall(featureKey, options);
+    }
+    showErr(currentLang === 'ru' ? 'Premium тариф talab qilinadi' : currentLang === 'en' ? 'Premium required' : 'Premium tarif talab qilinadi');
+    return false;
+  };
+  const handleFeatureGateError = (error, fallbackFeatureKey, source = 'feature') => (
+    typeof window.handleUpgradeRequiredError === 'function'
+      ? window.handleUpgradeRequiredError(error, fallbackFeatureKey, source)
+      : false
+  );
 
   const debtStoreKey = () => `kassa_debts_${UID}`;
   const planStoreKey = () => `kassa_plans_${UID}`;
@@ -172,6 +196,24 @@
     const msg = String(error?.message || error?.details || error?.hint || '').toLowerCase();
     return msg.includes('duplicate key') || msg.includes('unique constraint') || msg.includes('already exists');
   };
+  const featureSnapshot = () => ({
+    debtReady: debtDataReady,
+    planReady: planDataReady,
+    debts: debtList.map((item) => ({ ...item })),
+    plans: planList.map((item) => ({ ...item })),
+  });
+  const publishFeatureSnapshot = () => {
+    window.__KASSA_FINANCE_FEATURES__ = {
+      getSnapshot: featureSnapshot,
+      getPlanStats: (plan) => getPlanStats(plan),
+    };
+  };
+  const refreshDashboardAnalytics = () => {
+    publishFeatureSnapshot();
+    if (typeof window.renderDashboardAnalytics === 'function') {
+      window.renderDashboardAnalytics();
+    }
+  };
   const normalizePlanName = (row) => String(row?.category_name || row?.name || row?.category || '').trim();
   const normalizePlanMonthKey = (row) => String(row?.month_key || row?.month || '').trim();
   const normalizePlanType = (row) => String(row?.type || 'expense').toLowerCase() === 'income' ? 'income' : 'expense';
@@ -221,7 +263,7 @@
   const debtSettlementSourceRef = (debtId) => `debt:${debtId}`;
   const debtSettlementMeta = (debt) => ({
     type: debt.direction === 'receivable' ? 'income' : 'expense',
-    category: debt.direction === 'receivable' ? 'Qarz qaytdi' : 'Qarz qaytarildi'
+    category: debt.direction === 'receivable' ? `Qarz qaytdi · ${debt.person_name}` : `Qarz qaytarildi · ${debt.person_name}`
   });
 
   async function createDebtSettlementTx(debt) {
@@ -397,8 +439,7 @@
     if (!draft.type) return showErr(tt('err_cat_type_missing', 'Tur tanlanmagan'));
 
     const payload = { user_id: UID, name, icon: selIcon, type: draft.type, keywords };
-    const nextKey = normalizeCategoryKey(name);
-    const existing = (cats[draft.type] || []).find(c => normalizeCategoryKey(c.name) === nextKey);
+    const existing = (cats[draft.type] || []).find(c => String(c.name || '').toLowerCase() === name.toLowerCase());
     if (existing) return showErr(currentLang === 'ru' ? "Bu nomdagi kategoriya bor" : currentLang === 'en' ? 'Category already exists' : "Bu nomdagi kategoriya mavjud");
 
     const { data, error } = await insertCategoryEnhanced(payload);
@@ -428,9 +469,6 @@
     const n = $('ec-name')?.value.trim();
     const cat = cats[selCatType]?.[selCatIdx];
     if (!n || !cat) return;
-    const nextKey = normalizeCategoryKey(n);
-    const duplicate = (cats[selCatType] || []).find(item => Number(item.id) !== Number(cat.id) && normalizeCategoryKey(item.name) === nextKey);
-    if (duplicate) return showErr(currentLang === 'ru' ? "Bu nomdagi kategoriya bor" : currentLang === 'en' ? 'Category already exists' : "Bu nomdagi kategoriya mavjud");
     const keywords = normalizeWords($('ec-keywords')?.value || '');
     const icon = window.__EDIT_CAT_ICON__ || cat.icon || 'star';
     const next = { ...cat, name: n, keywords, icon };
@@ -505,6 +543,8 @@
   async function loadDebtsData() {
     if (!db || !UID) {
       debtList = (readJson(debtStoreKey(), []) || []).map(normalizeDebt);
+      debtDataReady = true;
+      refreshDashboardAnalytics();
       return;
     }
     const { data, error } = await db.from('debts').select('*').eq('user_id', UID).order('due_at', { ascending: true });
@@ -512,17 +552,23 @@
       if (relationMissing(error, 'debts')) {
         debtTableAvailable = false;
         debtList = (readJson(debtStoreKey(), []) || []).map(normalizeDebt);
+        debtDataReady = true;
+        refreshDashboardAnalytics();
         return;
       }
       throw error;
     }
     debtTableAvailable = true;
     debtList = (data || []).map(normalizeDebt);
+    debtDataReady = true;
+    refreshDashboardAnalytics();
   }
 
   async function loadPlanData() {
     if (!db || !UID) {
       planList = (readJson(planStoreKey(), []) || []).map(normalizePlan);
+      planDataReady = true;
+      refreshDashboardAnalytics();
       return;
     }
 
@@ -536,6 +582,8 @@
       if (relationMissing(error, 'category_limits')) {
         planTableAvailable = false;
         planList = (readJson(planStoreKey(), []) || []).map(normalizePlan);
+        planDataReady = true;
+        refreshDashboardAnalytics();
         return;
       }
       throw error;
@@ -549,10 +597,40 @@
         if (bTs !== aTs) return bTs - aTs;
         return Number(b.id || 0) - Number(a.id || 0);
       });
+    planDataReady = true;
+    refreshDashboardAnalytics();
   }
 
   function persistLocalDebts() { writeJson(debtStoreKey(), debtList); }
   function persistLocalPlans() { writeJson(planStoreKey(), planList); }
+  const getActiveDebtCount = ({ excludingId = null } = {}) => debtList.filter((item) => (
+    item.status === 'open' && (excludingId == null || Number(item.id) !== Number(excludingId))
+  )).length;
+  const getActivePlanCount = ({ excludingId = null } = {}) => planList.filter((item) => (
+    item.is_active !== false && (excludingId == null || Number(item.id) !== Number(excludingId))
+  )).length;
+  const requireDebtCreateAccess = ({ excludingId = null, source = 'debt' } = {}) => {
+    const gate = getFeatureGate('debt_create', { activeDebtsCount: getActiveDebtCount({ excludingId }) });
+    if (gate.allowed) return true;
+    openFeaturePaywall(gate.featureKey, { gate, source });
+    return false;
+  };
+  const requirePlanCreateAccess = ({ excludingId = null, source = 'plan' } = {}) => {
+    const activePlansCount = getActivePlanCount({ excludingId });
+    const gate = getFeatureGate('plan_create', {
+      activePlansCount,
+      activeLimitsCount: activePlansCount,
+    });
+    if (gate.allowed) return true;
+    openFeaturePaywall(gate.featureKey, { gate, source });
+    return false;
+  };
+  const requireCustomReminderAccess = ({ source = 'debt' } = {}) => {
+    const gate = getFeatureGate('custom_reminder_time');
+    if (gate.allowed) return true;
+    openFeaturePaywall(gate.featureKey, { gate, source });
+    return false;
+  };
 
   function debtDirectionLabel(direction) {
     return direction === 'payable'
@@ -802,6 +880,7 @@
   };
 
   window.setDebtReminderPreset = function setDebtReminderPreset(mode = 'same') {
+    if (mode === 'custom' && !requireCustomReminderAccess({ source: 'debt' })) return;
     updateDebtReminderPresetUI(mode);
     if (mode !== 'custom') {
       const dueAt = combineDateTimeParts('debt-due');
@@ -816,6 +895,7 @@
   };
 
   window.openDebtForm = function openDebtForm(id = null) {
+    if (!id && !requireDebtCreateAccess({ source: 'debt' })) return;
     const debt = debtList.find(item => Number(item.id) === Number(id));
     $('debt-id').value = debt?.id || '';
     setDebtDirectionButtons(debt?.direction || 'receivable');
@@ -850,6 +930,8 @@
     if (!amount) return showErr(tt('err_amount_required', 'Summani kiriting'));
     if (!due_at) return showErr(currentLang === 'ru' ? 'Qaytarish sanasini tanlang' : currentLang === 'en' ? 'Choose a due date' : 'Qaytarish sanasini tanlang');
     if (reminderMode === 'custom' && !remind_at) return showErr(currentLang === 'ru' ? 'Напоминание uchun sana va vaqtni kiriting' : currentLang === 'en' ? 'Enter the reminder date and time' : 'Eslatma sana va vaqtini kiriting');
+    if (!requireDebtCreateAccess({ excludingId: id, source: 'debt' })) return;
+    if (reminderMode === 'custom' && !requireCustomReminderAccess({ source: 'debt' })) return;
 
     const payload = normalizeDebt({ id: id || Date.now(), user_id: UID, person_name, amount, direction, due_at, remind_at, note, status: 'open' });
     if (!db || debtTableAvailable === false) {
@@ -858,6 +940,7 @@
       persistLocalDebts();
       closeOv('ov-debt-form');
       renderDebts();
+      refreshDashboardAnalytics();
       return;
     }
 
@@ -865,6 +948,7 @@
       const { data, error } = await db.from('debts').update({ person_name, amount, direction, due_at, remind_at, note }).eq('id', id).eq('user_id', UID).select().maybeSingle();
       if (error) {
         if (relationMissing(error, 'debts')) { debtTableAvailable = false; return window.saveDebtForm(); }
+        if (handleFeatureGateError(error, 'debt_create', 'debt')) return;
         return showErr(error.message || 'Debt update failed');
       }
       const row = normalizeDebt(data || payload);
@@ -874,12 +958,14 @@
       const { data, error } = await db.from('debts').insert([{ user_id: UID, person_name, amount, direction, due_at, remind_at, note }]).select().maybeSingle();
       if (error) {
         if (relationMissing(error, 'debts')) { debtTableAvailable = false; return window.saveDebtForm(); }
+        if (handleFeatureGateError(error, 'debt_create', 'debt')) return;
         return showErr(error.message || 'Debt save failed');
       }
       debtList.unshift(normalizeDebt(data || payload));
     }
     closeOv('ov-debt-form');
     renderDebts();
+    refreshDashboardAnalytics();
     vib('light');
   };
 
@@ -901,6 +987,7 @@
         renderDebts();
         renderAll();
         renderHistory();
+        refreshDashboardAnalytics();
         return;
       }
 
@@ -913,6 +1000,7 @@
       renderDebts();
       renderAll();
       renderHistory();
+      refreshDashboardAnalytics();
     } catch (error) {
       console.warn('[markDebtPaid]', error);
       if (settlement?.created) {
@@ -946,6 +1034,7 @@
         renderDebts();
         renderAll();
         renderHistory();
+        refreshDashboardAnalytics();
         return;
       }
 
@@ -958,6 +1047,7 @@
       renderDebts();
       renderAll();
       renderHistory();
+      refreshDashboardAnalytics();
     } catch (error) {
       debt.status = 'paid';
       debt.settlement_tx_id = prevSettlementId;
@@ -980,6 +1070,7 @@
         renderDebts();
         renderAll();
         renderHistory();
+        refreshDashboardAnalytics();
         return;
       }
       const { error } = await db.from('debts').delete().eq('id', id).eq('user_id', UID);
@@ -987,6 +1078,7 @@
       renderDebts();
       renderAll();
       renderHistory();
+      refreshDashboardAnalytics();
     } catch (error) {
       showErr(error.message || 'Debt delete failed');
     }
@@ -1115,6 +1207,7 @@
   }
 
   window.openPlanForm = function openPlanForm(id = null) {
+    if (!id && !requirePlanCreateAccess({ source: 'plan' })) return;
     populatePlanCategoryOptions();
     const plan = planList.find(item => Number(item.id) === Number(id));
     $('plan-id').value = plan?.id || '';
@@ -1145,6 +1238,7 @@
     const mk = $('plan-month-key')?.value || monthKey();
     if (!category_name) return showErr(currentLang === 'ru' ? 'Kategoriyani tanlang' : currentLang === 'en' ? 'Choose a category' : 'Kategoriyani tanlang');
     if (!amount) return showErr(tt('err_amount_required', 'Summani kiriting'));
+    if (is_active && !requirePlanCreateAccess({ excludingId: id, source: 'plan' })) return;
 
     const localExisting = !id ? findExistingPlanLocal({ categoryName: category_name, categoryId, month: mk }) : null;
     const targetId = id || localExisting?.id || null;
@@ -1163,6 +1257,7 @@
       persistLocalPlans();
       renderPlans();
       closeOv('ov-plan-form');
+      refreshDashboardAnalytics();
       return;
     }
 
@@ -1227,6 +1322,7 @@
     const result = await runPlanMutation(mode, targetId);
     if (result.error) {
       if (relationMissing(result.error, 'category_limits')) { planTableAvailable = false; return window.savePlanForm(); }
+      if (handleFeatureGateError(result.error, 'plan_create', 'plan')) return;
       return showErr(result.error.message || (mode === 'update' ? 'Plan update failed' : 'Plan save failed'));
     }
 
@@ -1236,16 +1332,18 @@
     await refreshFeatureData('plan', true);
     renderPlans();
     closeOv('ov-plan-form');
+    refreshDashboardAnalytics();
     vib('light');
   };
 
   window.deletePlan = async function deletePlan(id) {
     if (!confirm(currentLang === 'ru' ? 'Удалить эту цель?' : currentLang === 'en' ? 'Delete this plan?' : "Bu rejani o'chirasizmi?")) return;
     planList = planList.filter(item => Number(item.id) !== Number(id));
-    if (!db || planTableAvailable === false) { persistLocalPlans(); renderPlans(); return; }
+    if (!db || planTableAvailable === false) { persistLocalPlans(); renderPlans(); refreshDashboardAnalytics(); return; }
     const { error } = await db.from('category_limits').delete().eq('id', id).eq('user_id', UID);
     if (error) return showErr(error.message || 'Plan delete failed');
     renderPlans();
+    refreshDashboardAnalytics();
   };
 
   function snapshotPlanSpend() {
@@ -1297,6 +1395,7 @@
           }
           if (eventType === 'DELETE') debtList = debtList.filter(item => Number(item.id) !== Number(oldRow.id));
           renderDebts();
+          refreshDashboardAnalytics();
         }).subscribe();
     }
     if (!planRealtimeBound && planTableAvailable !== false) {
@@ -1315,6 +1414,7 @@
           }
           if (eventType === 'DELETE') planList = planList.filter(item => Number(item.id) !== Number(oldRow.id));
           renderPlans();
+          refreshDashboardAnalytics();
         }).subscribe();
     }
   }
@@ -1336,14 +1436,20 @@
     const originalGoTab = goTab;
     goTab = function goTabEnhanced(tab, opts = {}) {
       const out = originalGoTab.call(this, tab, opts);
-      if (tab === 'debt') {
-        renderDebts();
-        refreshFeatureData('debt');
+      const afterTabReady = () => {
+        if (tab === 'debt') {
+          renderDebts();
+          refreshFeatureData('debt');
+        }
+        if (tab === 'plan') {
+          renderPlans();
+          refreshFeatureData('plan');
+        }
+      };
+      if (out && typeof out.then === 'function') {
+        return out.finally(afterTabReady);
       }
-      if (tab === 'plan') {
-        renderPlans();
-        refreshFeatureData('plan');
-      }
+      afterTabReady();
       return out;
     };
 
@@ -1407,4 +1513,6 @@
   } else {
     setTimeout(bootstrapFeatures, 0);
   }
+
+  publishFeatureSnapshot();
 })();

@@ -62,6 +62,22 @@ function mockRes(res) {
   };
 }
 
+function hasFileExtension(pathname = '') {
+  const base = String(pathname || '').split('/').pop() || '';
+  return /\.[a-z0-9]+$/i.test(base);
+}
+
+function shouldServeHtmlFallback(req, pathname = '') {
+  const method = String(req.method || 'GET').toUpperCase();
+  if (method !== 'GET' && method !== 'HEAD') return false;
+  if (!pathname || pathname.startsWith('/api/')) return false;
+  if (pathname.startsWith('/.well-known/')) return false;
+  if (hasFileExtension(pathname)) return false;
+
+  const accept = String(req.headers?.accept || '').toLowerCase();
+  return !accept || accept.includes('text/html') || accept.includes('application/xhtml+xml') || accept.includes('*/*');
+}
+
 async function start() {
   let createViteServer;
   try {
@@ -81,6 +97,12 @@ async function start() {
     const pathname = parsed.pathname;
 
     try {
+      if (pathname === '/.well-known/appspecific/com.chrome.devtools.json') {
+        res.writeHead(204);
+        res.end();
+        return;
+      }
+
       if (pathname === '/api/config.js') {
         const handler = loadApiHandler('config');
         if (handler) {
@@ -101,6 +123,24 @@ async function start() {
 
       if (pathname === '/api/client-log') {
         const handler = loadApiHandler('client-log');
+        if (handler) {
+          req.body = req.method === 'POST' ? await parseBody(req) : {};
+          const mRes = mockRes(res);
+          return handler(req, mRes);
+        }
+      }
+
+      if (pathname === '/api/push/register') {
+        const handler = loadApiHandler('push-register');
+        if (handler) {
+          req.body = req.method === 'POST' ? await parseBody(req) : {};
+          const mRes = mockRes(res);
+          return handler(req, mRes);
+        }
+      }
+
+      if (pathname === '/api/push/unregister') {
+        const handler = loadApiHandler('push-unregister');
         if (handler) {
           req.body = req.method === 'POST' ? await parseBody(req) : {};
           const mRes = mockRes(res);
@@ -146,6 +186,11 @@ async function start() {
 
       vite.middlewares(req, res, async () => {
         try {
+          if (!shouldServeHtmlFallback(req, pathname)) {
+            res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
+            res.end('Not found');
+            return;
+          }
           let template = fs.readFileSync(path.resolve(__dirname, 'index.html'), 'utf8');
           template = await vite.transformIndexHtml(req.url, template);
           res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
@@ -170,7 +215,7 @@ async function start() {
     console.log('║  🚀 Kassa Premium Vite + Vue dev server tayyor  ║');
     console.log('╠══════════════════════════════════════════════════╣');
     console.log(`║  URL  : http://localhost:${port}`.padEnd(49) + '║');
-    console.log(`║  Test : http://localhost:${port}?user_id=7894854944`.padEnd(49) + '║');
+    console.log(`║  Test : http://localhost:${port}?user_id=7894854944`.padEnd(49) + ' ║');
     console.log('╚══════════════════════════════════════════════════╝\n');
   });
 }

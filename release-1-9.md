@@ -2,112 +2,164 @@
 
 ## Qisqacha
 
-Bu relizda joriy production bot kodi `kassir_dev` bilan to'liq solishtirildi va prodga tushmay qolgan backend yangilanishlar qayta olib kirildi.
-Asosiy fokus bot logger oqimi, cron barqarorligi, worker notification rendering va admin paneldagi userlar boshqaruvi bo'ldi.
+Bu relizda loyiha ichiga markaziy Telegram logging tizimi qo'shildi va yangi foydalanuvchi muvaffaqiyatli ro'yxatdan o'tganda adminga notify yuborish oqimi qo'shildi.
+Keyingi yangilanishda `LOG_LEVEL` ko'p qiymatli formatni ham qabul qiladigan bo'ldi va `/start` triggerlari uchun ham `SUCCESS` log qo'shildi.
 
-## Prod va Dev orasida topilgan farqlar
+## Topilgan muammolar
 
-1. `api/bot.js` ichida devdagi paginatsiyali `admin_users` oqimi prodga tushmagan edi.
-2. Botdagi `logErr(...)` prod versiyada `await` qilinmayotgani uchun worker response tugashi bilan log promise'lari yo'qolib ketishi mumkin edi.
-3. Yangi user aniqlash prod versiyada faqat `!user` orqali tekshirilgan, shu sabab row mavjud bo'lib telefon raqami hali tasdiqlanmagan userlar notify oqimidan tushib qolardi.
-4. Kontakt qayta yuborilganda prod bot mavjud userning `exchange_rate` qiymatini default `12200` ga qayta bosib yuborishi mumkin edi.
-5. `lib/telegram-ops.cjs` ichidagi Telegram log delivery retry, HTML parse fallback va admin fallback-notice himoyalari prodga tushmagan edi.
-6. `worker/index.js` ichida `renderTemplate(...)` helper'i yo'qolib qolgan, lekin daily reminder/report text builder'lar uni ishlatayotgan edi.
-7. Worker va `api/cron-reminders.js` cron tasklari prod versiyada izolyatsiyasiz qolgan edi, bitta task yiqilsa qolgan cron oqimlari ham to'xtab qolardi.
+1. Bot, cron va worker loglari tarqoq edi, format bir xil emas edi.
+2. Worker/local console loglari signal-shovqin nisbatini buzayotgan edi.
+3. Muhim `ERROR`/`SUCCESS`/`INFO` hodisalarini markaziy joyda kuzatish qiyin edi.
+4. Yangi user ro'yxatdan o'tganda admin avtomatik xabardor bo'lmas edi.
+5. Error payload ichida maxfiy qiymatlar logga tushib ketish xavfi bor edi.
+6. Worker ichidagi legacy bot handler logging env'larini to'liq olmayotgani uchun kanal loglari amalda chiqmay qolishi mumkin edi.
+7. Logger jim yiqilayotgan holatlarda Telegram API'ning aniq javobini olish uchun alohida diagnostika endpointi yo'q edi.
+8. Legacy bot handler ichida `void logger.info/success(...)` tarzidagi fire-and-forget loglar response qaytgach yo'qolib ketishi mumkin edi.
 
-## Root Cause
+## Root cause
 
-- Dev branch'dagi keyingi bugfix commitlar production branch'ga ko'chirilmagan.
-- Logging tizimi bir necha bosqichda qo'shilgani sabab ayrim helper va safety patchlar qisman merge bo'lib qolgan.
-- Worker va cron oqimlari uchun "partial failure tolerant" himoyasi prodga yetib bormagan.
-- Registration va admin panel flow'lari regressiya tekshiruvsiz soddalashtirib yuborilgan.
+- Loyiha bo'ylab yagona logger abstractionsi yo'q edi.
+- Har qatlam o'zicha `console.log`/`console.error` ishlatgan.
+- Telegram kanalga yuboriladigan loglar uchun formatlash, sanitize, chunklash va fallback qoidalari markazlashmagan edi.
+- Register oqimida "haqiqiy yangi user" va "eski user qayta kontakt yubordi" holatlari alohida notify qoidasi bilan ajratilmagan edi.
+- Worker `seedLegacyProcessEnv()` ichida `LOG_CHANNEL_ID`, `TELEGRAM_LOGGING_ENABLED`, `LOG_LEVEL`, `LOCAL_LOG_LEVEL`, `ADMIN_NOTIFY_CHAT_ID` kabi logging env'lari uzatilmayotgan edi.
+- Telegram kanalga yozish bo'yicha runtime diagnostika yo'qligi sabab `chat not found`, `forbidden`, `not enough rights` kabi xatolarni tez ajratish qiyin edi.
+- Worker legacy adapter javobni tez qaytargani uchun `await` qilinmagan logger promise'lari kanalga yetib bormasdan tushib qolishi mumkin edi.
 
-## O'zgargan Fayllar
+## O'zgargan fayllar
 
+- `lib/telegram-ops.cjs`
 - `api/bot.js`
 - `api/cron-reminders.js`
-- `lib/telegram-ops.cjs`
 - `worker/index.js`
-- `release-1-9.md`
 
-## Tuzatilgan Kamchiliklar
-
-### `api/bot.js`
-
-- Devdagi `ADMIN_USERS_PAGE_SIZE` va callback-based pagination qayta tiklandi.
-- `admin_users:<offset>` formatidagi callback'lar yana ishlaydigan bo'ldi.
-- `logErr(...)` qayta `await` qilinadigan formatga qaytarildi.
-- `normalizePhoneNumber()` va `hasRegisteredPhone()` yordamchilari qayta qo'shildi.
-- New registration notify endi faqat `!user` bilan emas, balki real telefon tasdiqlanish holati bilan aniqlanadi.
-- Existing user contact yuborganda `exchange_rate` endi sababsiz reset bo'lmaydi.
-- Devdagi kabi `LOG_LEVEL` default fallback'i `INFO` ga qaytarildi.
+## Nimalar qo'shildi va tuzatildi
 
 ### `lib/telegram-ops.cjs`
 
-- Telegram log yuborishda `429` va `5xx` holatlar uchun retry qo'shildi.
-- `can't parse entities` kabi xatolarda HTML parse_mode'dan plain text fallback'ga tushish qayta tiklandi.
-- Log channel ishlamasa admin chat'ga fallback notice yuborish qo'shildi.
-- Chunk yuborish oqimi devdagi barqaror ko'rinishga to'liq tenglashtirildi.
+- Markaziy Telegram logger util yaratildi.
+- `ERROR`, `SUCCESS`, `INFO` level'lari qo'shildi.
+- `LOG_LEVEL=ERROR,SUCCESS,INFO` kabi ko'p qiymatli format ham qo'llab-quvvatlanadi.
+- Bitta qiymat berilsa eski threshold xulqi saqlanadi.
+- `SUCCES` yozilgan bo'lsa ham `SUCCESS` sifatida qabul qilinadi.
+- Pretty JSON formatting qo'shildi.
+- Uzun payloadlar xavfsiz chunklarga bo'linadigan qilindi.
+- `token`, `secret`, `authorization`, `cookie`, `api_key`, `service_role`, `bot_token`, `openai_key` va shunga o'xshash maxfiy maydonlar `[REDACTED]` qilinadigan bo'ldi.
+- `user_name` fallback tartibi qo'shildi:
+  1. `@username`
+  2. `full_name`
+  3. `phone_number`
+  4. `chat_id`
+  5. `unknown`
+- Admin uchun yangi user notify formatter qo'shildi.
 
-### `worker/index.js`
+### `api/bot.js`
 
-- Yo'qolib qolgan `renderTemplate()` helper'i qayta qo'shildi.
-- `runCronTask()` va `buildCronTaskFailureResult()` yordamchilari qayta tiklandi.
-- `runAllCronJobs()` endi har bir taskni alohida izolyatsiya qilib ishlatadi.
-- Bitta cron task xato bersa ham qolgan tasklar ishlashda davom etadi.
-- Worker logger config'i devdagi kabi `INFO` default bilan tenglashtirildi.
+- Bot ichiga markaziy logger integratsiya qilindi.
+- `logErr(...)` endi lokal console bilan birga Telegram kanalga ham xavfsiz `ERROR` yubora oladi.
+- Notification settings o'zgarishlari uchun `INFO` loglar qo'shildi:
+  - holat yoqish/o'chirish
+  - vaqt o'zgartirish
+  - default reset
+  - matn yangilash
+- `/admin`, `/notif`, `/notif help`, `/notif test` uchun ham `INFO` loglar qo'shildi.
+- Yangi user contact yuborib muvaffaqiyatli ro'yxatdan o'tsa:
+  - `SUCCESS` log yuboriladi
+  - adminga alohida notify yuboriladi
+- `/start` bosganlar uchun ham `SUCCESS` log qo'shildi:
+  - yangi user bo'lsa kontakt so'rovi yuborilgani
+  - ro'yxatdan o'tgan user bo'lsa start greeting yuborilgani
+- Notify faqat haqiqiy yangi user uchun ishlaydi.
 
 ### `api/cron-reminders.js`
 
-- Manual cron endpoint uchun task-izolatsiya himoyasi qayta tiklandi.
-- Endi `daily`, `report`, `debts` oqimlaridan bittasi yiqilsa response butunlay `500` bo'lib ketmaydi.
-- Cron logger config'i dev bilan bir xil defaultga qaytarildi.
+- Cron run yakunida umumiy summary logger qo'shildi.
+- Xato bo'lsa `ERROR`, yuborishlar bo'lsa `SUCCESS` log chiqadi.
+- Top-level cron handler xatolari Telegramga yuboriladi.
 
-## Qo'shilgan Dev Yangiliklar
+### `worker/index.js`
 
-1. Admin panelda userlar ro'yxati sahifalab ko'rsatiladi.
-2. Bot logger xabarlari response tugashidan oldin haqiqiy yuboriladi.
-3. Telegram logger HTML parse xatolarida ham yiqilmaydi.
-4. Telegram log channel muammo bersa admin fallback-notice olish mumkin.
-5. Worker daily reminder/report text rendering yana to'liq ishlaydi.
-6. Manual va scheduled cron oqimlari partial failure rejimida barqaror ishlaydi.
+- Worker uchun markaziy logger integratsiyasi qo'shildi.
+- `notify-miniapp-tx`, `notifications/schedule`, `notifications/due`, `notifications/test`, `manual cron`, `scheduled cron`, `worker.fetch` xatolari loggerga ulandi.
+- Shovqinli `console.error` va `console.log` lar kamaytirildi.
+- Client log console chiqishi `CLIENT_CONSOLE_LOGS_ENABLED` env orqali boshqariladigan qilindi.
+- Scheduled cron natijasi:
+  - xato bo'lsa `ERROR`
+  - yuborish bo'lsa `SUCCESS`
+  - no-op bo'lsa faqat minimal local log
+- Legacy bot handler uchun logging env bridge to'liq qilindi, shuning uchun worker secret/vars endi `api/bot.js` ichida ham ko'rinadi.
+- `/api/logging/test` endpointi qo'shildi. U auth bilan himoyalangan va Telegram kanalga to'g'ridan-to'g'ri test xabar yuborib, real natijani JSON ko'rinishida qaytaradi.
+- Bot ichidagi muhim `INFO` va `/start` `SUCCESS` loglari `await` qilinadigan bo'ldi, shuning uchun ular worker javobi tugashidan oldin real yuboriladi.
 
-## Ishlatilgan Test va Check'lar
+## Yangi env tavsiyalari
 
-- `node --check api/bot.js`
+- `TELEGRAM_LOGGING_ENABLED=true`
+- `LOG_CHANNEL_ID=<telegram kanal id>`
+- `LOG_LEVEL=SUCCESS`
+- yoki `LOG_LEVEL=ERROR,SUCCESS,INFO`
+- `LOCAL_LOG_LEVEL=ERROR`
+- `ADMIN_NOTIFY_CHAT_ID=<admin chat id>`
+- `CLIENT_CONSOLE_LOGS_ENABLED=false`
+npx wrangler secret put TELEGRAM_LOGGING_ENABLED
+npx wrangler secret put CLIENT_CONSOLE_LOGS_ENABLED
+
+## Log format
+
+Telegram kanalga yuboriladigan loglar quyidagi ko'rinishda:
+
+- `[ERROR]`
+- `[SUCCESS]`
+- `[INFO]`
+- `source`
+- `scope`
+- `user_id`
+- `user_name`
+- `xabar`
+- pretty-printed payload
+
+## New user admin notify formati
+
+Adminga yuboriladigan xabar:
+
+- `Yangi foydalanuvchi qo'shildi`
+- `source: bot start/register`
+- `user_id`
+- `user_name`
+- `phone_number`
+- `full_name`
+- `registered_at`
+
+## Ishlatilgan test va check'lar
+
+- `npm run build`
+- `npm run cf:check`
 - `node --check api/cron-reminders.js`
 - `node --check lib/telegram-ops.cjs`
-- `node --input-type=module -e "import('./worker/index.js') ..."`
-- `npm run cf:check`
-- `npm run build`
-- Custom logger smoke test: HTML parse fallback ssenariysi
-- Custom logger smoke test: admin fallback-notice ssenariysi
-- Custom worker smoke test: success va partial-failure cron ssenariylari
+- `node --input-type=module -e "import('./lib/telegram-ops.cjs') ... sanitize/info test"`
+- `node --input-type=module -e "import('./lib/telegram-ops.cjs') ... admin notify format test"`
+- `git diff --stat`
 
-## Test Natijalari
+## Test natijalari
 
-- `api/bot.js` syntax check muvaffaqiyatli o'tdi.
-- `api/cron-reminders.js` syntax check muvaffaqiyatli o'tdi.
-- `lib/telegram-ops.cjs` syntax check muvaffaqiyatli o'tdi.
-- Worker import muvaffaqiyatli o'tdi.
-- `npm run cf:check` muvaffaqiyatli o'tdi.
-- `npm run build` muvaffaqiyatli o'tdi.
-- Logger parse fallback testida birinchi yuborish `HTML`, ikkinchisi `parse_mode`siz plain-text fallback bilan muvaffaqiyatli ketdi.
-- Logger fallback testida asosiy log channel xato berganda ikkinchi urinish admin chat'ga yuborilgani tasdiqlandi.
-- Worker smoke testida success scenariyda `daily` va `report` bittadan yuborildi.
-- Worker partial-failure smoke testida `notification_jobs` xato bo'lsa ham endpoint `200` qaytardi va `daily/report` oqimlari ishlashda davom etdi.
+- Build muvaffaqiyatli o'tdi.
+- Worker va bot syntax check muvaffaqiyatli o'tdi.
+- Cron syntax check muvaffaqiyatli o'tdi.
+- Logger sanitize testi muvaffaqiyatli o'tdi.
+- New user notify format testi muvaffaqiyatli o'tdi.
 
-## Qolgan Risklar
+## Qolgan risklar
 
-- Real Telegram kanal/gruppe ichida `LOG_CHANNEL_ID` va bot admin huquqlari prod muhitda alohida tekshirilishi kerak.
-- Local smoke test stub fetch bilan o'tkazildi; haqiqiy Supabase schema migratsiyalari alohida prod verifikatsiya talab qiladi.
-- Local `node` import testida `MODULE_TYPELESS_PACKAGE_JSON` warning chiqadi, lekin bu worker deploy uchun bloklovchi xato emas.
+- Real Telegram kanalga yuborish uchun bot kanalga admin qilingan bo'lishi kerak.
+- `LOG_CHANNEL_ID` noto'g'ri bo'lsa loglar chiqmaydi, lekin asosiy flow yiqilmaydi.
+- `LOG_LEVEL=INFO` production'da ortiqcha ko'p log berishi mumkin.
 
-## Prodga Chiqarishdan Oldin Manual Test
+## Prodga chiqarishdan oldin manual test
 
-1. `/admin` ichidan `👥 Yangi userlar` tugmasini bosib, `Oldingi/Keyingi` pagination ishlashini tekshiring.
-2. Mutlaqo yangi user `/start` va contact yuborganda admin notify kelishini tekshiring.
-3. Eski, lekin telefoni hali ro'yxatdan o'tmagan user contact yuborganda notify kelishini tekshiring.
-4. Eski user contact yuborganda `exchange_rate` qiymati reset bo'lmayotganini tekshiring.
-5. `/api/logging/test` orqali kanal logi va fallback holatini tekshiring.
-6. Manual cron run bilan `daily`, `report`, `scheduled queue`, `debt reminder` natijalarini ko'rib chiqing.
+1. `LOG_CHANNEL_ID` va `TELEGRAM_LOGGING_ENABLED=true` bilan bitta test error log yuborilishini tekshiring.
+2. `LOG_LEVEL=SUCCESS` holatida cron summary logi kelishini tekshiring.
+2.1 `LOG_LEVEL=ERROR,SUCCESS,INFO` holatida `/admin` yoki `/notif` berib `INFO` log tushishini tekshiring.
+3. Mutlaqo yangi user `/start` + contact yuborganda admin notify kelishini tekshiring.
+3.1 Yangi user `/start` bosganda `SUCCESS` log, contact yuborganda yana `SUCCESS` log kelishini tekshiring.
+3.2 Eski user `/start` bosganda `SUCCESS` log kelishini tekshiring.
+4. Eski user qayta contact yuborganda admin notify qayta ketmasligini tekshiring.
+5. Kanalga tushgan loglarda secret/token chiqmayotganini tekshiring.

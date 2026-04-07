@@ -1,6 +1,19 @@
 import telegramOpsPkg from "../lib/telegram-ops.cjs";
+import subscriptionHelpers from "../public/kassa.subscription.js";
+import {
+  buildPublicNotificationConfig,
+} from "../types/notifications.mjs";
+import {
+  deactivatePushDeviceRegistration,
+  summarizePushDevice,
+  upsertPushDevice,
+} from "../db/push-devices.mjs";
+import { sendNotification } from "../services/notifications/send-notification.mjs";
 
 const { createTelegramOps } = telegramOpsPkg;
+const SUBSCRIPTION_FIELDS = Array.isArray(subscriptionHelpers?.SUBSCRIPTION_FIELDS)
+  ? subscriptionHelpers.SUBSCRIPTION_FIELDS.slice()
+  : ["plan_code", "subscription_status", "subscription_start_at", "subscription_end_at", "trial_end_at", "canceled_at", "grace_until"];
 
 function json(data, status = 200, extraHeaders = {}) {
   return new Response(JSON.stringify(data), {
@@ -73,7 +86,8 @@ function isAuthorizedCronRequest(request, env) {
 function buildAppConfig(env) {
   return {
     SUPABASE_URL: env.SUPABASE_URL || "",
-    SUPABASE_ANON_KEY: env.SUPABASE_ANON_KEY || "",
+    SUPABASE_ANON_KEY: env.SUPABASE_ANON_KEY || env.SUPABASE_KEY || "",
+    ...buildPublicNotificationConfig(env),
   };
 }
 
@@ -210,6 +224,22 @@ function sbMissingColumn(error, column) {
   );
 }
 
+function hasSubscriptionSchema(row) {
+  if (typeof subscriptionHelpers?.hasSubscriptionSchema === "function") {
+    return subscriptionHelpers.hasSubscriptionSchema(row || {});
+  }
+  return SUBSCRIPTION_FIELDS.some((field) => Object.prototype.hasOwnProperty.call(row || {}, field));
+}
+
+function canUseNotificationFeature(row, featureKey) {
+  if (typeof subscriptionHelpers?.canUseNotificationFeature === "function") {
+    return subscriptionHelpers.canUseNotificationFeature(row || {}, featureKey, {
+      schemaReady: hasSubscriptionSchema(row),
+    });
+  }
+  return { allowed: true, featureKey, degraded: true };
+}
+
 const TASHKENT_TIME_ZONE = "Asia/Tashkent";
 const DEFAULT_CRON_INTERVAL_MINUTES = 30;
 const DEBT_REMINDER_BATCH_SIZE = 300;
@@ -336,42 +366,18 @@ async function sbGetNotificationSettings(env) {
   }
 }
 
-async function sbUpsertNotificationSetting(env, rowOrKey, patch = null) {
-  const merged = mergeNotificationSetting(rowOrKey, patch);
-  if (!merged) return null;
-
-  return sbFetch(env, `/notification_settings`, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      Prefer: "resolution=merge-duplicates, return=representation",
-    },
-    body: JSON.stringify(merged),
-  });
-}
-
 async function sbTouchNotificationSetting(env, key, payload = {}) {
-  const settingKey = String(key || "").trim();
-  if (!settingKey) return null;
-
   try {
-    const rows = await sbFetch(env, `/notification_settings?key=eq.${encodeURIComponent(settingKey)}&select=key,last_sent_at,updated_at`, {
+    await sbFetch(env, `/notification_settings?key=eq.${encodeURIComponent(key)}`, {
       method: "PATCH",
       headers: {
         "content-type": "application/json",
-        Prefer: "return=representation",
+        Prefer: "return=minimal",
       },
       body: JSON.stringify(payload),
     });
-
-    const updated = Array.isArray(rows) ? rows[0] || null : rows;
-    if (updated) return updated;
-
-    const inserted = await sbUpsertNotificationSetting(env, settingKey, payload);
-    return Array.isArray(inserted) ? inserted[0] || null : inserted;
   } catch (error) {
     if (!sbMissingTable(error, "notification_settings")) throw error;
-    return null;
   }
 }
 
@@ -388,74 +394,6 @@ async function sbInsertNotificationLog(env, row) {
   } catch (error) {
     if (!sbMissingTable(error, "notification_logs")) throw error;
   }
-}
-
-async function sbInsertNotificationLogs(env, rows) {
-  const items = Array.isArray(rows) ? rows.filter(Boolean) : [];
-  if (!items.length) return;
-
-  try {
-    await sbFetch(env, `/notification_logs`, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        Prefer: "return=minimal",
-      },
-      body: JSON.stringify(items),
-    });
-  } catch (error) {
-    if (!sbMissingTable(error, "notification_logs")) throw error;
-  }
-}
-
-function buildPostgrestInFilter(values = []) {
-  return (Array.isArray(values) ? values : [])
-    .map((value) => String(value ?? "").trim())
-    .filter(Boolean)
-    .map((value) => encodeURIComponent(value))
-    .join(",");
-}
-
-function coerceDateValue(value) {
-  if (value instanceof Date) {
-    return Number.isFinite(value.getTime()) ? new Date(value) : null;
-  }
-
-  if (typeof value === "number" && Number.isFinite(value)) {
-    const date = new Date(value);
-    return Number.isFinite(date.getTime()) ? date : null;
-  }
-
-  if (typeof value === "string") {
-    const raw = value.trim();
-    if (!raw) return null;
-
-    if (/^\d{10,16}$/.test(raw)) {
-      const numericDate = new Date(Number(raw));
-      return Number.isFinite(numericDate.getTime()) ? numericDate : null;
-    }
-
-    const parsed = new Date(raw);
-    return Number.isFinite(parsed.getTime()) ? parsed : null;
-  }
-
-  return null;
-}
-
-function resolveRunReferenceTime(meta = {}, fallback = new Date()) {
-  return (
-    coerceDateValue(
-      meta.referenceTime
-      ?? meta.runAt
-      ?? meta.run_at
-      ?? meta.scheduledTime
-      ?? meta.scheduled_time
-      ?? meta.scheduledFor
-      ?? meta.scheduled_for
-    )
-    || coerceDateValue(fallback)
-    || new Date()
-  );
 }
 
 function getTimeZoneParts(value = new Date(), timeZone = TASHKENT_TIME_ZONE) {
@@ -556,7 +494,7 @@ function isDailyReminderWindow(value = new Date(), sendTime = "09:00", windowMin
   const [hh, mm] = normalizeNotifTime(sendTime, "09:00").split(":").map(Number);
   const currentMinutes = p.hour * 60 + p.minute;
   const targetMinutes = hh * 60 + mm;
-  return currentMinutes >= targetMinutes && currentMinutes <= targetMinutes + Math.max(1, Number(windowMinutes || 5));
+  return currentMinutes >= targetMinutes && currentMinutes < targetMinutes + Math.max(1, Number(windowMinutes || 5));
 }
 
 function timeInZoneLabel(value = new Date(), timeZone = TASHKENT_TIME_ZONE) {
@@ -702,6 +640,19 @@ function renderNotificationText(job) {
   return `${title}${body}${footer}`.trim();
 }
 
+function buildDeliveryMeta(delivery, extra = {}) {
+  return {
+    ...extra,
+    provider: delivery?.provider || null,
+    fallback_provider: delivery?.fallbackProvider || null,
+    fallback_used: delivery?.fallbackUsed === true,
+    delivered_count: Number(delivery?.deliveredCount || 0),
+    target_count: Number(delivery?.targetCount || 0),
+    invalid_token_count: Number(delivery?.invalidTokenCount || 0),
+    primary_provider: delivery?.primaryProvider || null,
+  };
+}
+
 async function processDueNotifications(env, meta = {}) {
   const settings = await sbGetNotificationSettings(env);
   const queueSetting = settings.scheduled_queue || mergeNotificationSetting("scheduled_queue");
@@ -725,7 +676,7 @@ async function processDueNotifications(env, meta = {}) {
   } catch (error) {
     if (sbMissingTable(error, "notification_jobs")) {
       return {
-        ok: false,
+        ok: true,
         source: meta.source || "manual",
         total_due: 0,
         sent: 0,
@@ -762,7 +713,24 @@ async function processDueNotifications(env, meta = {}) {
       }
 
       const textToSend = renderNotificationText(job);
-      await tgSendMessage(env, job.user_id, textToSend);
+      const delivery = await sendNotification(env, {
+        userId: job.user_id,
+        title: job.title || "Kassa",
+        body: job.body || "",
+        html: textToSend,
+        type: job.type || "custom",
+        clickUrl: String(job?.payload?.url || job?.payload?.link || "/").trim() || "/",
+        tag: `notification-job-${job.id}`,
+        data: {
+          ...(job.payload && typeof job.payload === "object" ? job.payload : {}),
+          url: String(job?.payload?.url || job?.payload?.link || "/").trim() || "/",
+          job_id: String(job.id),
+          scheduled_for: job.scheduled_for || "",
+        },
+      });
+      if (!delivery.ok) {
+        throw new Error(delivery.error || delivery.reason || "Notification delivery failed");
+      }
 
       await sbMarkJobSent(env, job.id);
       await sbInsertNotificationLog(env, {
@@ -772,7 +740,10 @@ async function processDueNotifications(env, meta = {}) {
         status: "sent",
         message_text: textToSend,
         sent_at: isoNow(),
-        meta: { type: job.type || "custom", scheduled_for: job.scheduled_for || null },
+        meta: buildDeliveryMeta(delivery, {
+          type: job.type || "custom",
+          scheduled_for: job.scheduled_for || null,
+        }),
       });
       await sbTouchNotificationSetting(env, "scheduled_queue", { last_sent_at: isoNow() });
       result.sent += 1;
@@ -793,7 +764,10 @@ async function processDueNotifications(env, meta = {}) {
           message_text: renderNotificationText(job),
           error_text: error?.message || String(error),
           sent_at: isoNow(),
-          meta: { type: job.type || "custom", scheduled_for: job.scheduled_for || null },
+          meta: buildDeliveryMeta(null, {
+            type: job.type || "custom",
+            scheduled_for: job.scheduled_for || null,
+          }),
         });
       } catch (patchError) {
         result.errors.push({
@@ -810,15 +784,16 @@ async function processDueNotifications(env, meta = {}) {
 async function fetchUsersForDailyReminderPage(env, dayStartIso, { afterUserId = null, limit = 100 } = {}) {
   const encodedOr = encodeURIComponent(`(last_daily_reminder_at.is.null,last_daily_reminder_at.lt.${dayStartIso})`);
   const cursor = afterUserId != null ? `&user_id=gt.${encodeURIComponent(afterUserId)}` : "";
+  const subscriptionSelect = SUBSCRIPTION_FIELDS.join(",");
 
   try {
     const rows = await sbFetch(
       env,
-      `/users?select=user_id,full_name,daily_reminder_enabled,last_daily_reminder_at&or=${encodedOr}${cursor}&order=user_id.asc&limit=${limit}`
+      `/users?select=user_id,full_name,daily_reminder_enabled,last_daily_reminder_at,${subscriptionSelect}&or=${encodedOr}${cursor}&order=user_id.asc&limit=${limit}`
     );
     return { rows, migrationRequired: null };
   } catch (error) {
-    if (sbMissingColumn(error, "daily_reminder_enabled")) {
+    if (sbMissingColumn(error, "daily_reminder_enabled") || SUBSCRIPTION_FIELDS.some((field) => sbMissingColumn(error, field))) {
       const rows = await sbFetch(
         env,
         `/users?select=user_id,full_name,last_daily_reminder_at&or=${encodedOr}${cursor}&order=user_id.asc&limit=${limit}`
@@ -834,23 +809,18 @@ async function fetchUsersForDailyReminderPage(env, dayStartIso, { afterUserId = 
   }
 }
 
-async function claimDailyReminderSendBatch(env, userIds, dayStartIso, claimIso) {
-  const inFilter = buildPostgrestInFilter(userIds);
-  if (!inFilter) return [];
-
+async function markDailyReminderSent(env, userId, nowIso) {
   try {
-    const encodedOr = encodeURIComponent(`(last_daily_reminder_at.is.null,last_daily_reminder_at.lt.${dayStartIso})`);
-    const rows = await sbFetch(env, `/users?user_id=in.(${inFilter})&or=${encodedOr}&select=user_id`, {
+    await sbFetch(env, `/users?user_id=eq.${encodeURIComponent(userId)}`, {
       method: "PATCH",
       headers: {
         "content-type": "application/json",
-        Prefer: "return=representation",
+        Prefer: "return=minimal",
       },
-      body: JSON.stringify({ last_daily_reminder_at: claimIso }),
+      body: JSON.stringify({ last_daily_reminder_at: nowIso }),
     });
-    return Array.isArray(rows) ? rows : [];
   } catch (error) {
-    if (sbMissingColumn(error, "last_daily_reminder_at")) return [];
+    if (sbMissingColumn(error, "last_daily_reminder_at")) return;
     throw error;
   }
 }
@@ -858,15 +828,16 @@ async function claimDailyReminderSendBatch(env, userIds, dayStartIso, claimIso) 
 async function fetchUsersForDailyReportPage(env, dayStartIso, { afterUserId = null, limit = 100 } = {}) {
   const encodedOr = encodeURIComponent(`(last_daily_report_at.is.null,last_daily_report_at.lt.${dayStartIso})`);
   const cursor = afterUserId != null ? `&user_id=gt.${encodeURIComponent(afterUserId)}` : "";
+  const subscriptionSelect = SUBSCRIPTION_FIELDS.join(",");
 
   try {
     const rows = await sbFetch(
       env,
-      `/users?select=user_id,full_name,daily_reminder_enabled,last_daily_report_at&or=${encodedOr}${cursor}&order=user_id.asc&limit=${limit}`
+      `/users?select=user_id,full_name,daily_reminder_enabled,last_daily_report_at,${subscriptionSelect}&or=${encodedOr}${cursor}&order=user_id.asc&limit=${limit}`
     );
     return { rows, migrationRequired: null };
   } catch (error) {
-    if (sbMissingColumn(error, "daily_reminder_enabled")) {
+    if (sbMissingColumn(error, "daily_reminder_enabled") || SUBSCRIPTION_FIELDS.some((field) => sbMissingColumn(error, field))) {
       const rows = await sbFetch(
         env,
         `/users?select=user_id,full_name,last_daily_report_at&or=${encodedOr}${cursor}&order=user_id.asc&limit=${limit}`
@@ -882,58 +853,15 @@ async function fetchUsersForDailyReportPage(env, dayStartIso, { afterUserId = nu
   }
 }
 
-async function releaseDailyReminderClaims(env, userIds, claimIso) {
-  const inFilter = buildPostgrestInFilter(userIds);
-  if (!inFilter) return;
-
+async function markDailyReportSent(env, userId, nowIso) {
   try {
-    await sbFetch(env, `/users?user_id=in.(${inFilter})&last_daily_reminder_at=eq.${encodeURIComponent(claimIso)}`, {
+    await sbFetch(env, `/users?user_id=eq.${encodeURIComponent(userId)}`, {
       method: "PATCH",
       headers: {
         "content-type": "application/json",
         Prefer: "return=minimal",
       },
-      body: JSON.stringify({ last_daily_reminder_at: null }),
-    });
-  } catch (error) {
-    if (sbMissingColumn(error, "last_daily_reminder_at")) return;
-    throw error;
-  }
-}
-
-async function claimDailyReportSendBatch(env, userIds, dayStartIso, claimIso) {
-  const inFilter = buildPostgrestInFilter(userIds);
-  if (!inFilter) return [];
-
-  try {
-    const encodedOr = encodeURIComponent(`(last_daily_report_at.is.null,last_daily_report_at.lt.${dayStartIso})`);
-    const rows = await sbFetch(env, `/users?user_id=in.(${inFilter})&or=${encodedOr}&select=user_id`, {
-      method: "PATCH",
-      headers: {
-        "content-type": "application/json",
-        Prefer: "return=representation",
-      },
-      body: JSON.stringify({ last_daily_report_at: claimIso }),
-    });
-    return Array.isArray(rows) ? rows : [];
-  } catch (error) {
-    if (sbMissingColumn(error, "last_daily_report_at")) return [];
-    throw error;
-  }
-}
-
-async function releaseDailyReportClaims(env, userIds, claimIso) {
-  const inFilter = buildPostgrestInFilter(userIds);
-  if (!inFilter) return;
-
-  try {
-    await sbFetch(env, `/users?user_id=in.(${inFilter})&last_daily_report_at=eq.${encodeURIComponent(claimIso)}`, {
-      method: "PATCH",
-      headers: {
-        "content-type": "application/json",
-        Prefer: "return=minimal",
-      },
-      body: JSON.stringify({ last_daily_report_at: null }),
+      body: JSON.stringify({ last_daily_report_at: nowIso }),
     });
   } catch (error) {
     if (sbMissingColumn(error, "last_daily_report_at")) return;
@@ -953,11 +881,9 @@ async function processDailyReminders(env, now = new Date(), meta = {}) {
   const perRunLimit = Math.max(batchSize, Math.min(50000, Number(dailySetting?.config?.per_run_limit || 10000)));
 
   const result = {
-    ok: true,
     checked: 0,
     sent: 0,
     failed: [],
-    skipped: 0,
     todayKey: uzDateKey(now, timeZone),
     local_now: timeInZoneLabel(now, timeZone),
     time_zone: timeZone,
@@ -996,7 +922,6 @@ async function processDailyReminders(env, now = new Date(), meta = {}) {
       });
     } catch (error) {
       if (sbMissingTable(error, "users")) {
-        result.ok = false;
         result.note = "users table missing";
         return result;
       }
@@ -1004,7 +929,6 @@ async function processDailyReminders(env, now = new Date(), meta = {}) {
     }
 
     if (page?.migrationRequired) {
-      result.ok = false;
       result.note = page.migrationRequired;
       return result;
     }
@@ -1015,77 +939,68 @@ async function processDailyReminders(env, now = new Date(), meta = {}) {
     totalScanned += rawRows.length;
     lastUserId = rawRows[rawRows.length - 1]?.user_id ?? lastUserId;
 
-    const candidates = rawRows.filter(
-      (row) => row && toSafeChatId(row.user_id) && row.daily_reminder_enabled !== false
-    );
+    const candidates = rawRows.filter((row) => {
+      if (!row || !toSafeChatId(row.user_id) || row.daily_reminder_enabled === false) return false;
+      return canUseNotificationFeature(row, "daily_reminder").allowed;
+    });
 
     result.checked += candidates.length;
-    if (!candidates.length) {
-      if (rawRows.length < pageLimit) break;
-      continue;
-    }
 
-    const claimedRows = await claimDailyReminderSendBatch(
-      env,
-      candidates.map((row) => row.user_id),
-      dayStartIso,
-      nowIso
-    );
-    const claimedIds = new Set((Array.isArray(claimedRows) ? claimedRows : []).map((row) => String(row.user_id)));
-    const claimedCandidates = candidates.filter((row) => claimedIds.has(String(row.user_id)));
-    const failedUserIds = [];
-    const logRows = [];
-
-    result.skipped += Math.max(0, candidates.length - claimedCandidates.length);
-
-    for (const row of claimedCandidates) {
+    for (const row of candidates) {
       const html = buildDailyReminderText(dailySetting, row.full_name, now);
 
       try {
-        await tgSendMessage(env, row.user_id, html);
-        logRows.push({
+        const delivery = await sendNotification(env, {
+          userId: row.user_id,
+          html,
+          title: dailySetting.title || "Kunlik eslatma",
+          type: "daily_reminder",
+          clickUrl: "/",
+          tag: `daily-reminder-${row.user_id}`,
+          data: {
+            url: "/",
+            setting_key: "daily_reminder",
+          },
+        });
+        if (!delivery.ok) {
+          throw new Error(delivery.error || delivery.reason || "Notification delivery failed");
+        }
+        await markDailyReminderSent(env, row.user_id, nowIso);
+
+        await sbInsertNotificationLog(env, {
           setting_key: "daily_reminder",
           user_id: row.user_id,
           status: "sent",
           message_text: html,
           sent_at: nowIso,
-          meta: {
+          meta: buildDeliveryMeta(delivery, {
             send_time: sendTime,
             source: meta.source || "scheduled",
             batch_size: batchSize,
-          },
+          }),
         });
+
         result.sent += 1;
       } catch (error) {
-        failedUserIds.push(row.user_id);
         result.failed.push({
           user_id: row.user_id,
           error: error?.message || String(error),
         });
-        logRows.push({
+
+        await sbInsertNotificationLog(env, {
           setting_key: "daily_reminder",
           user_id: row.user_id,
           status: "failed",
           message_text: html,
           error_text: error?.message || String(error),
           sent_at: nowIso,
-          meta: {
+          meta: buildDeliveryMeta(null, {
             send_time: sendTime,
             source: meta.source || "scheduled",
             batch_size: batchSize,
-          },
+          }),
         });
       }
-    }
-
-    if (failedUserIds.length) {
-      try {
-        await releaseDailyReminderClaims(env, failedUserIds, nowIso);
-      } catch (_) { }
-    }
-
-    if (logRows.length) {
-      await sbInsertNotificationLogs(env, logRows);
     }
 
     if (rawRows.length < pageLimit) break;
@@ -1114,11 +1029,9 @@ async function processDailyReports(env, now = new Date(), meta = {}) {
   const perRunLimit = Math.max(batchSize, Math.min(50000, Number(reportSetting?.config?.per_run_limit || 10000)));
 
   const result = {
-    ok: true,
     checked: 0,
     sent: 0,
     failed: [],
-    skipped: 0,
     todayKey: uzDateKey(now, timeZone),
     local_now: timeInZoneLabel(now, timeZone),
     time_zone: timeZone,
@@ -1157,7 +1070,6 @@ async function processDailyReports(env, now = new Date(), meta = {}) {
       });
     } catch (error) {
       if (sbMissingTable(error, "users")) {
-        result.ok = false;
         result.note = "users table missing";
         return result;
       }
@@ -1165,7 +1077,6 @@ async function processDailyReports(env, now = new Date(), meta = {}) {
     }
 
     if (page?.migrationRequired) {
-      result.ok = false;
       result.note = page.migrationRequired;
       return result;
     }
@@ -1176,77 +1087,68 @@ async function processDailyReports(env, now = new Date(), meta = {}) {
     totalScanned += rawRows.length;
     lastUserId = rawRows[rawRows.length - 1]?.user_id ?? lastUserId;
 
-    const candidates = rawRows.filter(
-      (row) => row && toSafeChatId(row.user_id) && row.daily_reminder_enabled !== false
-    );
+    const candidates = rawRows.filter((row) => {
+      if (!row || !toSafeChatId(row.user_id) || row.daily_reminder_enabled === false) return false;
+      return canUseNotificationFeature(row, "daily_report").allowed;
+    });
 
     result.checked += candidates.length;
-    if (!candidates.length) {
-      if (rawRows.length < pageLimit) break;
-      continue;
-    }
 
-    const claimedRows = await claimDailyReportSendBatch(
-      env,
-      candidates.map((row) => row.user_id),
-      dayStartIso,
-      nowIso
-    );
-    const claimedIds = new Set((Array.isArray(claimedRows) ? claimedRows : []).map((row) => String(row.user_id)));
-    const claimedCandidates = candidates.filter((row) => claimedIds.has(String(row.user_id)));
-    const failedUserIds = [];
-    const logRows = [];
-
-    result.skipped += Math.max(0, candidates.length - claimedCandidates.length);
-
-    for (const row of claimedCandidates) {
+    for (const row of candidates) {
       const html = buildDailyReportText(reportSetting, row.full_name, now);
 
       try {
-        await tgSendMessage(env, row.user_id, html);
-        logRows.push({
+        const delivery = await sendNotification(env, {
+          userId: row.user_id,
+          html,
+          title: reportSetting.title || "Kunlik hisobot",
+          type: "daily_report",
+          clickUrl: "/",
+          tag: `daily-report-${row.user_id}`,
+          data: {
+            url: "/",
+            setting_key: "daily_report",
+          },
+        });
+        if (!delivery.ok) {
+          throw new Error(delivery.error || delivery.reason || "Notification delivery failed");
+        }
+        await markDailyReportSent(env, row.user_id, nowIso);
+
+        await sbInsertNotificationLog(env, {
           setting_key: "daily_report",
           user_id: row.user_id,
           status: "sent",
           message_text: html,
           sent_at: nowIso,
-          meta: {
+          meta: buildDeliveryMeta(delivery, {
             send_time: sendTime,
             source: meta.source || "scheduled",
             batch_size: batchSize,
-          },
+          }),
         });
+
         result.sent += 1;
       } catch (error) {
-        failedUserIds.push(row.user_id);
         result.failed.push({
           user_id: row.user_id,
           error: error?.message || String(error),
         });
-        logRows.push({
+
+        await sbInsertNotificationLog(env, {
           setting_key: "daily_report",
           user_id: row.user_id,
           status: "failed",
           message_text: html,
           error_text: error?.message || String(error),
           sent_at: nowIso,
-          meta: {
+          meta: buildDeliveryMeta(null, {
             send_time: sendTime,
             source: meta.source || "scheduled",
             batch_size: batchSize,
-          },
+          }),
         });
       }
-    }
-
-    if (failedUserIds.length) {
-      try {
-        await releaseDailyReportClaims(env, failedUserIds, nowIso);
-      } catch (_) { }
-    }
-
-    if (logRows.length) {
-      await sbInsertNotificationLogs(env, logRows);
     }
 
     if (rawRows.length < pageLimit) break;
@@ -1311,7 +1213,6 @@ async function processDebtReminders(env, now = new Date(), meta = {}) {
   const debtSetting = settings.debt_reminder || mergeNotificationSetting("debt_reminder");
 
   const result = {
-    ok: true,
     checked: 0,
     due: 0,
     sent: 0,
@@ -1334,7 +1235,6 @@ async function processDebtReminders(env, now = new Date(), meta = {}) {
       debts = await sbFetchDebtReminderPage(env, { limit: DEBT_REMINDER_BATCH_SIZE, offset });
     } catch (error) {
       if (sbMissingTable(error, "debts")) {
-        result.ok = false;
         result.note = "debts table missing";
         return result;
       }
@@ -1370,14 +1270,33 @@ async function processDebtReminders(env, now = new Date(), meta = {}) {
           continue;
         }
 
-        await tgSendMessage(env, debt.user_id, text);
+        const delivery = await sendNotification(env, {
+          userId: debt.user_id,
+          html: text,
+          title: debtSetting.title || "Qarz eslatmasi",
+          type: "debt_reminder",
+          clickUrl: "/debts",
+          tag: `debt-reminder-${debt.id}`,
+          data: {
+            url: "/debts",
+            debt_id: String(debt.id),
+            setting_key: "debt_reminder",
+          },
+        });
+        if (!delivery.ok) {
+          throw new Error(delivery.error || delivery.reason || "Notification delivery failed");
+        }
         await sbInsertNotificationLog(env, {
           setting_key: "debt_reminder",
           user_id: debt.user_id,
           status: "sent",
           message_text: text,
           sent_at: nowIso,
-          meta: { debt_id: debt.id, due_at: debt.due_at || null, remind_at: debt.remind_at || null },
+          meta: buildDeliveryMeta(delivery, {
+            debt_id: debt.id,
+            due_at: debt.due_at || null,
+            remind_at: debt.remind_at || null,
+          }),
         });
         result.sent += 1;
       } catch (error) {
@@ -1396,7 +1315,11 @@ async function processDebtReminders(env, now = new Date(), meta = {}) {
           message_text: text,
           error_text: error?.message || String(error),
           sent_at: nowIso,
-          meta: { debt_id: debt.id, due_at: debt.due_at || null, remind_at: debt.remind_at || null },
+          meta: buildDeliveryMeta(null, {
+            debt_id: debt.id,
+            due_at: debt.due_at || null,
+            remind_at: debt.remind_at || null,
+          }),
         });
       }
     }
@@ -1446,92 +1369,30 @@ async function runCronTask(taskName, handler) {
   }
 }
 
-function isBenignCronNote(note = "") {
-  const text = String(note || "").trim().toLowerCase();
-  if (!text) return true;
-  return (
-    text === "daily reminder disabled" ||
-    text === "daily report disabled" ||
-    text === "debt reminder disabled" ||
-    text === "scheduled queue disabled" ||
-    text === "outside daily reminder window" ||
-    text === "outside daily report window"
-  );
-}
-
-function inferCronIssueSeverity(note = "") {
-  const text = String(note || "").trim().toLowerCase();
-  if (!text) return "WARN";
-  if (
-    text.includes("missing") ||
-    text.includes("failed") ||
-    text.includes("error") ||
-    text.includes("unauthorized")
-  ) {
-    return "ERROR";
-  }
-  return "WARN";
-}
-
-function collectCronIssues(result = {}) {
-  const issues = [];
-  const tasks = ["notifications", "daily", "report", "debts"];
-
-  for (const taskName of tasks) {
-    const taskResult = result?.[taskName];
-    if (!taskResult) continue;
-
-    if (taskResult.ok === false) {
-      issues.push({
-        task: taskName,
-        severity: inferCronIssueSeverity(taskResult.note || `${taskName} failed`),
-        note: taskResult.note || `${taskName} failed`,
-      });
-      continue;
-    }
-
-    if (taskResult.note && !isBenignCronNote(taskResult.note)) {
-      issues.push({
-        task: taskName,
-        severity: inferCronIssueSeverity(taskResult.note),
-        note: taskResult.note,
-      });
-    }
-  }
-
-  return issues;
-}
-
 async function runAllCronJobs(env, meta = {}) {
-  const referenceTime = resolveRunReferenceTime(meta);
-  const executedAt = new Date();
+  const now = new Date();
   const [notifications, daily, report, debts] = await Promise.all([
     runCronTask("notifications", () => processDueNotifications(env, meta)),
-    runCronTask("daily", () => processDailyReminders(env, referenceTime, meta)),
-    runCronTask("report", () => processDailyReports(env, referenceTime, meta)),
-    runCronTask("debts", () => processDebtReminders(env, referenceTime, meta)),
+    runCronTask("daily", () => processDailyReminders(env, now, meta)),
+    runCronTask("report", () => processDailyReports(env, now, meta)),
+    runCronTask("debts", () => processDebtReminders(env, now, meta)),
   ]);
 
-  const result = {
+  return {
     ok:
       notifications?.ok !== false &&
       daily?.ok !== false &&
       report?.ok !== false &&
       debts?.ok !== false,
-    at: referenceTime.toISOString(),
-    executed_at: executedAt.toISOString(),
+    at: now.toISOString(),
     source: meta.source || "manual",
     cron: meta.cron || null,
-    scheduledTime: coerceDateValue(meta.scheduledTime)?.toISOString() || meta.scheduledTime || null,
+    scheduledTime: meta.scheduledTime || null,
     notifications,
     daily,
     report,
     debts,
   };
-
-  result.issues = collectCronIssues(result);
-  result.ok = result.ok && !result.issues.some((issue) => issue.severity === "ERROR");
-  return result;
 }
 
 /* =========================
@@ -1569,7 +1430,8 @@ function seedLegacyProcessEnv(env) {
     "LOCAL_LOG_LEVEL",
     "ADMIN_NOTIFY_CHAT_ID",
     "CLIENT_CONSOLE_LOGS_ENABLED",
-  ];
+    "NOTIFICATION_PROVIDER",
+];
 
   for (const key of keys) {
     const value = env?.[key];
@@ -1754,7 +1616,10 @@ async function handleHealth(env) {
     has_supabase_anon_key: !!env.SUPABASE_ANON_KEY,
     has_supabase_service_key: !!env.SUPABASE_SERVICE_ROLE_KEY,
     has_cron_secret: !!env.CRON_SECRET,
+    notification_provider: buildPublicNotificationConfig(env).NOTIFICATION_PROVIDER,
+    push_notifications_enabled: false,
     compatibility: "cloudflare-worker",
+    version: "2.0.0-telegram-only",
   });
 }
 
@@ -1779,28 +1644,67 @@ async function handleDebugTelegram(env) {
 
 async function handleClientLog(request, env) {
   const body = await safeJson(request);
-  const logger = getWorkerLogger(env);
-  const level = String(body.level || body.type || "info").trim().toLowerCase();
-
   if (parseBoolean(env?.CLIENT_CONSOLE_LOGS_ENABLED, false)) {
-    logger.local(level === "error" ? "ERROR" : "INFO", "client-log", body);
-  }
-
-  if (level === "error") {
-    await logger.error({
-      scope: `miniapp.${String(body.scope || "client").trim() || "client"}`,
-      user_id: body.currentUserId || body.tgUserId || body.user_id || null,
-      username: body.username || null,
-      full_name: body.full_name || null,
-      message: body.message || "Mini app client error",
-      payload: {
-        url: body.url || "",
-        user_agent: body.userAgent || request.headers.get("user-agent") || "",
-        payload: body.payload || {},
-      },
-    }).catch(() => { });
+    getWorkerLogger(env).local("INFO", "client-log", body);
   }
   return json({ ok: true });
+}
+
+async function handlePushRegister(request, env) {
+  if (request.method !== "POST") {
+    return json({ ok: false, error: "Method not allowed" }, 405);
+  }
+
+  try {
+    const body = await safeJson(request);
+    const row = await upsertPushDevice(env, body);
+    return json({
+      ok: true,
+      device: summarizePushDevice(row),
+    });
+  } catch (error) {
+    await getWorkerLogger(env).error({
+      scope: "push.register",
+      message: error?.message || String(error),
+      payload: { error },
+    }).catch(() => {});
+    return json(
+      {
+        ok: false,
+        error: error?.message || String(error),
+      },
+      500
+    );
+  }
+}
+
+async function handlePushUnregister(request, env) {
+  if (request.method !== "POST") {
+    return json({ ok: false, error: "Method not allowed" }, 405);
+  }
+
+  try {
+    const body = await safeJson(request);
+    const rows = await deactivatePushDeviceRegistration(env, body);
+    const firstRow = Array.isArray(rows) ? rows[0] || null : rows;
+    return json({
+      ok: true,
+      device: firstRow ? summarizePushDevice(firstRow) : null,
+    });
+  } catch (error) {
+    await getWorkerLogger(env).error({
+      scope: "push.unregister",
+      message: error?.message || String(error),
+      payload: { error },
+    }).catch(() => {});
+    return json(
+      {
+        ok: false,
+        error: error?.message || String(error),
+      },
+      500
+    );
+  }
 }
 
 async function handleNotifyMiniAppTx(request, env) {
@@ -1843,11 +1747,32 @@ async function handleNotifyMiniAppTx(request, env) {
       lines.push(`<b>Chek:</b> mavjud`);
     }
 
-    const tg = await tgSendMessage(env, chatId, lines.join("\n"));
+    const delivery = await sendNotification(env, {
+      userId: chatId,
+      title: "Yangi operatsiya",
+      body: `${label}: ${numFmt(amount)} so'm · ${category}`,
+      html: lines.join("\n"),
+      type: "miniapp_tx",
+      clickUrl: "/history",
+      tag: `miniapp-tx-${chatId}`,
+      data: {
+        url: "/history",
+        tx_type: type,
+        source,
+        category,
+        amount: String(amount),
+      },
+    });
+    if (!delivery.ok) {
+      throw new Error(delivery.error || delivery.reason || "Notification delivery failed");
+    }
 
     return json({
       ok: true,
-      telegram_message_id: tg?.result?.message_id || null,
+      provider: delivery.provider,
+      fallback_used: delivery.fallbackUsed === true,
+      delivered_count: Number(delivery.deliveredCount || 0),
+      telegram_message_id: delivery.legacyMessageId || null,
     });
   } catch (error) {
     await getWorkerLogger(env).error({
@@ -1965,11 +1890,29 @@ async function handleTestNotification(request, env) {
     if (!chatId) return json({ ok: false, error: "user_id required" }, 400);
 
     const html = `<b>Test notification</b>\n\nCloudflare cron tizimi ishlayapti ✅`;
-    const tg = await tgSendMessage(env, chatId, html);
+    const delivery = await sendNotification(env, {
+      userId: chatId,
+      title: "Test notification",
+      body: "Cloudflare cron tizimi ishlayapti ✅",
+      html,
+      type: "test_notification",
+      clickUrl: "/",
+      tag: `test-notification-${chatId}`,
+      data: {
+        url: "/",
+        scope: "notifications.test",
+      },
+    });
+    if (!delivery.ok) {
+      throw new Error(delivery.error || delivery.reason || "Notification delivery failed");
+    }
 
     return json({
       ok: true,
-      telegram_message_id: tg?.result?.message_id || null,
+      provider: delivery.provider,
+      fallback_used: delivery.fallbackUsed === true,
+      delivered_count: Number(delivery.deliveredCount || 0),
+      telegram_message_id: delivery.legacyMessageId || null,
     });
   } catch (error) {
     await getWorkerLogger(env).error({
@@ -2012,7 +1955,7 @@ async function handleLoggingTest(request, env) {
     const sent = await tgSendMessage(
       env,
       channelId,
-      `<b>[INFO]</b>\n<b>status:</b> 200\n<b>severity:</b> INFO\n<b>module:</b> WORKER\n<b>action:</b> logging-test\n<b>user_id:</b> <code>unknown</code>\n<b>user_name:</b> manual-test\n<b>time:</b> ${esc(isoNow())}\n\n<b>details:</b> Worker logging test muvaffaqiyatli yuborildi\n\n<b>payload:</b>\n<pre>${esc(JSON.stringify(payload, null, 2))}</pre>`
+      `<b>[INFO]</b>\n<b>source:</b> WORKER\n<b>scope:</b> logging-test\n<b>user_id:</b> <code>unknown</code>\n<b>user_name:</b> manual-test\n\n<b>info tafsilotlari:</b>\n<pre>${esc(JSON.stringify(payload, null, 2))}</pre>`
     );
 
     await logger.info({
@@ -2064,26 +2007,7 @@ async function handleManualCronRun(request, env) {
   }
 
   try {
-    const body = await safeJson(request);
-    const hasRequestedRunTime =
-      body.runAt != null ||
-      body.run_at != null ||
-      body.scheduledTime != null ||
-      body.scheduled_time != null;
-    const requestedRunTime = coerceDateValue(
-      body.runAt
-      ?? body.run_at
-      ?? body.scheduledTime
-      ?? body.scheduled_time
-    );
-    if (hasRequestedRunTime && !requestedRunTime) {
-      return json({ ok: false, error: "Invalid runAt/scheduledTime" }, 400);
-    }
-    const result = await runAllCronJobs(env, {
-      source: "manual",
-      scheduledTime: hasRequestedRunTime ? requestedRunTime.toISOString() : null,
-      referenceTime: hasRequestedRunTime ? requestedRunTime.toISOString() : null,
-    });
+    const result = await runAllCronJobs(env, { source: "manual" });
     const totalFailures =
       Number(result?.notifications?.failed || 0) +
       Number((result?.daily?.failed || []).length || 0) +
@@ -2094,27 +2018,16 @@ async function handleManualCronRun(request, env) {
       Number(result?.daily?.sent || 0) +
       Number(result?.report?.sent || 0) +
       Number(result?.debts?.sent || 0);
-    const issues = Array.isArray(result?.issues) ? result.issues : [];
-    const hasErrorIssues = issues.some((issue) => issue.severity === "ERROR");
 
-    if (totalFailures > 0 || hasErrorIssues) {
+    if (totalFailures > 0) {
       await getWorkerLogger(env).error({
         scope: "cron.manual",
-        status: 500,
         message: "Manual cron xatolar bilan yakunlandi",
-        payload: result,
-      }).catch(() => { });
-    } else if (issues.length > 0) {
-      await getWorkerLogger(env).warn({
-        scope: "cron.manual",
-        status: 409,
-        message: "Manual cron ogohlantirish bilan yakunlandi",
         payload: result,
       }).catch(() => { });
     } else if (totalSent > 0) {
       await getWorkerLogger(env).success({
         scope: "cron.manual",
-        status: 200,
         message: "Manual cron muvaffaqiyatli yakunlandi",
         payload: result,
       }).catch(() => { });
@@ -2187,6 +2100,14 @@ export default {
 
       if (url.pathname === "/api/client-log") {
         return handleClientLog(request, env);
+      }
+
+      if (url.pathname === "/api/push/register") {
+        return handlePushRegister(request, env);
+      }
+
+      if (url.pathname === "/api/push/unregister") {
+        return handlePushUnregister(request, env);
       }
 
       // Telegram webhook
@@ -2270,27 +2191,16 @@ export default {
             Number(result?.daily?.sent || 0) +
             Number(result?.report?.sent || 0) +
             Number(result?.debts?.sent || 0);
-          const issues = Array.isArray(result?.issues) ? result.issues : [];
-          const hasErrorIssues = issues.some((issue) => issue.severity === "ERROR");
 
-          if (totalFailures > 0 || hasErrorIssues) {
+          if (totalFailures > 0) {
             await getWorkerLogger(env).error({
               scope: "cron.scheduled",
-              status: 500,
               message: "Scheduled cron xatolar bilan tugadi",
-              payload: result,
-            });
-          } else if (issues.length > 0) {
-            await getWorkerLogger(env).warn({
-              scope: "cron.scheduled",
-              status: 409,
-              message: "Scheduled cron ogohlantirish bilan tugadi",
               payload: result,
             });
           } else if (totalSent > 0) {
             await getWorkerLogger(env).success({
               scope: "cron.scheduled",
-              status: 200,
               message: "Scheduled cron muvaffaqiyatli ishladi",
               payload: result,
             });

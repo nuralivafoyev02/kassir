@@ -10,13 +10,23 @@
             </div>
           </div>
           <div class="header-actions">
-            <button class="header-btn settings-btn" onclick="openSettings()" data-i18n-title="settings_title"
-              title="Sozlamalar">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
-                <circle cx="12" cy="12" r="3" />
-                <path
-                  d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
-              </svg>
+            <button
+              type="button"
+              class="header-plan-indicator"
+              id="dash-plan-indicator"
+              data-state="free"
+              onclick="openSubscriptionPanel('dashboard')"
+              aria-live="polite"
+              aria-label="Bepul tarif"
+              title="Bepul tarif"
+            >
+              <span class="header-plan-icon" id="dash-plan-indicator-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
+                  <circle cx="12" cy="12" r="7"></circle>
+                  <path d="M12 8v8"></path>
+                  <path d="M8 12h8"></path>
+                </svg>
+              </span>
             </button>
           </div>
         </div>
@@ -81,6 +91,15 @@
           <div class="fp" data-f="month" onclick="setDate('month')" data-i18n="filter_month">Oy</div>
           <div class="fp" data-f="custom" onclick="openDateMod()">📅 <span data-i18n="filter_custom">Maxsus</span></div>
         </div>
+        <div class="dash-widget-section">
+          <div class="panel-head-inline">
+            <div>
+              <div class="panel-ttl" data-i18n="dashboard_widgets_title">Tezkor vidjetlar</div>
+              <div class="dash-panel-sub" data-i18n="dashboard_widgets_sub">Bir qarashda eng muhim raqamlar</div>
+            </div>
+          </div>
+          <div class="dash-widget-grid" id="dash-overview-grid"></div>
+        </div>
         <div class="panel">
           <div class="panel-ttl" data-i18n="categories">Kategoriyalar</div>
           <div id="chart-wrap"><canvas id="myChart"></canvas>
@@ -94,6 +113,16 @@
         <div id="trend-sec">
           <div class="panel-ttl" style="padding-left:2px">📈 <span data-i18n="trends">Trendlar</span></div>
           <div class="tgrid" id="trend-grid"></div>
+        </div>
+        <div class="panel dash-analytics-panel" id="dash-analytics-panel">
+          <div class="panel-head-inline">
+            <div>
+              <div class="panel-ttl" data-i18n="dashboard_premium_title">Premium dashboard</div>
+              <div class="dash-panel-sub" id="dash-analytics-subtitle" data-i18n="dashboard_premium_sub">Pul holati, xavf va prognozlar bir joyda</div>
+            </div>
+            <button type="button" class="dash-panel-chip" id="dash-analytics-action" onclick="handleDashboardAnalyticsAction()">Premium</button>
+          </div>
+          <div class="dash-analytics-grid" id="dash-analytics-grid"></div>
         </div>
       </div>
 </template>

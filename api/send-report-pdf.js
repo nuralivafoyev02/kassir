@@ -1,5 +1,10 @@
 'use strict';
 
+const {
+  getPremiumFeatureMessage,
+  getUserFeatureGate,
+} = require('../lib/subscription-access.cjs');
+
 function getBotToken(req) {
   return (
     req?.env?.BOT_TOKEN ||
@@ -53,6 +58,17 @@ module.exports = async (req, res) => {
 
     if (!userId) return res.status(400).json({ ok: false, error: 'user_id required' });
     if (!base64) return res.status(400).json({ ok: false, error: 'base64 required' });
+
+    const access = await getUserFeatureGate(req, userId, 'advanced_reports');
+    if (access?.gate?.allowed === false) {
+      return res.status(403).json({
+        ok: false,
+        error: getPremiumFeatureMessage('advanced_reports'),
+        detail: 'upgrade_required:advanced_reports',
+        feature_key: 'advanced_reports',
+        required_plan_code: 'premium_monthly',
+      });
+    }
 
     const cleanBase64 = base64.replace(/^data:application\/pdf;base64,/, '').trim();
     const bytes = Uint8Array.from(atob(cleanBase64), (c) => c.charCodeAt(0));

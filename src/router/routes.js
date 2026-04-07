@@ -3,6 +3,7 @@ export const ROUTE_TABLE = [
   { tab: 'debt', path: '/debts', name: 'debts' },
   { tab: 'add', path: '/add', name: 'add' },
   { tab: 'plan', path: '/plan', name: 'plan' },
+  { tab: 'profile', path: '/profile', name: 'profile' },
   { tab: 'hist', path: '/history', name: 'history' },
 ]
 

@@ -1,5 +1,5 @@
 .env
 node_modules/
+dist/
 supabase.sql
-README.legacy.md
 .DS_Store

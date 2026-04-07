@@ -1,8 +1,8 @@
 'use strict';
 
-const TelegramBot = require('node-telegram-bot-api');
 const { createClient } = require('@supabase/supabase-js');
 const { createTelegramOps } = require('../lib/telegram-ops.cjs');
+const subscriptionHelpers = require('../public/kassa.subscription.js');
 
 const BOT_TOKEN = process.env.BOT_TOKEN;
 const SUPA_URL = process.env.SUPABASE_URL;
@@ -64,8 +64,10 @@ if (!BOT_TOKEN) throw new Error("BOT_TOKEN yo'q");
 if (!SUPA_URL) throw new Error("SUPABASE_URL yo'q");
 if (!SUPA_KEY) throw new Error("SUPABASE_KEY yo'q");
 
-const bot = new TelegramBot(BOT_TOKEN, { polling: false });
 const db = createClient(SUPA_URL, SUPA_KEY);
+const SUBSCRIPTION_FIELDS = Array.isArray(subscriptionHelpers.SUBSCRIPTION_FIELDS)
+  ? subscriptionHelpers.SUBSCRIPTION_FIELDS.slice()
+  : ['plan_code', 'subscription_status', 'subscription_start_at', 'subscription_end_at', 'trial_end_at', 'canceled_at', 'grace_until'];
 const cronLogger = createTelegramOps({
   botToken: BOT_TOKEN,
   logChannelId: process.env.LOG_CHANNEL_ID,
@@ -76,11 +78,32 @@ const cronLogger = createTelegramOps({
   source: 'CRON',
 });
 
+let sendNotificationModulePromise = null;
+
+async function getSendNotification() {
+  if (!sendNotificationModulePromise) {
+    sendNotificationModulePromise = import('../services/notifications/send-notification.mjs');
+  }
+  const mod = await sendNotificationModulePromise;
+  return mod.sendNotification;
+}
+
+function buildDeliveryMeta(delivery, extra = {}) {
+  return {
+    ...extra,
+    provider: delivery?.provider || null,
+    fallback_provider: delivery?.fallbackProvider || null,
+    fallback_used: delivery?.fallbackUsed === true,
+    delivered_count: Number(delivery?.deliveredCount || 0),
+    target_count: Number(delivery?.targetCount || 0),
+    invalid_token_count: Number(delivery?.invalidTokenCount || 0),
+  };
+}
+
 function summarizeCronResult(result = {}) {
   return {
     checked: Number(result.checked || 0),
     sent: Number(result.sent || 0),
-    skipped: Number(result.skipped || 0),
     failed: Array.isArray(result.failed) ? result.failed.length : 0,
     scheduled_for: result.scheduled_for || null,
     time_zone: result.time_zone || null,
@@ -109,6 +132,22 @@ function missingColumn(error, column) {
     msg.includes('unknown column') ||
     msg.includes('could not find the column')
   );
+}
+
+function hasSubscriptionSchema(row) {
+  if (typeof subscriptionHelpers.hasSubscriptionSchema === 'function') {
+    return subscriptionHelpers.hasSubscriptionSchema(row || {});
+  }
+  return SUBSCRIPTION_FIELDS.some((field) => Object.prototype.hasOwnProperty.call(row || {}, field));
+}
+
+function canUseNotificationFeature(row, featureKey) {
+  if (typeof subscriptionHelpers.canUseNotificationFeature === 'function') {
+    return subscriptionHelpers.canUseNotificationFeature(row || {}, featureKey, {
+      schemaReady: hasSubscriptionSchema(row),
+    });
+  }
+  return { allowed: true };
 }
 
 function getCronRequestSecret(req) {
@@ -349,9 +388,10 @@ function toUzDateTime(value, timeZone = TASHKENT_TIME_ZONE) {
 }
 
 async function fetchUsersForDailyReminderPage(dayStartIso, { afterUserId = null, limit = 100 } = {}) {
+  const subscriptionFields = SUBSCRIPTION_FIELDS.join(', ');
   let query = db
     .from('users')
-    .select('user_id, full_name, daily_reminder_enabled, last_daily_reminder_at')
+    .select(`user_id, full_name, daily_reminder_enabled, last_daily_reminder_at, ${subscriptionFields}`)
     .or(`last_daily_reminder_at.is.null,last_daily_reminder_at.lt.${dayStartIso}`)
     .order('user_id', { ascending: true })
     .limit(limit);
@@ -362,7 +402,7 @@ async function fetchUsersForDailyReminderPage(dayStartIso, { afterUserId = null,
 
   let res = await query;
 
-  if (res.error && missingColumn(res.error, 'daily_reminder_enabled')) {
+  if (res.error && (missingColumn(res.error, 'daily_reminder_enabled') || SUBSCRIPTION_FIELDS.some((field) => missingColumn(res.error, field)))) {
     let fallback = db
       .from('users')
       .select('user_id, full_name, last_daily_reminder_at')
@@ -385,9 +425,10 @@ async function fetchUsersForDailyReminderPage(dayStartIso, { afterUserId = null,
 }
 
 async function fetchUsersForDailyReportPage(dayStartIso, { afterUserId = null, limit = 100 } = {}) {
+  const subscriptionFields = SUBSCRIPTION_FIELDS.join(', ');
   let query = db
     .from('users')
-    .select('user_id, full_name, daily_reminder_enabled, last_daily_report_at')
+    .select(`user_id, full_name, daily_reminder_enabled, last_daily_report_at, ${subscriptionFields}`)
     .or(`last_daily_report_at.is.null,last_daily_report_at.lt.${dayStartIso}`)
     .order('user_id', { ascending: true })
     .limit(limit);
@@ -398,7 +439,7 @@ async function fetchUsersForDailyReportPage(dayStartIso, { afterUserId = null, l
 
   let res = await query;
 
-  if (res.error && missingColumn(res.error, 'daily_reminder_enabled')) {
+  if (res.error && (missingColumn(res.error, 'daily_reminder_enabled') || SUBSCRIPTION_FIELDS.some((field) => missingColumn(res.error, field)))) {
     let fallback = db
       .from('users')
       .select('user_id, full_name, last_daily_report_at')
@@ -420,48 +461,16 @@ async function fetchUsersForDailyReportPage(dayStartIso, { afterUserId = null, l
   return res;
 }
 
-async function claimDailyReminderSend(userId, dayStartIso, claimIso) {
-  let result = await db.from('users')
-    .update({ last_daily_reminder_at: claimIso })
-    .eq('user_id', userId)
-    .or(`last_daily_reminder_at.is.null,last_daily_reminder_at.lt.${dayStartIso}`)
-    .select('user_id')
-    .maybeSingle();
-  if (result.error && missingColumn(result.error, 'last_daily_reminder_at')) {
-    return { data: null, error: null };
-  }
-  return result;
-}
-
-async function releaseDailyReminderClaim(userId, claimIso) {
-  let result = await db.from('users')
-    .update({ last_daily_reminder_at: null })
-    .eq('user_id', userId)
-    .eq('last_daily_reminder_at', claimIso);
+async function markDailyReminderSent(userId, nowIso) {
+  let result = await db.from('users').update({ last_daily_reminder_at: nowIso }).eq('user_id', userId);
   if (result.error && missingColumn(result.error, 'last_daily_reminder_at')) {
     return { error: null };
   }
   return result;
 }
 
-async function claimDailyReportSend(userId, dayStartIso, claimIso) {
-  let result = await db.from('users')
-    .update({ last_daily_report_at: claimIso })
-    .eq('user_id', userId)
-    .or(`last_daily_report_at.is.null,last_daily_report_at.lt.${dayStartIso}`)
-    .select('user_id')
-    .maybeSingle();
-  if (result.error && missingColumn(result.error, 'last_daily_report_at')) {
-    return { data: null, error: null };
-  }
-  return result;
-}
-
-async function releaseDailyReportClaim(userId, claimIso) {
-  let result = await db.from('users')
-    .update({ last_daily_report_at: null })
-    .eq('user_id', userId)
-    .eq('last_daily_report_at', claimIso);
+async function markDailyReportSent(userId, nowIso) {
+  let result = await db.from('users').update({ last_daily_report_at: nowIso }).eq('user_id', userId);
   if (result.error && missingColumn(result.error, 'last_daily_report_at')) {
     return { error: null };
   }
@@ -521,7 +530,6 @@ async function processDailyReminders(now, meta = {}) {
     checked: 0,
     sent: 0,
     failed: [],
-    skipped: 0,
     todayKey: uzDateKey(now, timeZone),
     local_now: timeInZoneLabel(now, timeZone),
     time_zone: timeZone,
@@ -575,23 +583,33 @@ async function processDailyReminders(now, meta = {}) {
     totalScanned += rawRows.length;
     lastUserId = rawRows[rawRows.length - 1]?.user_id ?? lastUserId;
 
-    const rows = rawRows.filter((row) => row && row.user_id && row.daily_reminder_enabled !== false);
+    const rows = rawRows.filter((row) => (
+      row &&
+      row.user_id &&
+      row.daily_reminder_enabled !== false &&
+      canUseNotificationFeature(row, 'daily_reminder').allowed
+    ));
     result.checked += rows.length;
 
     for (const row of rows) {
       const html = buildDailyReminderText(dailySetting, row.full_name, now);
-      let claimed = null;
 
       try {
-        const claimRes = await claimDailyReminderSend(row.user_id, dayStartIso, nowIso);
-        if (claimRes.error) throw claimRes.error;
-        claimed = claimRes.data || null;
-        if (!claimed) {
-          result.skipped += 1;
-          continue;
-        }
-
-        await bot.sendMessage(row.user_id, html, { parse_mode: 'HTML' });
+        const sendNotification = await getSendNotification();
+        const delivery = await sendNotification(process.env, {
+          userId: row.user_id,
+          html,
+          title: dailySetting.title || 'Kunlik eslatma',
+          type: 'daily_reminder',
+          clickUrl: '/',
+          tag: `daily-reminder-${row.user_id}`,
+          data: {
+            url: '/',
+            setting_key: 'daily_reminder',
+          },
+        });
+        if (!delivery.ok) throw new Error(delivery.error || delivery.reason || 'send failed');
+        await markDailyReminderSent(row.user_id, nowIso);
 
         await insertNotificationLog({
           setting_key: 'daily_reminder',
@@ -599,20 +617,15 @@ async function processDailyReminders(now, meta = {}) {
           status: 'sent',
           message_text: html,
           sent_at: nowIso,
-          meta: {
+          meta: buildDeliveryMeta(delivery, {
             send_time: sendTime,
             batch_size: batchSize,
-          }
+          })
         });
 
         result.sent += 1;
       } catch (err) {
         result.failed.push({ user_id: row.user_id, error: err?.message || 'send failed' });
-        if (claimed) {
-          try {
-            await releaseDailyReminderClaim(row.user_id, nowIso);
-          } catch (_) { }
-        }
 
         await insertNotificationLog({
           setting_key: 'daily_reminder',
@@ -621,10 +634,10 @@ async function processDailyReminders(now, meta = {}) {
           message_text: html,
           error_text: err?.message || 'send failed',
           sent_at: nowIso,
-          meta: {
+          meta: buildDeliveryMeta(null, {
             send_time: sendTime,
             batch_size: batchSize,
-          }
+          })
         });
       }
     }
@@ -659,7 +672,6 @@ async function processDailyReports(now, meta = {}) {
     checked: 0,
     sent: 0,
     failed: [],
-    skipped: 0,
     todayKey: uzDateKey(now, timeZone),
     local_now: timeInZoneLabel(now, timeZone),
     time_zone: timeZone,
@@ -713,23 +725,33 @@ async function processDailyReports(now, meta = {}) {
     totalScanned += rawRows.length;
     lastUserId = rawRows[rawRows.length - 1]?.user_id ?? lastUserId;
 
-    const rows = rawRows.filter((row) => row && row.user_id && row.daily_reminder_enabled !== false);
+    const rows = rawRows.filter((row) => (
+      row &&
+      row.user_id &&
+      row.daily_reminder_enabled !== false &&
+      canUseNotificationFeature(row, 'daily_report').allowed
+    ));
     result.checked += rows.length;
 
     for (const row of rows) {
       const html = buildDailyReportText(reportSetting, row.full_name, now);
-      let claimed = null;
 
       try {
-        const claimRes = await claimDailyReportSend(row.user_id, dayStartIso, nowIso);
-        if (claimRes.error) throw claimRes.error;
-        claimed = claimRes.data || null;
-        if (!claimed) {
-          result.skipped += 1;
-          continue;
-        }
-
-        await bot.sendMessage(row.user_id, html, { parse_mode: 'HTML' });
+        const sendNotification = await getSendNotification();
+        const delivery = await sendNotification(process.env, {
+          userId: row.user_id,
+          html,
+          title: reportSetting.title || 'Kunlik hisobot',
+          type: 'daily_report',
+          clickUrl: '/',
+          tag: `daily-report-${row.user_id}`,
+          data: {
+            url: '/',
+            setting_key: 'daily_report',
+          },
+        });
+        if (!delivery.ok) throw new Error(delivery.error || delivery.reason || 'send failed');
+        await markDailyReportSent(row.user_id, nowIso);
 
         await insertNotificationLog({
           setting_key: 'daily_report',
@@ -737,20 +759,15 @@ async function processDailyReports(now, meta = {}) {
           status: 'sent',
           message_text: html,
           sent_at: nowIso,
-          meta: {
+          meta: buildDeliveryMeta(delivery, {
             send_time: sendTime,
             batch_size: batchSize,
-          }
+          })
         });
 
         result.sent += 1;
       } catch (err) {
         result.failed.push({ user_id: row.user_id, error: err?.message || 'send failed' });
-        if (claimed) {
-          try {
-            await releaseDailyReportClaim(row.user_id, nowIso);
-          } catch (_) { }
-        }
 
         await insertNotificationLog({
           setting_key: 'daily_report',
@@ -759,10 +776,10 @@ async function processDailyReports(now, meta = {}) {
           message_text: html,
           error_text: err?.message || 'send failed',
           sent_at: nowIso,
-          meta: {
+          meta: buildDeliveryMeta(null, {
             send_time: sendTime,
             batch_size: batchSize,
-          }
+          })
         });
       }
     }
@@ -834,14 +851,32 @@ async function processDebtReminders(now) {
           continue;
         }
 
-        await bot.sendMessage(debt.user_id, text, { parse_mode: 'HTML' });
+        const sendNotification = await getSendNotification();
+        const delivery = await sendNotification(process.env, {
+          userId: debt.user_id,
+          html: text,
+          title: debtSetting.title || 'Qarz eslatmasi',
+          type: 'debt_reminder',
+          clickUrl: '/debts',
+          tag: `debt-reminder-${debt.id}`,
+          data: {
+            url: '/debts',
+            debt_id: String(debt.id),
+            setting_key: 'debt_reminder',
+          },
+        });
+        if (!delivery.ok) throw new Error(delivery.error || delivery.reason || 'send failed');
         await insertNotificationLog({
           setting_key: 'debt_reminder',
           user_id: debt.user_id,
           status: 'sent',
           message_text: text,
           sent_at: nowIso,
-          meta: { debt_id: debt.id, due_at: debt.due_at || null, remind_at: debt.remind_at || null }
+          meta: buildDeliveryMeta(delivery, {
+            debt_id: debt.id,
+            due_at: debt.due_at || null,
+            remind_at: debt.remind_at || null,
+          })
         });
         result.sent += 1;
       } catch (err) {
@@ -856,7 +891,11 @@ async function processDebtReminders(now) {
           message_text: text,
           error_text: err?.message || 'send failed',
           sent_at: nowIso,
-          meta: { debt_id: debt.id, due_at: debt.due_at || null, remind_at: debt.remind_at || null }
+          meta: buildDeliveryMeta(null, {
+            debt_id: debt.id,
+            due_at: debt.due_at || null,
+            remind_at: debt.remind_at || null,
+          })
         });
       }
     }
