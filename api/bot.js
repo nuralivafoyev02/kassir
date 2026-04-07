@@ -1431,22 +1431,17 @@ function titleCaseWords(value) {
     .trim();
 }
 
-function extractAmountMeta(raw) {
-  if (!raw) return null;
-  const text = String(raw).trim();
-  const lower = text.toLowerCase();
-  const isUSD = /\$|\busd\b|dollar/i.test(lower);
+function normalizeParserHintText(value) {
+  return String(value || '')
+    .replace(/(\d)\s*min\b/gi, '$1 ming')
+    .replace(/(\d)\s*mn\b/gi, '$1 mln')
+    .replace(/\boyli\b/gi, 'oylik');
+}
 
-  let clean = lower
-    .replace(/so'?m|sum|uzs|\$|€|\busd\b|dollar/gi, ' ')
-    .replace(/[^\d\s.,a-zа-яёӣқғҳў\-']/gi, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
+function parseLocalizedAmountToken(token) {
+  let numStr = String(token || '').trim();
+  if (!numStr) return null;
 
-  const m = clean.match(/(\d[\d\s,.]*)(\s*(?:k|ming|mln|mlrd|million|milliard|m|b)\b)?/i);
-  if (!m) return null;
-
-  let numStr = m[1].trim();
   numStr = numStr
     .replace(/[. ](?=\d{3}(?:\D|$))/g, '')
     .replace(/,/g, '.')
@@ -1454,50 +1449,91 @@ function extractAmountMeta(raw) {
 
   const amount = parseFloat(numStr);
   if (!amount || Number.isNaN(amount) || !Number.isFinite(amount)) return null;
+  return amount;
+}
 
-  const suffix = (m[2] || '').replace(/\s/g, '').toLowerCase();
+function applyAmountMultiplier(amount, suffix = '') {
+  const normalized = String(suffix || '').replace(/\s/g, '').toLowerCase();
   let finalAmount = amount;
 
-  const isAlreadyBig = (suffix === 'k' || suffix === 'ming') && amount >= 1000;
-  const isAlreadyMln = (suffix === 'mln' || suffix === 'm' || suffix === 'million') && amount >= 1000000;
-
-  if (suffix === 'k' || suffix === 'ming') {
-    if (!isAlreadyBig) finalAmount = amount * 1_000;
-  } else if (suffix === 'mln' || suffix === 'million' || suffix === 'm') {
-    if (!isAlreadyMln) finalAmount = amount * 1_000_000;
-  } else if (suffix === 'mlrd' || suffix === 'milliard' || suffix === 'b') {
-    finalAmount = amount * 1_000_000_000;
+  if (normalized === 'k' || normalized === 'ming' || normalized === 'min') {
+    if (amount < 1000) finalAmount = amount * 1000;
+  } else if (normalized === 'mln' || normalized === 'mn' || normalized === 'million' || normalized === 'm') {
+    if (amount < 1000000) finalAmount = amount * 1000000;
+  } else if (normalized === 'mlrd' || normalized === 'milliard' || normalized === 'b') {
+    finalAmount = amount * 1000000000;
   }
 
-  if (!Number.isFinite(finalAmount) || finalAmount <= 0) return null;
+  return finalAmount;
+}
+
+function extractAmountMeta(raw) {
+  if (!raw) return null;
+  const text = normalizeParserHintText(String(raw).trim());
+  const lower = text.toLowerCase();
+  const isUSD = /\$|\busd\b|dollar/i.test(lower);
+
+  let clean = lower
+    .replace(/so'?m|sum|uzs|\$|€|\busd\b|dollar/gi, ' ')
+    .replace(/(\d)\s+(?=\d{3}\b)/g, '$1')
+    .replace(/([0-9])([a-zа-яёӣқғҳў]+)/gi, '$1 $2')
+    .replace(/([a-zа-яёӣқғҳў]+)([0-9])/gi, '$1 $2')
+    .replace(/[^\d\s.,a-zа-яёӣқғҳў\-']/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  const m = clean.match(/(\d[\d\s,.]*(?:\s*(?:k|ming|min|mln|mn|mlrd|million|milliard|m|b)\b)?(?:\s+\d[\d\s,.]*(?:\s*(?:k|ming|min|mln|mn|mlrd|million|milliard|m|b)\b)?){0,3})/i);
+  if (!m) return null;
+
+  const phrase = m[1].trim();
+  const tokens = phrase.match(/\d[\d.,]*|[a-zа-яёӣқғҳў']+/gi) || [];
+  let total = 0;
+
+  for (let i = 0; i < tokens.length; i += 1) {
+    if (!/^\d/.test(tokens[i])) continue;
+
+    const amount = parseLocalizedAmountToken(tokens[i]);
+    if (!amount) continue;
+
+    const suffix = tokens[i + 1] && /^[a-zа-яёӣқғҳў']+$/i.test(tokens[i + 1]) ? tokens[i + 1] : '';
+    total += applyAmountMultiplier(amount, suffix);
+    if (suffix) i += 1;
+  }
+
+  if (!Number.isFinite(total) || total <= 0) return null;
 
   return {
-    amount: Math.round(finalAmount),
+    amount: Math.round(total),
     isUSD,
     clean,
-    rawMatch: m[0]
+    rawMatch: phrase
   };
 }
 
 function inferTransactionType(lower) {
+  const normalized = normalizeParserHintText(lower).toLowerCase();
   let incomeScore = 0;
   let expenseScore = 0;
 
-  if (/^\+/.test(lower)) incomeScore += 5;
-  if (/^-/.test(lower)) expenseScore += 5;
+  if (/^\+/.test(normalized)) incomeScore += 5;
+  if (/^-/.test(normalized)) expenseScore += 5;
 
-  if (/\b(?:oylik|maosh|avans|bonus|cashback|daromad|foyda|grant|stipendiya)\b/i.test(lower)) incomeScore += 7;
-  if (/\b(?:dadam|onam|akam|ukam|opam|singlim|do'?stim|mijoz|klient|boshliq|ishxona|kompaniya|ustoz)\b.*\b(?:berdi|berdilar|yubordi|jo'?natdi|o'?tkazdi|tashladi|to'?ladi)\b/i.test(lower)) incomeScore += 8;
-  if (/\b(?:menga|hisobimga|kartamga)\b.*\b(?:tushdi|keldi|o'?tdi|kelib tushdi)\b/i.test(lower)) incomeScore += 8;
-  if (/\b(?:mijozdan|klientdan|dadamdan|onamdan|akamdan|ukamdan|opamdan|singlimdan|do'?stimdan|boshliqdan)\b.*\b(?:oldim|oldik|qabul qildim)\b/i.test(lower)) incomeScore += 7;
-  if (/\b(?:qaytdi|qaytarib berdi|qaytarildi)\b/i.test(lower)) incomeScore += 4;
-  if (/\b(?:sovg'a|sovga|hadya)\b/i.test(lower)) incomeScore += 4;
+  if (/\b(?:kirim|daromad|tushum)\b/i.test(normalized)) incomeScore += 12;
+  if (/\b(?:oylik|maosh|avans|bonus|cashback|daromad|foyda|grant|stipendiya)\b/i.test(normalized)) incomeScore += 8;
+  if (/(?:\b(?:oylik|maosh|avans|bonus)\b.*\b(?:tushdi|keldi|berildi|olindi)\b)|(?:\b(?:tushdi|keldi|kelib tushdi|o'?tdi)\b.*\b(?:oylik|maosh|avans|bonus)\b)/i.test(normalized)) incomeScore += 10;
+  if (/\b(?:dadam|onam|akam|ukam|opam|singlim|do'?stim|mijoz|klient|boshliq|ishxona|kompaniya|ustoz)\b.*\b(?:berdi|berdilar|yubordi|jo'?natdi|o'?tkazdi|tashladi|to'?ladi)\b/i.test(normalized)) incomeScore += 8;
+  if (/\b(?:menga|hisobimga|kartamga)\b.*\b(?:tushdi|keldi|o'?tdi|kelib tushdi)\b/i.test(normalized)) incomeScore += 8;
+  if (/\b(?:mijozdan|klientdan|dadamdan|onamdan|akamdan|ukamdan|opamdan|singlimdan|do'?stimdan|boshliqdan)\b.*\b(?:oldim|oldik|qabul qildim)\b/i.test(normalized)) incomeScore += 7;
+  if (/\b(?:tushdi|keldi|kelib tushdi|o'?tdi)\b/i.test(normalized) && !/\b(?:chiqim|xarajat|berdim|to'?ladim|sarfladim|jo'?natdim|o'?tkazdim|uzatdim)\b/i.test(normalized)) incomeScore += 4;
+  if (/\b(?:qaytdi|qaytarib berdi|qaytarildi)\b/i.test(normalized)) incomeScore += 4;
+  if (/\b(?:sovg'a|sovga|hadya)\b/i.test(normalized)) incomeScore += 4;
 
-  if (/\b(?:berdim|to'?ladim|sarfladim|jo'?natdim|o'?tkazdim|uzatdim|chiqim|xarajat)\b/i.test(lower)) expenseScore += 8;
-  if (/\b(?:sotib oldim|xarid qildim)\b/i.test(lower)) expenseScore += 8;
-  if (/\boldim\b/i.test(lower) && !/\b(?:mijozdan|klientdan|dadamdan|onamdan|akamdan|ukamdan|opamdan|singlimdan|do'?stimdan|boshliqdan)\b/i.test(lower) && !/\b(?:oylik|maosh|avans|bonus|cashback|daromad|foyda|qaytim|astatka)\b/i.test(lower)) expenseScore += 4;
-  if (/\b\S+ga\b.*\b(?:berdim|to'?ladim|o'?tkazdim)\b/i.test(lower)) expenseScore += 5;
-  if (/\b(?:taksi|yandex|ovqat|tushlik|kechki ovqat|non|market|korzinka|bozor|ijara|kommunal|kredit|dori|apteka|internet|wifi|benzin|zapravka|subscription|obuna|kiyim|krossovka)\b/i.test(lower)) expenseScore += 5;
+  if (/\b(?:chiqim|xarajat)\b/i.test(normalized)) expenseScore += 12;
+  if (/\b(?:berdim|to'?ladim|sarfladim|jo'?natdim|o'?tkazdim|uzatdim)\b/i.test(normalized)) expenseScore += 8;
+  if (/\b(?:sotib oldim|xarid qildim)\b/i.test(normalized)) expenseScore += 8;
+  if (/\boldim\b/i.test(normalized) && !/\b(?:mijozdan|klientdan|dadamdan|onamdan|akamdan|ukamdan|opamdan|singlimdan|do'?stimdan|boshliqdan)\b/i.test(normalized) && !/\b(?:oylik|maosh|avans|bonus|cashback|daromad|foyda|qaytim|astatka|kirim)\b/i.test(normalized)) expenseScore += 4;
+  if (/\b\S+ga\b.*\b(?:berdim|to'?ladim|o'?tkazdim)\b/i.test(normalized)) expenseScore += 5;
+  if (/\b(?:taksi|yandex|ovqat|tushlik|kechki ovqat|non|market|korzinka|bozor|ijara|kommunal|kredit|dori|apteka|internet|wifi|benzin|zapravka|subscription|obuna|kiyim|krossovka)\b/i.test(normalized)) expenseScore += 5;
 
   return {
     incomeScore,
@@ -1522,17 +1558,54 @@ function inferSemanticCategory(lower, type, rawCategory) {
   return rawCategory;
 }
 
+function shouldUseGenericIncomeCategory(lower, rawCategory) {
+  const normalized = normalizeTextForMatch(rawCategory);
+  if (!normalized) return true;
+  if (!/\b(?:kirim|daromad|tushum)\b/i.test(lower)) return false;
+  if (scoreCategoryFromAliases('income', normalized).best) return false;
+  const tokens = normalized.split(' ').filter(Boolean);
+  if (!tokens.length || tokens.length > 3) return false;
+  return tokens.every(token => token.length >= 1 && token.length <= 20);
+}
+
 function cleanupCategoryText(value) {
   const cleaned = String(value || '')
-    .replace(/\b(so'?m|sum|uzs|usd|dollar|kirim|chiqim|berdim|berdi|berdilar|oldim|oldik|tushdi|ketdi|keldi|oylik|bonus|avans|maosh|menga|hisobimga|kartamga|to'?ladim|sarfladim|sotib|xarid|qildim|plan|reja|limit|byudjet)\b/gi, ' ')
+    .replace(/\b(?:bugun|bugungi|kecha|kechagi|ertaga|ertangi|hozir|hozirgi)\b/gi, ' ')
+    .replace(/\b(?:so'?m|sum|uzs|usd|dollar|kirim|daromad|tushum|chiqim|xarajat|berdim|berdi|berdilar|oldim|oldik|tushdi|ketdi|keldi|kelib|oylik|oyli|bonus|avans|maosh|menga|hisobimga|kartamga|to'?ladim|sarfladim|sotib|xarid|qildim|plan|reja|limit|byudjet|budjet|ming|min|mln|mn|mlrd|million|milliard)\b/gi, ' ')
     .replace(/\s+/g, ' ')
     .trim();
   return cleaned;
 }
 
-function stripAmountFragment(text, amountMeta) {
-  return String(text || '').replace(amountMeta?.rawMatch || '', ' ');
+function escapeRegExp(value) {
+  return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
+
+function stripAmountFragment(text, amountMeta) {
+  const source = String(text || '');
+  const rawMatch = String(amountMeta?.rawMatch || '').trim();
+  if (!rawMatch) return source;
+  if (source.includes(rawMatch)) return source.replace(rawMatch, ' ');
+
+  const pattern = rawMatch
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((part) => {
+      const lower = part.toLowerCase();
+      if (lower === 'ming' || lower === 'min') return '(?:ming|min)';
+      if (lower === 'mln' || lower === 'mn' || lower === 'million' || lower === 'm') return '(?:mln|mn|million|m)';
+      if (lower === 'mlrd' || lower === 'milliard' || lower === 'b') return '(?:mlrd|milliard|b)';
+      return escapeRegExp(part);
+    })
+    .join('\\s*');
+
+  try {
+    return source.replace(new RegExp(pattern, 'i'), ' ');
+  } catch {
+    return source;
+  }
+}
+
 
 function cleanupIntentName(value) {
   return titleCaseWords(String(value || '')
@@ -1553,7 +1626,9 @@ function cleanupPersonName(value) {
 function extractNameBySuffix(text, suffix) {
   const safe = String(text || '').trim();
   if (!safe) return '';
-  const re = new RegExp(`([\\p{L}0-9'’\\s-]{2,}?)(?:${suffix})\\b`, 'iu');
+  const escaped = escapeRegExp(String(suffix || '').trim());
+  if (!escaped) return '';
+  const re = new RegExp(`([\\p{L}0-9'’\\s-]{2,}?)(?:${escaped})\\b`, 'iu');
   const match = safe.match(re);
   if (!match?.[1]) return '';
   return cleanupPersonName(match[1]);
@@ -2019,7 +2094,7 @@ function parseText(raw) {
   const text = String(raw).trim();
   if (!text) return null;
 
-  const lower = text.toLowerCase();
+  const lower = normalizeParserHintText(text).toLowerCase();
   const amountMeta = extractAmountMeta(text);
   if (!amountMeta) return null;
 
@@ -2030,7 +2105,10 @@ function parseText(raw) {
   catPart = cleanupCategoryText(catPart);
   if (!catPart || catPart.length < 2) catPart = type === 'income' ? 'kirim' : 'xarajat';
 
-  const inferredCategory = inferSemanticCategory(lower, type, titleCaseWords(catPart));
+  let inferredCategory = inferSemanticCategory(lower, type, titleCaseWords(catPart));
+  if (type === 'income' && shouldUseGenericIncomeCategory(lower, inferredCategory || catPart)) {
+    inferredCategory = 'Kirim';
+  }
   const category = titleCaseWords(inferredCategory || catPart || (type === 'income' ? 'Kirim' : 'Xarajat'));
 
   return {
@@ -2039,6 +2117,26 @@ function parseText(raw) {
     category,
     isUSD: amountMeta.isUSD
   };
+}
+
+function isSuspiciousLocalParse(rawText, parsed) {
+  const lower = normalizeParserHintText(rawText).toLowerCase();
+  if (!parsed) return true;
+
+  if (parsed.type === 'expense' && /\b(?:kirim|oylik|maosh|avans|bonus|daromad|tushum|tushdi|keldi)\b/i.test(lower)) {
+    return true;
+  }
+
+  if (parsed.type === 'income' && /\b(?:chiqim|xarajat|berdim|to'?ladim|sarfladim|sotib oldim|xarid qildim)\b/i.test(lower)) {
+    return true;
+  }
+
+  const normalizedCategory = normalizeTextForMatch(parsed.category);
+  if (/\b(?:oylik|maosh|avans|bonus)\b/i.test(lower) && normalizedCategory && !['oylik', 'maosh', 'avans', 'bonus'].includes(normalizedCategory)) {
+    return true;
+  }
+
+  return false;
 }
 
 // ─── SAVE TRANSACTION ────────────────────────────────────
@@ -3079,9 +3177,10 @@ module.exports = async (req, res) => {
     // ── Matn (rasm bilan yoki yolg'iz) ──
     let parsed = parseText(text);
 
-    // Agar regex matnni taniy olmasa va OpenAI bo'lsa, GPT dan so'rab ko'ramiz
-    if (!parsed && text.length > 5 && openai) {
-      parsed = await gptParse(text);
+    // Agar lokal parser shubhali bo'lsa yoki umuman taniy olmasa, OpenAI bilan ikkinchi tekshiruv qilamiz
+    if (text.length > 5 && openai && (!parsed || isSuspiciousLocalParse(text, parsed))) {
+      const gptParsed = await gptParse(text);
+      if (gptParsed) parsed = gptParsed;
     }
 
     if (parsed) {
