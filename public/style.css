@@ -300,7 +300,9 @@ body {
 }
 
 @keyframes headerPremiumPulse {
-    0%, 100% {
+
+    0%,
+    100% {
         opacity: 0.72;
         box-shadow: 0 10px 24px rgba(241, 185, 59, 0.1);
     }
@@ -3269,99 +3271,99 @@ body.light .sh-close:hover {
 }
 
 .notif-panel {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  margin-top: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    margin-top: 10px;
 }
 
 .notif-card {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  padding: 16px;
-  border-radius: 20px;
-  border: 1px solid rgba(255, 255, 255, .08);
-  background: rgba(255, 255, 255, .03);
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding: 16px;
+    border-radius: 20px;
+    border: 1px solid rgba(255, 255, 255, .08);
+    background: rgba(255, 255, 255, .03);
 }
 
 .notif-head {
-  display: flex;
-  justify-content: flex-start;
-  align-items: center;
+    display: flex;
+    justify-content: flex-start;
+    align-items: center;
 }
 
 .notif-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 7px 12px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, .08);
-  color: var(--txt);
-  font-size: 12px;
-  font-weight: 700;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 7px 12px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, .08);
+    color: var(--txt);
+    font-size: 12px;
+    font-weight: 700;
 }
 
 .notif-badge[data-state="ready"] {
-  background: rgba(16, 185, 129, .18);
-  color: #86efac;
+    background: rgba(16, 185, 129, .18);
+    color: #86efac;
 }
 
 .notif-badge[data-state="warn"] {
-  background: rgba(245, 158, 11, .18);
-  color: #fde68a;
+    background: rgba(245, 158, 11, .18);
+    color: #fde68a;
 }
 
 .notif-badge[data-state="error"] {
-  background: rgba(239, 68, 68, .18);
-  color: #fecaca;
+    background: rgba(239, 68, 68, .18);
+    color: #fecaca;
 }
 
 .notif-row {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
-  font-size: 13px;
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+    font-size: 13px;
 }
 
 .notif-row span {
-  color: var(--muted);
+    color: var(--muted);
 }
 
 .notif-row strong {
-  flex: 1;
-  text-align: right;
-  line-height: 1.45;
-  font-size: 13px;
-  color: var(--txt);
+    flex: 1;
+    text-align: right;
+    line-height: 1.45;
+    font-size: 13px;
+    color: var(--txt);
 }
 
 .notif-note {
-  color: var(--muted);
-  font-size: 13px;
-  line-height: 1.55;
+    color: var(--muted);
+    font-size: 13px;
+    line-height: 1.55;
 }
 
 .notif-actions {
-  display: flex;
-  gap: 10px;
+    display: flex;
+    gap: 10px;
 }
 
 .notif-actions .bpri,
 .notif-actions .bcl,
 .notif-disable-btn {
-  flex: 1;
+    flex: 1;
 }
 
 .notif-disable-btn {
-  width: 100%;
+    width: 100%;
 }
 
 body.light .notif-card {
-  background: rgba(15, 23, 42, .03);
-  border-color: rgba(15, 23, 42, .08);
+    background: rgba(15, 23, 42, .03);
+    border-color: rgba(15, 23, 42, .08);
 }
 
 .stg-item:last-child {
@@ -4252,6 +4254,7 @@ body.light .subscription-period-badge[data-state="expired"] {
 }
 
 @media (max-width: 380px) {
+
     .subscription-facts-grid,
     .subscription-period-grid,
     .upgrade-current-card {
@@ -4268,7 +4271,8 @@ body.light .subscription-period-badge[data-state="expired"] {
     }
 }
 
-@media (max-width: 520px) {
+/* @media (max-width: 520px) {
+
     .pricing-sale-banner,
     .subscription-live-head,
     .pricing-countdown-head {
@@ -4287,7 +4291,7 @@ body.light .subscription-period-badge[data-state="expired"] {
     .pricing-price {
         align-items: flex-start;
     }
-}
+} */
 
 .stg-action-btn {
     font-size: 12px;
@@ -5388,7 +5392,7 @@ body.light .stg-action-btn {
     display: none !important;
 }
 
-@media (max-width: 380px) {
+/* @media (max-width: 380px) {
 
     .route-item-top,
     .stg-cat-row {
@@ -5406,7 +5410,7 @@ body.light .stg-action-btn {
     .plan-stats {
         grid-template-columns: 1fr;
     }
-}
+} */
 
 /* ===== v1.2 visual refresh ===== */
 :root {
@@ -5861,7 +5865,7 @@ body {
     min-height: 80px;
 }
 
-@media (max-width: 390px) {
+/* @media (max-width: 390px) {
 
     .mini-stats-grid,
     .debt-modal-v12 .fld.two-col-grid,
@@ -5877,7 +5881,7 @@ body {
     .hero-action-stack {
         width: 100%;
     }
-}
+} */
 
 /* ===== v1.2.1 polish moved to /public/theme.css ===== */
 
@@ -6450,7 +6454,7 @@ body {
     width: 100%;
 }
 
-@media (max-width: 720px) {
+/* @media (max-width: 720px) {
 
     .debt-form-grid,
     .debt-datetime-grid,
@@ -6479,7 +6483,7 @@ body {
     .plan-card-summary-tail {
         justify-content: space-between;
     }
-}
+} */
 
 /* ===== v1.2.3 mobile full-screen modals + compact plans ===== */
 .plan-card-collapsible {
@@ -6548,7 +6552,7 @@ body {
     grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
-@media (max-width: 720px) {
+/* @media (max-width: 720px) {
 
     #ov-plan-form .sheet,
     #ov-export .sheet,
@@ -6585,7 +6589,7 @@ body {
     .plan-stats.compact {
         grid-template-columns: 1fr;
     }
-}
+} */
 
 .sheet-scroll-dialog {
     max-height: min(560px, max(220px, var(--overlay-max-height))) !important;

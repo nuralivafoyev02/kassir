@@ -32,6 +32,7 @@ body[data-accent-theme="mono"] {
   --accent-glow: rgba(229, 231, 235, 0.18);
   --accent-contrast: #ffffff;
   --red: #ef4444;
+  --pricing-premium-action: #f1b93b;
 }
 
 body {
@@ -366,4 +367,8 @@ body.light .stg-sub-info {
 
 body.light .stg-disabled .stg-ico {
   background: rgba(var(--accent-rgb), 0.10) !important;
+}
+
+.pricing-premium-action {
+  color: var(--pricing-premium-action);
 }
