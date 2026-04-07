@@ -406,8 +406,35 @@ function buildAdminSubscriptionText(targetUserId, row) {
 🆔 ID: <code>${targetUserId}</code>
 📦 Tarif: <b>${esc(snapshot.planTitle)}</b>
 📍 Holat: <b>${esc(snapshot.uiStatusLabel)}</b>
-💰 Narx: <b>${esc(snapshot.priceLabel || '0 so\'m')}</b>
-${snapshot.subscriptionStartAt ? `🗓 Boshlangan: <b>${esc(fmtDateTime(snapshot.subscriptionStartAt))}</b>\n` : ''}${snapshot.accessUntil ? `⌛️ Tugashi: <b>${esc(fmtDateTime(snapshot.accessUntil))}</b>\n` : ''}`;
+💰 Narx: <b>${esc(snapshot.priceLabel || "0 so'm")}</b>
+${snapshot.subscriptionStartAt ? `🗓 Boshlangan: <b>${esc(fmtDateTime(snapshot.subscriptionStartAt))}</b>
+` : ''}${snapshot.accessUntil ? `⌛️ Tugashi: <b>${esc(fmtDateTime(snapshot.accessUntil))}</b>
+` : ''}`;
+}
+
+function formatSubscriptionDurationLabel(durationDays) {
+  const days = Math.max(1, Number(durationDays || 0));
+  if (days % 30 === 0) {
+    const months = days / 30;
+    return months === 1 ? '1 oylik' : `${months} oylik`;
+  }
+  return `${days} kunlik`;
+}
+
+function buildPremiumActivatedUserText(row, durationDays) {
+  const snapshot = getSubscriptionSnapshotForUser(row);
+  const durationLabel = formatSubscriptionDurationLabel(durationDays);
+  const displayName = String(row?.full_name || '').trim();
+  const greetingLine = displayName ? `👤 <b>${esc(displayName)}</b>
+` : '';
+
+  return `🎉 <b>Premium obuna faollashtirildi</b>
+
+${greetingLine}💎 Sizga <b>${esc(durationLabel)}</b> obuna faollashtirildi.
+📦 Tarif: <b>${esc(snapshot.planTitle || 'Premium')}</b>
+${snapshot.accessUntil ? `⌛️ Amal qilish muddati: <b>${esc(fmtDateTime(snapshot.accessUntil))}</b>
+` : ''}
+✨ Endi Premium imkoniyatlardan foydalanishingiz mumkin.`;
 }
 
 function categoryLimitNameColumn() {
@@ -2647,23 +2674,25 @@ module.exports = async (req, res) => {
 
     if (commandInfo && ['/premium', '/freeplan', '/subinfo'].includes(commandInfo.command)) {
       if (!isAdmin(userId)) {
-        await bot.sendMessage(chatId, '⛔️ Bu buyruq faqat adminlar uchun.').catch(() => { });
+        await bot.sendMessage(chatId, 'Bu buyruq faqat admin uchun').catch(() => { });
         return res.status(200).json({ ok: true });
       }
 
       const command = commandInfo.command;
       const targetUserId = Number(commandInfo.args[0] || 0);
+      let premiumDurationDays = null;
+      let premiumNotifyStatus = null;
       if (!targetUserId) {
         await bot.sendMessage(chatId, '⚠️ Format: /premium <user_id> [kun], /freeplan <user_id>, /subinfo <user_id>').catch(() => { });
         return res.status(200).json({ ok: true });
       }
 
       if (command === '/premium') {
-        const durationDays = Math.max(1, Number(commandInfo.args[1] || 30));
-        const payload = buildSubscriptionUpdatePayload({ planCode: 'premium_monthly', status: 'active', durationDays });
+        premiumDurationDays = Math.max(1, Number(commandInfo.args[1] || 30));
+        const payload = buildSubscriptionUpdatePayload({ planCode: 'premium_monthly', status: 'active', durationDays: premiumDurationDays });
         const { error } = await updateUserSubscription(targetUserId, payload);
         if (error) {
-          await bot.sendMessage(chatId, `⚠️ Premium berishda xatolik: ${esc(error.message || 'noma\'lum')}`, { parse_mode: 'HTML' }).catch(() => { });
+          await bot.sendMessage(chatId, `⚠️ Premium berishda xatolik: ${esc(error.message || "noma'lum")}`, { parse_mode: 'HTML' }).catch(() => { });
           return res.status(200).json({ ok: true });
         }
       }
@@ -2672,7 +2701,7 @@ module.exports = async (req, res) => {
         const payload = buildSubscriptionUpdatePayload({ planCode: 'free' });
         const { error } = await updateUserSubscription(targetUserId, payload);
         if (error) {
-          await bot.sendMessage(chatId, `⚠️ Tarifni free holatiga qaytarishda xatolik: ${esc(error.message || 'noma\'lum')}`, { parse_mode: 'HTML' }).catch(() => { });
+          await bot.sendMessage(chatId, `⚠️ Tarifni free holatiga qaytarishda xatolik: ${esc(error.message || "noma'lum")}`, { parse_mode: 'HTML' }).catch(() => { });
           return res.status(200).json({ ok: true });
         }
       }
@@ -2689,11 +2718,37 @@ module.exports = async (req, res) => {
       }
       const { data: updatedUser, error: fetchError } = fetchResponse;
       if (fetchError) {
-        await bot.sendMessage(chatId, `⚠️ User obunasini o'qishda xatolik: ${esc(fetchError.message || 'noma\'lum')}`, { parse_mode: 'HTML' }).catch(() => { });
+        await bot.sendMessage(chatId, `⚠️ User obunasini o'qishda xatolik: ${esc(fetchError.message || "noma\'lum")}`, { parse_mode: 'HTML' }).catch(() => { });
         return res.status(200).json({ ok: true });
       }
 
-      await bot.sendMessage(chatId, buildAdminSubscriptionText(targetUserId, updatedUser || {}), {
+      if (command === '/premium' && premiumDurationDays) {
+        try {
+          await bot.sendMessage(targetUserId, buildPremiumActivatedUserText(updatedUser || {}, premiumDurationDays), {
+            parse_mode: 'HTML',
+          });
+          premiumNotifyStatus = 'sent';
+        } catch (notifyError) {
+          premiumNotifyStatus = tgErr(notifyError);
+          await logErr('premium-user-notify', notifyError, {
+            userId: targetUserId,
+            chatId: targetUserId,
+            full_name: updatedUser?.full_name || null,
+          });
+        }
+      }
+
+      let adminSubscriptionText = buildAdminSubscriptionText(targetUserId, updatedUser || {});
+      if (command === '/premium') {
+        adminSubscriptionText += premiumNotifyStatus === 'sent'
+          ? `
+📨 Foydalanuvchiga premium faollashgani haqida xabar yuborildi.`
+          : `
+⚠️ Premium berildi, lekin foydalanuvchiga xabar yuborilmadi.
+Sabab: <code>${esc(String(premiumNotifyStatus || "noma'lum"))}</code>`;
+      }
+
+      await bot.sendMessage(chatId, adminSubscriptionText, {
         parse_mode: 'HTML',
       }).catch(() => { });
       return res.status(200).json({ ok: true });
