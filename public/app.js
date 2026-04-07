@@ -2934,8 +2934,8 @@ function buildRecurringPayments(rows = []) {
       const amountSpread = avgAmount > 0 && amounts.length ? (Math.max(...amounts) - Math.min(...amounts)) / avgAmount : 1;
       const confidence = clampNumber(
         (daySpread <= 5 ? 0.45 : 0.22)
-          + (amountSpread <= 0.25 ? 0.35 : 0.16)
-          + (monthKeys.length >= 3 ? 0.2 : 0.08),
+        + (amountSpread <= 0.25 ? 0.35 : 0.16)
+        + (monthKeys.length >= 3 ? 0.2 : 0.08),
         0,
         1
       );
@@ -3267,10 +3267,10 @@ function renderProgressRows(items = [], { exceededLabel, nearLabel, normalLabel 
   return `
     <div class="premium-progress-list">
       ${items.map((item) => {
-        const status = item.stats.exceeded ? 'exceeded' : item.stats.near ? 'near' : 'normal';
-        const statusText = item.stats.exceeded ? exceededLabel : item.stats.near ? nearLabel : normalLabel;
-        const width = clampNumber(item.stats.percent, 4, 100);
-        return `
+    const status = item.stats.exceeded ? 'exceeded' : item.stats.near ? 'near' : 'normal';
+    const statusText = item.stats.exceeded ? exceededLabel : item.stats.near ? nearLabel : normalLabel;
+    const width = clampNumber(item.stats.percent, 4, 100);
+    return `
           <div class="premium-progress-row ${status}">
             <div class="premium-progress-head">
               <strong>${escapeHtml(item.plan.category_name || tt('dashboard_premium_uncategorized', 'Kategoriyasiz'))}</strong>
@@ -3283,7 +3283,7 @@ function renderProgressRows(items = [], { exceededLabel, nearLabel, normalLabel 
             </div>
           </div>
         `;
-      }).join('')}
+  }).join('')}
     </div>
   `;
 }
@@ -3293,8 +3293,8 @@ function renderTopCategoryRows(items = []) {
   return `
     <div class="premium-progress-list">
       ${items.map((item) => {
-        const share = total > 0 ? (item.amount / total) * 100 : 0;
-        return `
+    const share = total > 0 ? (item.amount / total) * 100 : 0;
+    return `
           <div class="premium-progress-row normal">
             <div class="premium-progress-head">
               <strong>${escapeHtml(item.name)}</strong>
@@ -3307,7 +3307,7 @@ function renderTopCategoryRows(items = []) {
             </div>
           </div>
         `;
-      }).join('')}
+  }).join('')}
     </div>
   `;
 }
@@ -3316,8 +3316,8 @@ function renderTransactionRows(items = []) {
   return `
     <div class="premium-list">
       ${items.map((item) => {
-        const note = getTransactionNoteHint(item);
-        return `
+    const note = getTransactionNoteHint(item);
+    return `
           <div class="premium-list-row ${item.type === 'income' ? 'income' : 'expense'}">
             <div class="premium-list-copy">
               <strong>${escapeHtml(getDashboardBaseCategoryName(item.category) || tt('dashboard_premium_uncategorized', 'Kategoriyasiz'))}</strong>
@@ -3326,7 +3326,7 @@ function renderTransactionRows(items = []) {
             <div class="premium-list-value">${escapeHtml(formatDashboardAmount(item.amount, { signed: item.type === 'income' }))}</div>
           </div>
         `;
-      }).join('')}
+  }).join('')}
     </div>
   `;
 }
@@ -3367,8 +3367,8 @@ function renderLockedAnalyticsCards(snapshot) {
       <span class="subscription-status-badge premium">${escapeHtml(tt('dashboard_widget_premium_badge', 'Premium'))}</span>
       <h3>${escapeHtml(tt('dashboard_premium_locked_title', 'Premium dashboardni oching'))}</h3>
       <p>${escapeHtml(syncing
-        ? tt('subscription_syncing_hint', 'Tarif ma\'lumotlari bazadan yangilangach avtomatik ko‘rinadi.')
-        : tt('dashboard_premium_locked_body', 'Balans prognozi, xavfsiz xarajat, limit xavfi va moliyaviy salomatlik skori Premium foydalanuvchilarga ochiladi.'))}</p>
+    ? tt('subscription_syncing_hint', 'Tarif ma\'lumotlari bazadan yangilangach avtomatik ko‘rinadi.')
+    : tt('dashboard_premium_locked_body', 'Balans prognozi, xavfsiz xarajat, limit xavfi va moliyaviy salomatlik skori Premium foydalanuvchilarga ochiladi.'))}</p>
       <button type="button" class="bpri pricing-action-btn" onclick="openDashboardAnalyticsPaywall()">${escapeHtml(tt('subscription_upgrade_action', 'Premium ga o‘tish'))}</button>
     </article>
     <article class="dash-analytics-card premium-dashboard-card is-preview" aria-hidden="true">

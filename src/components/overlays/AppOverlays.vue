@@ -279,7 +279,8 @@
 
   <div class="ov center" id="ov-upgrade" onclick="closeOv('ov-upgrade',event)">
     <div class="sheet c upgrade-modal" onclick="event.stopPropagation()">
-      <button class="sh-close upgrade-close-btn" onclick="closeOv('ov-upgrade')" data-i18n-aria-label="stg_close" aria-label="Yopish">
+      <button class="sh-close upgrade-close-btn" onclick="closeOv('ov-upgrade')" data-i18n-aria-label="stg_close"
+        aria-label="Yopish">
         <span class="upgrade-close-icon" aria-hidden="true"></span>
       </button>
       <span class="subscription-status-badge premium" id="upgrade-feature-badge">Premium ga o'tish</span>
@@ -361,7 +362,8 @@
             <strong id="stg-subscription-price">0 so'm</strong>
             <div class="subscription-price-meta" id="stg-subscription-price-meta" style="display:none">
               <span class="subscription-price-old" id="stg-subscription-price-old">21 999 so'm</span>
-              <span class="subscription-price-sale-badge" id="stg-subscription-price-sale-badge" data-i18n="pricing_sale_label">1 oylik chegirma</span>
+              <span class="subscription-price-sale-badge" id="stg-subscription-price-sale-badge"
+                data-i18n="pricing_sale_label">1 oylik chegirma</span>
             </div>
           </div>
         </div>
@@ -451,7 +453,7 @@
           </div>
           <div class="pricing-price-stack">
             <div class="pricing-price-old" id="pricing-premium-price-old-wrap" style="display:none">
-              <span data-i18n="pricing_old_price_label">Avval</span>
+              <span data-i18n="pricing_old_price_label">Chegirma</span>
               <strong id="pricing-premium-price-old">21 999 so'm</strong>
             </div>
             <div class="pricing-price">
