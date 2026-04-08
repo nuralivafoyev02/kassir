@@ -45,6 +45,11 @@ const KB = {
   ],
   resize_keyboard: true,
 };
+const CONTACT_REQUEST_REPLY_MARKUP = {
+  keyboard: [[{ text: '📱 Telefon raqamni yuborish', request_contact: true }]],
+  resize_keyboard: true,
+  one_time_keyboard: true,
+};
 
 const GUIDE = `<b>📖 Qo'llanma</b>
 
@@ -266,11 +271,11 @@ function isTransientSupabaseError(error) {
 }
 
 function getSupabaseRetryDelay(attempt) {
-  return Math.min(1500, 250 * Math.max(1, attempt));
+  return Math.min(2500, 250 * (2 ** Math.max(0, attempt - 1)));
 }
 
 async function supabaseFetchWithRetry(url, options = {}) {
-  const maxAttempts = 3;
+  const maxAttempts = 5;
   let lastError = null;
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
@@ -2689,6 +2694,29 @@ module.exports = async (req, res) => {
       }, { onConflict: 'user_id' });
 
       if (regErr) {
+        if (isTransientSupabaseError(regErr)) {
+          await getAppLogger().info({
+            scope: 'reg-transient',
+            ...userContext,
+            message: "Ro'yxatdan o'tishda vaqtinchalik Supabase uzilishi kuzatildi",
+            payload: {
+              retryable: true,
+              error: regErr,
+            },
+          }).catch(() => { });
+
+          await bot.sendMessage(
+            chatId,
+            `⏳ <b>Ro'yxatdan o'tishda vaqtinchalik uzilish bo'ldi.</b>\n\n10-15 soniyadan keyin telefon raqamingizni yana bir marta yuboring.`,
+            {
+              parse_mode: 'HTML',
+              reply_markup: CONTACT_REQUEST_REPLY_MARKUP,
+            }
+          ).catch(() => { });
+
+          return res.status(200).json({ ok: true, retryable: true });
+        }
+
         await logErr('reg', regErr, userContext);
         return res.status(200).json({ ok: false });
       }
@@ -3081,11 +3109,7 @@ Sabab: <code>${esc(String(premiumNotifyStatus || "noma'lum"))}</code>`;
       }
 
       await bot.sendMessage(chatId, `👋 Assalomu alaykum!\nBotdan foydalanish uchun telefon raqamingizni tasdiqlang.`, {
-        reply_markup: {
-          keyboard: [[{ text: '📱 Telefon raqamni yuborish', request_contact: true }]],
-          resize_keyboard: true,
-          one_time_keyboard: true,
-        },
+        reply_markup: CONTACT_REQUEST_REPLY_MARKUP,
       }
       ).catch(() => { });
       return res.status(200).json({ ok: true });
