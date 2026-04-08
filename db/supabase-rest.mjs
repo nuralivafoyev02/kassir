@@ -31,6 +31,48 @@ export function sbMissingColumn(error, column) {
   );
 }
 
+export function sbIsSchemaCacheUnavailable(error) {
+  const message = sbErrorText(error).toLowerCase();
+  return (
+    message.includes("pgrst002") ||
+    message.includes("could not query the database for the schema cache") ||
+    message.includes("schema cache")
+  );
+}
+
+export function sbIsPoolTimeout(error) {
+  const message = sbErrorText(error).toLowerCase();
+  return (
+    message.includes("pgrst003") ||
+    message.includes("timed out acquiring connection from connection pool") ||
+    message.includes("connection pool")
+  );
+}
+
+export function sbIsTransientInfraError(error) {
+  const message = sbErrorText(error).toLowerCase();
+  return (
+    sbIsSchemaCacheUnavailable(error) ||
+    sbIsPoolTimeout(error) ||
+    message.includes("supabase 502") ||
+    message.includes("supabase 503") ||
+    message.includes("supabase 504") ||
+    message.includes("fetch failed") ||
+    message.includes("network") ||
+    message.includes("econnreset") ||
+    message.includes("etimedout") ||
+    message.includes("socket hang up")
+  );
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function sbRetryDelay(attempt) {
+  return Math.min(1500, 250 * Math.max(1, attempt));
+}
+
 export function createSupabaseRestClient(env = {}) {
   const supabaseUrl = toTrimmedString(env.SUPABASE_URL);
   const serviceRoleKey = toTrimmedString(
@@ -48,29 +90,51 @@ export function createSupabaseRestClient(env = {}) {
   const baseUrl = `${supabaseUrl.replace(/\/+$/g, "")}/rest/v1`;
 
   async function fetchJson(path, init = {}) {
-    const response = await fetch(
-      `${baseUrl}${String(path || "").startsWith("/") ? "" : "/"}${path}`,
-      {
-        ...init,
-        headers: {
-          apikey: serviceRoleKey,
-          Authorization: `Bearer ${serviceRoleKey}`,
-          ...(init.headers || {}),
-        },
+    const maxAttempts = 3;
+    let lastError = null;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      try {
+        const response = await fetch(
+          `${baseUrl}${String(path || "").startsWith("/") ? "" : "/"}${path}`,
+          {
+            ...init,
+            headers: {
+              apikey: serviceRoleKey,
+              Authorization: `Bearer ${serviceRoleKey}`,
+              ...(init.headers || {}),
+            },
+          }
+        );
+
+        if (!response.ok) {
+          const raw = await response.text();
+          const error = new Error(`Supabase ${response.status}: ${raw}`);
+          lastError = error;
+          if (attempt < maxAttempts && sbIsTransientInfraError(error)) {
+            await sleep(sbRetryDelay(attempt));
+            continue;
+          }
+          throw error;
+        }
+
+        const contentType = response.headers.get("content-type") || "";
+        if (contentType.includes("application/json")) {
+          return response.json();
+        }
+
+        return response.text();
+      } catch (error) {
+        lastError = error;
+        if (attempt < maxAttempts && sbIsTransientInfraError(error)) {
+          await sleep(sbRetryDelay(attempt));
+          continue;
+        }
+        throw error;
       }
-    );
-
-    if (!response.ok) {
-      const raw = await response.text();
-      throw new Error(`Supabase ${response.status}: ${raw}`);
     }
 
-    const contentType = response.headers.get("content-type") || "";
-    if (contentType.includes("application/json")) {
-      return response.json();
-    }
-
-    return response.text();
+    throw lastError || new Error("Supabase fetch failed");
   }
 
   return {

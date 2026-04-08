@@ -180,23 +180,78 @@ function sbHeaders(env, extra = {}) {
   };
 }
 
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function sbIsSchemaCacheUnavailable(error) {
+  const msg = sbErrorText(error).toLowerCase();
+  return (
+    msg.includes("pgrst002") ||
+    msg.includes("could not query the database for the schema cache") ||
+    msg.includes("schema cache")
+  );
+}
+
+function sbIsTransientInfraError(error) {
+  const msg = sbErrorText(error).toLowerCase();
+  return (
+    sbIsPoolTimeout(error) ||
+    sbIsSchemaCacheUnavailable(error) ||
+    msg.includes("supabase 502") ||
+    msg.includes("supabase 503") ||
+    msg.includes("supabase 504") ||
+    msg.includes("fetch failed") ||
+    msg.includes("network") ||
+    msg.includes("econnreset") ||
+    msg.includes("etimedout") ||
+    msg.includes("socket hang up")
+  );
+}
+
+function sbRetryDelay(attempt) {
+  return Math.min(1500, 250 * Math.max(1, attempt));
+}
+
 async function sbFetch(env, path, init = {}) {
   const url = `${sbBase(env)}${path}`;
-  const resp = await fetch(url, {
-    ...init,
-    headers: {
-      ...sbHeaders(env, init.headers || {}),
-    },
-  });
+  const { __maxAttempts = 3, ...fetchInit } = init || {};
+  let lastError = null;
 
-  if (!resp.ok) {
-    const raw = await resp.text();
-    throw new Error(`Supabase ${resp.status}: ${raw}`);
+  for (let attempt = 1; attempt <= __maxAttempts; attempt += 1) {
+    try {
+      const resp = await fetch(url, {
+        ...fetchInit,
+        headers: {
+          ...sbHeaders(env, fetchInit.headers || {}),
+        },
+      });
+
+      if (!resp.ok) {
+        const raw = await resp.text();
+        const error = new Error(`Supabase ${resp.status}: ${raw}`);
+        lastError = error;
+        if (attempt < __maxAttempts && sbIsTransientInfraError(error)) {
+          await sleep(sbRetryDelay(attempt));
+          continue;
+        }
+        throw error;
+      }
+
+      const ct = resp.headers.get("content-type") || "";
+      if (ct.includes("application/json")) return resp.json();
+      return resp.text();
+    } catch (error) {
+      lastError = error;
+      if (attempt < __maxAttempts && sbIsTransientInfraError(error)) {
+        await sleep(sbRetryDelay(attempt));
+        continue;
+      }
+      throw error;
+    }
   }
 
-  const ct = resp.headers.get("content-type") || "";
-  if (ct.includes("application/json")) return resp.json();
-  return resp.text();
+  throw lastError || new Error("Supabase fetch failed");
 }
 
 function sbErrorText(error) {
@@ -1412,8 +1467,10 @@ async function runAllCronJobs(env, meta = {}) {
   try {
     sharedMeta.settings = await sbGetNotificationSettings(env);
   } catch (error) {
-    if (sbIsPoolTimeout(error)) {
-      const degradedNote = "skipped after Supabase connection pool timeout";
+    if (sbIsTransientInfraError(error)) {
+      const degradedNote = sbIsSchemaCacheUnavailable(error)
+        ? "skipped after Supabase schema cache outage"
+        : "skipped after Supabase connection or pool outage";
       return {
         ok: false,
         at: now.toISOString(),
@@ -1432,9 +1489,9 @@ async function runAllCronJobs(env, meta = {}) {
 
   const notifications = await runCronTask("notifications", () => processDueNotifications(env, sharedMeta));
 
-  if (sbIsPoolTimeout(notifications?.errors?.[0]?.error || notifications?.failed?.[0]?.error || null)) {
-    const poolError = new Error(notifications?.errors?.[0]?.error || notifications?.failed?.[0]?.error || "Supabase pool timeout");
-    const degradedNote = "skipped after Supabase connection pool timeout in earlier cron task";
+  if (sbIsTransientInfraError(notifications?.errors?.[0]?.error || notifications?.failed?.[0]?.error || null)) {
+    const poolError = new Error(notifications?.errors?.[0]?.error || notifications?.failed?.[0]?.error || "Supabase transient infra error");
+    const degradedNote = "skipped after Supabase transient infra error in earlier cron task";
     return {
       ok: false,
       at: now.toISOString(),
@@ -1450,9 +1507,9 @@ async function runAllCronJobs(env, meta = {}) {
   }
 
   const daily = await runCronTask("daily", () => processDailyReminders(env, now, sharedMeta));
-  if (sbIsPoolTimeout(daily?.failed?.[0]?.error || null)) {
-    const poolError = new Error(daily?.failed?.[0]?.error || "Supabase pool timeout");
-    const degradedNote = "skipped after Supabase connection pool timeout in earlier cron task";
+  if (sbIsTransientInfraError(daily?.failed?.[0]?.error || null)) {
+    const poolError = new Error(daily?.failed?.[0]?.error || "Supabase transient infra error");
+    const degradedNote = "skipped after Supabase transient infra error in earlier cron task";
     return {
       ok: false,
       at: now.toISOString(),
@@ -1468,9 +1525,9 @@ async function runAllCronJobs(env, meta = {}) {
   }
 
   const report = await runCronTask("report", () => processDailyReports(env, now, sharedMeta));
-  if (sbIsPoolTimeout(report?.failed?.[0]?.error || null)) {
-    const poolError = new Error(report?.failed?.[0]?.error || "Supabase pool timeout");
-    const degradedNote = "skipped after Supabase connection pool timeout in earlier cron task";
+  if (sbIsTransientInfraError(report?.failed?.[0]?.error || null)) {
+    const poolError = new Error(report?.failed?.[0]?.error || "Supabase transient infra error");
+    const degradedNote = "skipped after Supabase transient infra error in earlier cron task";
     return {
       ok: false,
       at: now.toISOString(),

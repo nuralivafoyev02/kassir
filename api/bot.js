@@ -19,7 +19,11 @@ if (!SUPA_KEY) throw new Error('SUPABASE_KEY (SERVICE_ROLE yoki anon) yo\'q');
 
 // ─── CLIENTS ─────────────────────────────────────────────
 const bot = new TelegramBot(BOT_TOKEN, { polling: false });
-const db = createClient(SUPA_URL, SUPA_KEY);
+const db = createClient(SUPA_URL, SUPA_KEY, {
+  global: {
+    fetch: supabaseFetchWithRetry,
+  },
+});
 
 // OpenAI — faqat ovozli xabar uchun (ixtiyoriy)
 let openai = null;
@@ -220,6 +224,81 @@ function shortId(v, len = 8) {
 
 function tgErr(e) {
   return e?.response?.body?.description || e?.message || "Noma'lum xatolik";
+}
+
+function getSupabaseErrorText(error) {
+  if (!error) return '';
+  if (typeof error === 'string') return error;
+  return String(error?.message || error?.details || error?.hint || error?.error_description || '');
+}
+
+function isSupabaseSchemaCacheError(error) {
+  const msg = getSupabaseErrorText(error).toLowerCase();
+  return msg.includes('pgrst002')
+    || msg.includes('could not query the database for the schema cache')
+    || msg.includes('schema cache');
+}
+
+function isSupabasePoolTimeoutError(error) {
+  const msg = getSupabaseErrorText(error).toLowerCase();
+  return msg.includes('pgrst003')
+    || msg.includes('timed out acquiring connection from connection pool')
+    || msg.includes('connection pool');
+}
+
+function isTransientSupabaseError(error) {
+  const msg = getSupabaseErrorText(error).toLowerCase();
+  const status = Number(error?.status || error?.code || error?.response?.status || 0);
+  return isSupabaseSchemaCacheError(error)
+    || isSupabasePoolTimeoutError(error)
+    || status === 429
+    || status === 502
+    || status === 503
+    || status === 504
+    || msg.includes('supabase 502')
+    || msg.includes('supabase 503')
+    || msg.includes('supabase 504')
+    || msg.includes('fetch failed')
+    || msg.includes('network')
+    || msg.includes('econnreset')
+    || msg.includes('etimedout')
+    || msg.includes('socket hang up');
+}
+
+function getSupabaseRetryDelay(attempt) {
+  return Math.min(1500, 250 * Math.max(1, attempt));
+}
+
+async function supabaseFetchWithRetry(url, options = {}) {
+  const maxAttempts = 3;
+  let lastError = null;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      const response = await fetch(url, options);
+      if (!response.ok) {
+        const clone = response.clone();
+        const raw = await clone.text().catch(() => '');
+        const error = new Error(`Supabase ${response.status}: ${raw}`);
+        error.status = response.status;
+        lastError = error;
+        if (attempt < maxAttempts && isTransientSupabaseError(error)) {
+          await sleep(getSupabaseRetryDelay(attempt));
+          continue;
+        }
+      }
+      return response;
+    } catch (error) {
+      lastError = error;
+      if (attempt < maxAttempts && isTransientSupabaseError(error)) {
+        await sleep(getSupabaseRetryDelay(attempt));
+        continue;
+      }
+      throw error;
+    }
+  }
+
+  throw lastError || new Error('Supabase fetch failed');
 }
 
 function parseTelegramCommand(value) {
