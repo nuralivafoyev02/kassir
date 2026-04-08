@@ -95,6 +95,13 @@ Qarz berilganda balans darhol o'zgarmaydi. Qarz qaytganda yoki qaytarganingizda 
 const DEFAULT_RATE = 12200;
 const ADMIN_IDS = new Set((process.env.ADMIN_IDS || '').split(',').map(v => v.trim()).filter(Boolean));
 const ADMIN_USERS_PAGE_SIZE = 10;
+const BROADCAST_USER_PAGE_SIZE = 1000;
+const ADMIN_CACHE_TTL_MS = 60 * 1000;
+const SUPABASE_OUTAGE_TTL_MS = 30 * 1000;
+const SUPABASE_SCHEMA_CACHE_TTL_MS = 60 * 1000;
+const adminSnapshotCache = { value: null, expiresAt: 0 };
+const adminUserCountCache = { value: null, expiresAt: 0 };
+const supabaseOutageCircuit = { openUntil: 0, reason: '' };
 
 // ─── LOGGING ─────────────────────────────────────────────
 function getAdminNotifyChatId() {
@@ -178,6 +185,29 @@ let categoryLimitNameColumnSupported = null;
 const SUBSCRIPTION_FIELDS = Array.isArray(subscriptionHelpers.SUBSCRIPTION_FIELDS)
   ? subscriptionHelpers.SUBSCRIPTION_FIELDS.slice()
   : ['plan_code', 'subscription_status', 'subscription_start_at', 'subscription_end_at', 'trial_end_at', 'canceled_at', 'grace_until', 'created_at', 'updated_at'];
+
+function getCachedValue(cache) {
+  if (!cache || cache.expiresAt <= Date.now()) return null;
+  return cache.value;
+}
+
+function setCachedValue(cache, value, ttlMs = ADMIN_CACHE_TTL_MS) {
+  if (!cache) return value;
+  cache.value = value;
+  cache.expiresAt = Date.now() + Math.max(1000, Number(ttlMs) || ADMIN_CACHE_TTL_MS);
+  return value;
+}
+
+function clearCachedValue(cache) {
+  if (!cache) return;
+  cache.value = null;
+  cache.expiresAt = 0;
+}
+
+function invalidateAdminCaches() {
+  clearCachedValue(adminSnapshotCache);
+  clearCachedValue(adminUserCountCache);
+}
 
 async function downloadTelegramFileBuffer(fileId) {
   const fileLink = await bot.getFileLink(fileId);
@@ -274,9 +304,50 @@ function getSupabaseRetryDelay(attempt) {
   return Math.min(2500, 250 * (2 ** Math.max(0, attempt - 1)));
 }
 
+function buildSupabaseCircuitError() {
+  const error = new Error(
+    `Supabase 503: temporary outage circuit open (${supabaseOutageCircuit.reason || 'recent transient failure'})`
+  );
+  error.status = 503;
+  error.code = 'SUPABASE_CIRCUIT_OPEN';
+  return error;
+}
+
+function clearSupabaseOutageCircuit() {
+  supabaseOutageCircuit.openUntil = 0;
+  supabaseOutageCircuit.reason = '';
+}
+
+function getOpenSupabaseCircuitError() {
+  if (supabaseOutageCircuit.openUntil > Date.now()) {
+    return buildSupabaseCircuitError();
+  }
+
+  if (supabaseOutageCircuit.openUntil > 0) {
+    clearSupabaseOutageCircuit();
+  }
+
+  return null;
+}
+
+function openSupabaseOutageCircuit(error) {
+  if (!isTransientSupabaseError(error)) return;
+  const ttlMs = isSupabaseSchemaCacheError(error)
+    ? SUPABASE_SCHEMA_CACHE_TTL_MS
+    : SUPABASE_OUTAGE_TTL_MS;
+  supabaseOutageCircuit.openUntil = Math.max(
+    supabaseOutageCircuit.openUntil || 0,
+    Date.now() + ttlMs
+  );
+  supabaseOutageCircuit.reason = getSupabaseErrorText(error).slice(0, 240);
+}
+
 async function supabaseFetchWithRetry(url, options = {}) {
   const maxAttempts = 5;
   let lastError = null;
+
+  const circuitError = getOpenSupabaseCircuitError();
+  if (circuitError) throw circuitError;
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     try {
@@ -287,22 +358,35 @@ async function supabaseFetchWithRetry(url, options = {}) {
         const error = new Error(`Supabase ${response.status}: ${raw}`);
         error.status = response.status;
         lastError = error;
-        if (attempt < maxAttempts && isTransientSupabaseError(error)) {
+        const schemaCacheDown = isSupabaseSchemaCacheError(error);
+        if (attempt < maxAttempts && isTransientSupabaseError(error) && !schemaCacheDown) {
           await sleep(getSupabaseRetryDelay(attempt));
           continue;
         }
+        if (isTransientSupabaseError(error)) {
+          openSupabaseOutageCircuit(error);
+        }
+        throw error;
       }
+      clearSupabaseOutageCircuit();
       return response;
     } catch (error) {
       lastError = error;
-      if (attempt < maxAttempts && isTransientSupabaseError(error)) {
+      const schemaCacheDown = isSupabaseSchemaCacheError(error);
+      if (attempt < maxAttempts && isTransientSupabaseError(error) && !schemaCacheDown) {
         await sleep(getSupabaseRetryDelay(attempt));
         continue;
+      }
+      if (isTransientSupabaseError(error)) {
+        openSupabaseOutageCircuit(error);
       }
       throw error;
     }
   }
 
+  if (isTransientSupabaseError(lastError)) {
+    openSupabaseOutageCircuit(lastError);
+  }
   throw lastError || new Error('Supabase fetch failed');
 }
 
@@ -1043,22 +1127,35 @@ async function getExactCount(query) {
   return count || 0;
 }
 
+async function getCachedAdminUserCount() {
+  const cached = getCachedValue(adminUserCountCache);
+  if (cached != null) return cached;
+
+  const total = await getExactCount(
+    db.from('users').select('user_id', { count: 'exact', head: true })
+  );
+  return setCachedValue(adminUserCountCache, total);
+}
+
 async function getAdminSnapshot() {
+  const cached = getCachedValue(adminSnapshotCache);
+  if (cached) return cached;
+
   const now = new Date();
   const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
 
   const [totalUsers, activeToday, txToday, txMonth, failedTargets, drafts, lastBroadcastRes] = await Promise.all([
-    getExactCount(db.from('users').select('*', { count: 'exact', head: true })),
-    getExactCount(db.from('users').select('*', { count: 'exact', head: true }).gte('last_start_date', todayStart)),
-    getExactCount(db.from('transactions').select('*', { count: 'exact', head: true }).gte('date', todayStart)),
-    getExactCount(db.from('transactions').select('*', { count: 'exact', head: true }).gte('date', monthStart)),
-    getExactCount(db.from('broadcast_failures').select('*', { count: 'exact', head: true })),
-    getExactCount(db.from('broadcasts').select('*', { count: 'exact', head: true }).eq('status', 'draft')),
+    getCachedAdminUserCount(),
+    getExactCount(db.from('users').select('user_id', { count: 'exact', head: true }).gte('last_start_date', todayStart)),
+    getExactCount(db.from('transactions').select('id', { count: 'exact', head: true }).gte('date', todayStart)),
+    getExactCount(db.from('transactions').select('id', { count: 'exact', head: true }).gte('date', monthStart)),
+    getExactCount(db.from('broadcast_failures').select('id', { count: 'exact', head: true })),
+    getExactCount(db.from('broadcasts').select('id', { count: 'exact', head: true }).eq('status', 'draft')),
     db.from('broadcasts').select('id, created_at, status, total_users, sent_count, failed_count').order('created_at', { ascending: false }).limit(1).maybeSingle()
   ]);
 
-  return {
+  return setCachedValue(adminSnapshotCache, {
     totalUsers,
     activeToday,
     txToday,
@@ -1066,7 +1163,7 @@ async function getAdminSnapshot() {
     failedTargets,
     drafts,
     lastBroadcast: lastBroadcastRes.data || null
-  };
+  });
 }
 
 function buildAdminPanelText(snapshot) {
@@ -1148,10 +1245,10 @@ async function fetchAdminUsersPage(offset = 0, pageSize = ADMIN_USERS_PAGE_SIZE)
           .order('created_at', { ascending: false })
           .order('user_id', { ascending: false })
           .range(safeOffset, to);
-      }
+        }
       return response;
     })(),
-    getExactCount(db.from('users').select('*', { count: 'exact', head: true })),
+    getCachedAdminUserCount(),
   ]);
 
   const { data: rows, error } = userResponse;
@@ -1277,12 +1374,42 @@ async function storeBroadcastFailures(broadcastId, rows) {
   if (error) throw error;
 }
 
+async function listAllBroadcastUserIds() {
+  const out = [];
+  let afterUserId = null;
+
+  while (true) {
+    let query = db
+      .from('users')
+      .select('user_id')
+      .order('user_id', { ascending: true })
+      .limit(BROADCAST_USER_PAGE_SIZE);
+
+    if (afterUserId != null) {
+      query = query.gt('user_id', afterUserId);
+    }
+
+    const { data, error } = await query;
+    if (error) throw error;
+
+    const batch = (data || [])
+      .map((row) => Number(row?.user_id))
+      .filter(Boolean);
+
+    if (!batch.length) break;
+    out.push(...batch);
+
+    if (batch.length < BROADCAST_USER_PAGE_SIZE) break;
+    afterUserId = batch[batch.length - 1];
+  }
+
+  return out;
+}
+
 async function sendBroadcastBatch(bc, { targetUserIds = null, retryOnly = false } = {}) {
   let userIds = targetUserIds;
   if (!userIds) {
-    const { data: allUsers, error: fErr } = await db.from('users').select('user_id');
-    if (fErr) throw fErr;
-    userIds = (allUsers || []).map(u => u.user_id);
+    userIds = await listAllBroadcastUserIds();
   }
 
   userIds = [...new Set((userIds || []).map(Number).filter(Boolean))];
@@ -2677,6 +2804,14 @@ module.exports = async (req, res) => {
     let { data: user, error: uErr } = await db
       .from('users').select('*').eq('user_id', userId).maybeSingle();
     if (uErr) warn('user-fetch', { userId, msg: uErr.message });
+    if (uErr && isTransientSupabaseError(uErr)) {
+      await bot.sendMessage(
+        chatId,
+        `⏳ <b>Server bilan ulanishda vaqtinchalik uzilish bor.</b>\n\nBir ozdan keyin yana urinib ko'ring.`,
+        { parse_mode: 'HTML' }
+      ).catch(() => { });
+      return res.status(200).json({ ok: true, retryable: true });
+    }
 
     // ── Telefon raqami ro'yxatdan o'tkazish ──
     if (msg.contact) {
@@ -2720,6 +2855,8 @@ module.exports = async (req, res) => {
         await logErr('reg', regErr, userContext);
         return res.status(200).json({ ok: false });
       }
+
+      invalidateAdminCaches();
 
       await bot.sendMessage(chatId,
         `🎉 <b>Ro'yxatdan o'tdingiz!</b>\n\nEndi kirim-chiqimlarni yozishingiz mumkin.\n\n${GUIDE}`,

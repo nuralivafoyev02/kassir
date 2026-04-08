@@ -1,0 +1,42 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "kassir-backend",
+  "main": "./worker-entry.mjs",
+  "compatibility_date": "2026-04-08",
+  "compatibility_flags": [
+    "nodejs_compat"
+  ],
+  "dev": {
+    "ip": "0.0.0.0",
+    "port": 8787,
+    "local_protocol": "http"
+  },
+  "triggers": {
+    "crons": [
+      "*/30 * * * *"
+    ]
+  },
+  "observability": {
+    "enabled": true,
+    "traces": {
+      "enabled": true
+    }
+  },
+  "vars": {
+    "NOTIFICATION_PROVIDER": "telegram",
+    "TELEGRAM_LOGGING_ENABLED": "true",
+    "LOG_LEVEL": "INFO",
+    "LOCAL_LOG_LEVEL": "ERROR"
+  },
+  "secrets": {
+    "required": [
+      "BOT_TOKEN",
+      "SUPABASE_URL",
+      "SUPABASE_ANON_KEY",
+      "SUPABASE_SERVICE_ROLE_KEY",
+      "OPENAI_API_KEY",
+      "CRON_SECRET",
+      "LOG_CHANNEL_ID"
+    ]
+  }
+}

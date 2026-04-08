@@ -1,0 +1,9 @@
+# Copy from ../../.env or generate automatically with:
+# python3 ../../scripts/kassir_cloudflare.py split-env
+BOT_TOKEN=""
+SUPABASE_URL=""
+SUPABASE_ANON_KEY=""
+SUPABASE_SERVICE_ROLE_KEY=""
+OPENAI_API_KEY=""
+CRON_SECRET=""
+LOG_CHANNEL_ID=""

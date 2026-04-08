@@ -184,6 +184,10 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+const SUPABASE_OUTAGE_TTL_MS = 30 * 1000;
+const SUPABASE_SCHEMA_CACHE_TTL_MS = 60 * 1000;
+const supabaseInfraCircuit = { openUntil: 0, reason: "" };
+
 function sbIsSchemaCacheUnavailable(error) {
   const msg = sbErrorText(error).toLowerCase();
   return (
@@ -213,10 +217,51 @@ function sbRetryDelay(attempt) {
   return Math.min(1500, 250 * Math.max(1, attempt));
 }
 
+function clearSbInfraCircuit() {
+  supabaseInfraCircuit.openUntil = 0;
+  supabaseInfraCircuit.reason = "";
+}
+
+function buildSbCircuitError() {
+  const error = new Error(
+    `Supabase 503: temporary outage circuit open (${supabaseInfraCircuit.reason || "recent transient infra failure"})`
+  );
+  error.status = 503;
+  error.code = "SUPABASE_CIRCUIT_OPEN";
+  return error;
+}
+
+function getOpenSbCircuitError() {
+  if (supabaseInfraCircuit.openUntil > Date.now()) {
+    return buildSbCircuitError();
+  }
+
+  if (supabaseInfraCircuit.openUntil > 0) {
+    clearSbInfraCircuit();
+  }
+
+  return null;
+}
+
+function openSbInfraCircuit(error) {
+  if (!sbIsTransientInfraError(error)) return;
+  const ttlMs = sbIsSchemaCacheUnavailable(error)
+    ? SUPABASE_SCHEMA_CACHE_TTL_MS
+    : SUPABASE_OUTAGE_TTL_MS;
+  supabaseInfraCircuit.openUntil = Math.max(
+    supabaseInfraCircuit.openUntil || 0,
+    Date.now() + ttlMs
+  );
+  supabaseInfraCircuit.reason = sbErrorText(error).slice(0, 240);
+}
+
 async function sbFetch(env, path, init = {}) {
   const url = `${sbBase(env)}${path}`;
   const { __maxAttempts = 3, ...fetchInit } = init || {};
   let lastError = null;
+
+  const circuitError = getOpenSbCircuitError();
+  if (circuitError) throw circuitError;
 
   for (let attempt = 1; attempt <= __maxAttempts; attempt += 1) {
     try {
@@ -231,26 +276,38 @@ async function sbFetch(env, path, init = {}) {
         const raw = await resp.text();
         const error = new Error(`Supabase ${resp.status}: ${raw}`);
         lastError = error;
-        if (attempt < __maxAttempts && sbIsTransientInfraError(error)) {
+        const schemaCacheDown = sbIsSchemaCacheUnavailable(error);
+        if (attempt < __maxAttempts && sbIsTransientInfraError(error) && !schemaCacheDown) {
           await sleep(sbRetryDelay(attempt));
           continue;
+        }
+        if (sbIsTransientInfraError(error)) {
+          openSbInfraCircuit(error);
         }
         throw error;
       }
 
+      clearSbInfraCircuit();
       const ct = resp.headers.get("content-type") || "";
       if (ct.includes("application/json")) return resp.json();
       return resp.text();
     } catch (error) {
       lastError = error;
-      if (attempt < __maxAttempts && sbIsTransientInfraError(error)) {
+      const schemaCacheDown = sbIsSchemaCacheUnavailable(error);
+      if (attempt < __maxAttempts && sbIsTransientInfraError(error) && !schemaCacheDown) {
         await sleep(sbRetryDelay(attempt));
         continue;
+      }
+      if (sbIsTransientInfraError(error)) {
+        openSbInfraCircuit(error);
       }
       throw error;
     }
   }
 
+  if (sbIsTransientInfraError(lastError)) {
+    openSbInfraCircuit(lastError);
+  }
   throw lastError || new Error("Supabase fetch failed");
 }
 
@@ -1233,13 +1290,17 @@ async function processDailyReports(env, now = new Date(), meta = {}) {
   return result;
 }
 
-async function sbFetchDebtReminderPage(env, { limit = DEBT_REMINDER_BATCH_SIZE, offset = 0 } = {}) {
+async function sbFetchDebtReminderPage(env, nowIso, { limit = DEBT_REMINDER_BATCH_SIZE, offset = 0 } = {}) {
+  const encodedOr = encodeURIComponent(
+    `(and(remind_at.not.is.null,remind_at.lte.${nowIso}),and(remind_at.is.null,due_at.not.is.null,due_at.lte.${nowIso}))`
+  );
   return sbFetch(
     env,
     `/debts?select=id,user_id,person_name,amount,direction,due_at,remind_at,note,reminder_sent_at,status,created_at` +
     `&status=eq.open` +
     `&reminder_sent_at=is.null` +
-    `&order=created_at.asc,id.asc` +
+    `&or=${encodedOr}` +
+    `&order=remind_at.asc.nullslast,due_at.asc.nullslast,id.asc` +
     `&limit=${limit}` +
     `&offset=${offset}`
   );
@@ -1301,7 +1362,10 @@ async function processDebtReminders(env, now = new Date(), meta = {}) {
   while (scanned < DEBT_REMINDER_SCAN_LIMIT) {
     let debts;
     try {
-      debts = await sbFetchDebtReminderPage(env, { limit: DEBT_REMINDER_BATCH_SIZE, offset });
+      debts = await sbFetchDebtReminderPage(env, nowIso, {
+        limit: DEBT_REMINDER_BATCH_SIZE,
+        offset,
+      });
     } catch (error) {
       if (sbMissingTable(error, "debts")) {
         result.note = "debts table missing";
@@ -1315,19 +1379,9 @@ async function processDebtReminders(env, now = new Date(), meta = {}) {
 
     scanned += items.length;
     result.checked += items.length;
+    result.due += items.length;
 
-    const dueItems = items.filter((debt) => {
-      if (!debt || debt.status !== "open") return false;
-      if (debt.reminder_sent_at) return false;
-      const target = debt.remind_at || debt.due_at || null;
-      if (!target) return false;
-      const ts = new Date(target).getTime();
-      return Number.isFinite(ts) && ts <= new Date(now).getTime();
-    });
-
-    result.due += dueItems.length;
-
-    for (const debt of dueItems) {
+    for (const debt of items) {
       const target = debt.remind_at || debt.due_at || null;
       const targetDate = target ? new Date(target) : null;
       const text = buildDebtReminderText(debtSetting, debt, targetDate, now);
@@ -2244,7 +2298,7 @@ async function serveAppAsset(request, env) {
     }
   }
 
-  throw new Error("ASSETS binding mavjud emas");
+  return new Response("Not found", { status: 404 });
 }
 
 export default {

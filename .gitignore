@@ -3,3 +3,8 @@ node_modules/
 dist/
 supabase.sql
 .DS_Store
+apps/backend/.dev.vars
+apps/miniapp/.dev.vars
+apps/miniapp/.env.local
+apps/*/dist/
+apps/*/.wrangler/

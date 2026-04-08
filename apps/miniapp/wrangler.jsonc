@@ -1,0 +1,17 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "kassir-miniapp",
+  "pages_build_output_dir": "./dist",
+  "compatibility_date": "2026-04-08",
+  "dev": {
+    "ip": "0.0.0.0",
+    "port": 3000,
+    "local_protocol": "http"
+  },
+  "services": [
+    {
+      "binding": "BACKEND",
+      "service": "kassir-backend"
+    }
+  ]
+}

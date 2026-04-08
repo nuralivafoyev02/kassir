@@ -477,12 +477,15 @@ async function markDailyReportSent(userId, nowIso) {
   return result;
 }
 
-async function fetchOpenDebtsPage({ from = 0, to = DEBT_REMINDER_BATCH_SIZE - 1 } = {}) {
+async function fetchOpenDebtsPage(nowIso, { from = 0, to = DEBT_REMINDER_BATCH_SIZE - 1 } = {}) {
   return db
     .from('debts')
     .select('id, user_id, person_name, amount, direction, due_at, remind_at, note, reminder_sent_at, status, created_at')
     .eq('status', 'open')
-    .order('created_at', { ascending: true })
+    .is('reminder_sent_at', null)
+    .or(`and(remind_at.not.is.null,remind_at.lte.${nowIso}),and(remind_at.is.null,due_at.not.is.null,due_at.lte.${nowIso})`)
+    .order('remind_at', { ascending: true, nullsFirst: false })
+    .order('due_at', { ascending: true, nullsFirst: false })
     .order('id', { ascending: true })
     .range(from, to);
 }
@@ -813,7 +816,7 @@ async function processDebtReminders(now) {
 
   while (scanned < DEBT_REMINDER_SCAN_LIMIT) {
     const to = from + DEBT_REMINDER_BATCH_SIZE - 1;
-    const { data, error } = await fetchOpenDebtsPage({ from, to });
+    const { data, error } = await fetchOpenDebtsPage(nowIso, { from, to });
 
     if (error) {
       if (relationMissing(error, 'debts')) {
@@ -827,19 +830,9 @@ async function processDebtReminders(now) {
 
     scanned += page.length;
     result.checked += page.length;
+    result.due += page.length;
 
-    const dueItems = page.filter((debt) => {
-      if (debt.status !== 'open') return false;
-      if (debt.reminder_sent_at) return false;
-      const target = dueTarget(debt);
-      if (!target) return false;
-      const ts = new Date(target).getTime();
-      return Number.isFinite(ts) && ts <= now.getTime();
-    });
-
-    result.due += dueItems.length;
-
-    for (const debt of dueItems) {
+    for (const debt of page) {
       const target = dueTarget(debt);
       const targetDate = target ? new Date(target) : null;
       const text = buildDebtReminderText(debtSetting, debt, targetDate, now);

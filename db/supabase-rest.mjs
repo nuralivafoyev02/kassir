@@ -73,6 +73,48 @@ function sbRetryDelay(attempt) {
   return Math.min(1500, 250 * Math.max(1, attempt));
 }
 
+const SUPABASE_OUTAGE_TTL_MS = 30 * 1000;
+const SUPABASE_SCHEMA_CACHE_TTL_MS = 60 * 1000;
+const supabaseInfraCircuit = { openUntil: 0, reason: "" };
+
+function clearCircuit() {
+  supabaseInfraCircuit.openUntil = 0;
+  supabaseInfraCircuit.reason = "";
+}
+
+function buildCircuitError() {
+  const error = new Error(
+    `Supabase 503: temporary outage circuit open (${supabaseInfraCircuit.reason || "recent transient infra failure"})`
+  );
+  error.status = 503;
+  error.code = "SUPABASE_CIRCUIT_OPEN";
+  return error;
+}
+
+function getOpenCircuitError() {
+  if (supabaseInfraCircuit.openUntil > Date.now()) {
+    return buildCircuitError();
+  }
+
+  if (supabaseInfraCircuit.openUntil > 0) {
+    clearCircuit();
+  }
+
+  return null;
+}
+
+function openCircuit(error) {
+  if (!sbIsTransientInfraError(error)) return;
+  const ttlMs = sbIsSchemaCacheUnavailable(error)
+    ? SUPABASE_SCHEMA_CACHE_TTL_MS
+    : SUPABASE_OUTAGE_TTL_MS;
+  supabaseInfraCircuit.openUntil = Math.max(
+    supabaseInfraCircuit.openUntil || 0,
+    Date.now() + ttlMs
+  );
+  supabaseInfraCircuit.reason = sbErrorText(error).slice(0, 240);
+}
+
 export function createSupabaseRestClient(env = {}) {
   const supabaseUrl = toTrimmedString(env.SUPABASE_URL);
   const serviceRoleKey = toTrimmedString(
@@ -93,6 +135,9 @@ export function createSupabaseRestClient(env = {}) {
     const maxAttempts = 3;
     let lastError = null;
 
+    const circuitError = getOpenCircuitError();
+    if (circuitError) throw circuitError;
+
     for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
       try {
         const response = await fetch(
@@ -111,13 +156,18 @@ export function createSupabaseRestClient(env = {}) {
           const raw = await response.text();
           const error = new Error(`Supabase ${response.status}: ${raw}`);
           lastError = error;
-          if (attempt < maxAttempts && sbIsTransientInfraError(error)) {
+          const schemaCacheDown = sbIsSchemaCacheUnavailable(error);
+          if (attempt < maxAttempts && sbIsTransientInfraError(error) && !schemaCacheDown) {
             await sleep(sbRetryDelay(attempt));
             continue;
+          }
+          if (sbIsTransientInfraError(error)) {
+            openCircuit(error);
           }
           throw error;
         }
 
+        clearCircuit();
         const contentType = response.headers.get("content-type") || "";
         if (contentType.includes("application/json")) {
           return response.json();
@@ -126,14 +176,21 @@ export function createSupabaseRestClient(env = {}) {
         return response.text();
       } catch (error) {
         lastError = error;
-        if (attempt < maxAttempts && sbIsTransientInfraError(error)) {
+        const schemaCacheDown = sbIsSchemaCacheUnavailable(error);
+        if (attempt < maxAttempts && sbIsTransientInfraError(error) && !schemaCacheDown) {
           await sleep(sbRetryDelay(attempt));
           continue;
+        }
+        if (sbIsTransientInfraError(error)) {
+          openCircuit(error);
         }
         throw error;
       }
     }
 
+    if (sbIsTransientInfraError(lastError)) {
+      openCircuit(lastError);
+    }
     throw lastError || new Error("Supabase fetch failed");
   }
 
