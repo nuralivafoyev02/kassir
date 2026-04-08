@@ -412,6 +412,7 @@ ${snapshot.subscriptionStartAt ? `🗓 Boshlangan: <b>${esc(fmtDateTime(snapshot
 ` : ''}`;
 }
 
+// premium activated text
 function formatSubscriptionDurationLabel(durationDays) {
   const days = Math.max(1, Number(durationDays || 0));
   if (days % 30 === 0) {
@@ -431,11 +432,12 @@ function buildPremiumActivatedUserText(row, durationDays) {
   return `🎉 <b>Premium obuna faollashtirildi</b>
 
 ${greetingLine}💎 Sizga <b>${esc(durationLabel)}</b> obuna faollashtirildi.
-📦 Tarif: <b>${esc(snapshot.planTitle || 'Premium')}</b>
-${snapshot.accessUntil ? `⌛️ Amal qilish muddati: <b>${esc(fmtDateTime(snapshot.accessUntil))}</b>
+${snapshot.accessUntil ? `⌛️ Amal qilish muddati: <b>
+${esc(fmtDateTime(snapshot.accessUntil))}</b>
 ` : ''}
 ✨ Endi Premium imkoniyatlardan foydalanishingiz mumkin.`;
 }
+// premium activated text
 
 function categoryLimitNameColumn() {
   return categoryLimitNameColumnSupported === 'name' ? 'name' : 'category_name';
@@ -3221,7 +3223,7 @@ Sabab: <code>${esc(String(premiumNotifyStatus || "noma'lum"))}</code>`;
       } catch (e) {
         await logErr('voice', e, { userId });
         const voiceErrorText = isOpenAIAuthError(e)
-          ? '🔐 OpenAI kaliti noto‘g‘ri yoki bekor qilingan. Hozircha matn orqali yozib yuboring.'
+          ? '🔐 Ovozli xabar funksiyamiz hali ishga tushurilmagan. Hozircha matn orqali yozib yuboring.'
           : '😕 Ovozli xabarni qayta ishlashda xatolik yuz berdi. Matn orqali yozib yuboring.';
         if (proc) await bot.editMessageText(voiceErrorText, { chat_id: chatId, message_id: proc.message_id }).catch(() => { });
       } finally {
@@ -3242,7 +3244,7 @@ Sabab: <code>${esc(String(premiumNotifyStatus || "noma'lum"))}</code>`;
       let receiptUrl = null;
 
       if (msg.photo) {
-        const procMsg = await bot.sendMessage(chatId, '📸 Chek rasmini yuklanmoqda...').catch(() => null);
+        const procMsg = await bot.sendMessage(chatId, '♻️ Chek rasmini yuklanmoqda...').catch(() => null);
         try {
           const photoId = msg.photo[msg.photo.length - 1].file_id;
           const photoBuffer = await downloadTelegramFileBuffer(photoId);
@@ -3277,7 +3279,7 @@ Sabab: <code>${esc(String(premiumNotifyStatus || "noma'lum"))}</code>`;
     // ── Rasm matnsiz yuborilgan ──
     if (msg.photo && !parsed) {
       await bot.sendMessage(chatId,
-        '⚠️ Rasm tagiga summa va izoh yozishni unutdingiz.\n\n<i>Masalan: 50 ming tushlik</i>',
+        '✍️ Rasm tagiga summa va izoh yozishni unutdingiz.\n\n<i>Masalan: 50 ming tushlik</i>',
         { parse_mode: 'HTML' }
       ).catch(() => { });
       return res.status(200).json({ ok: true });
@@ -3286,7 +3288,7 @@ Sabab: <code>${esc(String(premiumNotifyStatus || "noma'lum"))}</code>`;
     // ── Tushunilmagan matn ──
     if (text && text !== '/start') {
       await bot.sendMessage(chatId,
-        `Tushunmadim 🤔\n\n${GUIDE}`,
+        `Tushunmadim... 😕\n Pastda ❓ Qo'llanma bor o'shandan qanday foydalanishni ko'rsangiz bo'ladi😊`,
         { parse_mode: 'HTML', reply_markup: KB }
       ).catch(() => { });
     }

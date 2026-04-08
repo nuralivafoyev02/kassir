@@ -224,6 +224,15 @@ function sbMissingColumn(error, column) {
   );
 }
 
+function sbIsPoolTimeout(error) {
+  const msg = sbErrorText(error).toLowerCase();
+  return (
+    msg.includes("pgrst003") ||
+    msg.includes("timed out acquiring connection from connection pool") ||
+    msg.includes("connection pool")
+  );
+}
+
 function hasSubscriptionSchema(row) {
   if (typeof subscriptionHelpers?.hasSubscriptionSchema === "function") {
     return subscriptionHelpers.hasSubscriptionSchema(row || {});
@@ -654,7 +663,7 @@ function buildDeliveryMeta(delivery, extra = {}) {
 }
 
 async function processDueNotifications(env, meta = {}) {
-  const settings = await sbGetNotificationSettings(env);
+  const settings = meta.settings || await sbGetNotificationSettings(env);
   const queueSetting = settings.scheduled_queue || mergeNotificationSetting("scheduled_queue");
 
   if (queueSetting.enabled === false) {
@@ -785,18 +794,20 @@ async function fetchUsersForDailyReminderPage(env, dayStartIso, { afterUserId = 
   const encodedOr = encodeURIComponent(`(last_daily_reminder_at.is.null,last_daily_reminder_at.lt.${dayStartIso})`);
   const cursor = afterUserId != null ? `&user_id=gt.${encodeURIComponent(afterUserId)}` : "";
   const subscriptionSelect = SUBSCRIPTION_FIELDS.join(",");
+  const enabledFilter = `&daily_reminder_enabled=eq.true`;
 
   try {
     const rows = await sbFetch(
       env,
-      `/users?select=user_id,full_name,daily_reminder_enabled,last_daily_reminder_at,${subscriptionSelect}&or=${encodedOr}${cursor}&order=user_id.asc&limit=${limit}`
+      `/users?select=user_id,full_name,daily_reminder_enabled,last_daily_reminder_at,${subscriptionSelect}&or=${encodedOr}${enabledFilter}${cursor}&order=user_id.asc&limit=${limit}`
     );
     return { rows, migrationRequired: null };
   } catch (error) {
     if (sbMissingColumn(error, "daily_reminder_enabled") || SUBSCRIPTION_FIELDS.some((field) => sbMissingColumn(error, field))) {
+      const safeEnabledFilter = sbMissingColumn(error, "daily_reminder_enabled") ? "" : enabledFilter;
       const rows = await sbFetch(
         env,
-        `/users?select=user_id,full_name,last_daily_reminder_at&or=${encodedOr}${cursor}&order=user_id.asc&limit=${limit}`
+        `/users?select=user_id,full_name,last_daily_reminder_at&or=${encodedOr}${safeEnabledFilter}${cursor}&order=user_id.asc&limit=${limit}`
       );
       return { rows, migrationRequired: null };
     }
@@ -829,18 +840,20 @@ async function fetchUsersForDailyReportPage(env, dayStartIso, { afterUserId = nu
   const encodedOr = encodeURIComponent(`(last_daily_report_at.is.null,last_daily_report_at.lt.${dayStartIso})`);
   const cursor = afterUserId != null ? `&user_id=gt.${encodeURIComponent(afterUserId)}` : "";
   const subscriptionSelect = SUBSCRIPTION_FIELDS.join(",");
+  const enabledFilter = `&daily_reminder_enabled=eq.true`;
 
   try {
     const rows = await sbFetch(
       env,
-      `/users?select=user_id,full_name,daily_reminder_enabled,last_daily_report_at,${subscriptionSelect}&or=${encodedOr}${cursor}&order=user_id.asc&limit=${limit}`
+      `/users?select=user_id,full_name,daily_reminder_enabled,last_daily_report_at,${subscriptionSelect}&or=${encodedOr}${enabledFilter}${cursor}&order=user_id.asc&limit=${limit}`
     );
     return { rows, migrationRequired: null };
   } catch (error) {
     if (sbMissingColumn(error, "daily_reminder_enabled") || SUBSCRIPTION_FIELDS.some((field) => sbMissingColumn(error, field))) {
+      const safeEnabledFilter = sbMissingColumn(error, "daily_reminder_enabled") ? "" : enabledFilter;
       const rows = await sbFetch(
         env,
-        `/users?select=user_id,full_name,last_daily_report_at&or=${encodedOr}${cursor}&order=user_id.asc&limit=${limit}`
+        `/users?select=user_id,full_name,last_daily_report_at&or=${encodedOr}${safeEnabledFilter}${cursor}&order=user_id.asc&limit=${limit}`
       );
       return { rows, migrationRequired: null };
     }
@@ -870,7 +883,7 @@ async function markDailyReportSent(env, userId, nowIso) {
 }
 
 async function processDailyReminders(env, now = new Date(), meta = {}) {
-  const settings = await sbGetNotificationSettings(env);
+  const settings = meta.settings || await sbGetNotificationSettings(env);
   const dailySetting = settings.daily_reminder || mergeNotificationSetting("daily_reminder");
 
   const timeZone = dailySetting?.timezone || TASHKENT_TIME_ZONE;
@@ -1018,7 +1031,7 @@ async function processDailyReminders(env, now = new Date(), meta = {}) {
 }
 
 async function processDailyReports(env, now = new Date(), meta = {}) {
-  const settings = await sbGetNotificationSettings(env);
+  const settings = meta.settings || await sbGetNotificationSettings(env);
   const reportSetting = settings.daily_report || mergeNotificationSetting("daily_report");
 
   const timeZone = reportSetting?.timezone || TASHKENT_TIME_ZONE;
@@ -1170,6 +1183,7 @@ async function sbFetchDebtReminderPage(env, { limit = DEBT_REMINDER_BATCH_SIZE, 
     env,
     `/debts?select=id,user_id,person_name,amount,direction,due_at,remind_at,note,reminder_sent_at,status,created_at` +
     `&status=eq.open` +
+    `&reminder_sent_at=is.null` +
     `&order=created_at.asc,id.asc` +
     `&limit=${limit}` +
     `&offset=${offset}`
@@ -1209,7 +1223,7 @@ async function sbReleaseDebtReminder(env, debt, claimIso) {
 }
 
 async function processDebtReminders(env, now = new Date(), meta = {}) {
-  const settings = await sbGetNotificationSettings(env);
+  const settings = meta.settings || await sbGetNotificationSettings(env);
   const debtSetting = settings.debt_reminder || mergeNotificationSetting("debt_reminder");
 
   const result = {
@@ -1361,6 +1375,28 @@ function buildCronTaskFailureResult(taskName, error) {
   };
 }
 
+function buildCronTaskSkippedResult(taskName, note, error = null) {
+  if (taskName === "notifications") {
+    return {
+      ok: true,
+      total_due: 0,
+      sent: 0,
+      failed: 0,
+      skipped: 0,
+      errors: error ? [{ task: taskName, error: error?.message || String(error) }] : [],
+      note,
+    };
+  }
+
+  return {
+    ok: true,
+    checked: 0,
+    sent: 0,
+    failed: [],
+    note,
+  };
+}
+
 async function runCronTask(taskName, handler) {
   try {
     return await handler();
@@ -1371,12 +1407,85 @@ async function runCronTask(taskName, handler) {
 
 async function runAllCronJobs(env, meta = {}) {
   const now = new Date();
-  const [notifications, daily, report, debts] = await Promise.all([
-    runCronTask("notifications", () => processDueNotifications(env, meta)),
-    runCronTask("daily", () => processDailyReminders(env, now, meta)),
-    runCronTask("report", () => processDailyReports(env, now, meta)),
-    runCronTask("debts", () => processDebtReminders(env, now, meta)),
-  ]);
+  const sharedMeta = { ...meta };
+
+  try {
+    sharedMeta.settings = await sbGetNotificationSettings(env);
+  } catch (error) {
+    if (sbIsPoolTimeout(error)) {
+      const degradedNote = "skipped after Supabase connection pool timeout";
+      return {
+        ok: false,
+        at: now.toISOString(),
+        source: meta.source || "manual",
+        cron: meta.cron || null,
+        scheduledTime: meta.scheduledTime || null,
+        degraded: true,
+        notifications: buildCronTaskFailureResult("notifications", error),
+        daily: buildCronTaskSkippedResult("daily", degradedNote, error),
+        report: buildCronTaskSkippedResult("report", degradedNote, error),
+        debts: buildCronTaskSkippedResult("debts", degradedNote, error),
+      };
+    }
+    throw error;
+  }
+
+  const notifications = await runCronTask("notifications", () => processDueNotifications(env, sharedMeta));
+
+  if (sbIsPoolTimeout(notifications?.errors?.[0]?.error || notifications?.failed?.[0]?.error || null)) {
+    const poolError = new Error(notifications?.errors?.[0]?.error || notifications?.failed?.[0]?.error || "Supabase pool timeout");
+    const degradedNote = "skipped after Supabase connection pool timeout in earlier cron task";
+    return {
+      ok: false,
+      at: now.toISOString(),
+      source: meta.source || "manual",
+      cron: meta.cron || null,
+      scheduledTime: meta.scheduledTime || null,
+      degraded: true,
+      notifications,
+      daily: buildCronTaskSkippedResult("daily", degradedNote, poolError),
+      report: buildCronTaskSkippedResult("report", degradedNote, poolError),
+      debts: buildCronTaskSkippedResult("debts", degradedNote, poolError),
+    };
+  }
+
+  const daily = await runCronTask("daily", () => processDailyReminders(env, now, sharedMeta));
+  if (sbIsPoolTimeout(daily?.failed?.[0]?.error || null)) {
+    const poolError = new Error(daily?.failed?.[0]?.error || "Supabase pool timeout");
+    const degradedNote = "skipped after Supabase connection pool timeout in earlier cron task";
+    return {
+      ok: false,
+      at: now.toISOString(),
+      source: meta.source || "manual",
+      cron: meta.cron || null,
+      scheduledTime: meta.scheduledTime || null,
+      degraded: true,
+      notifications,
+      daily,
+      report: buildCronTaskSkippedResult("report", degradedNote, poolError),
+      debts: buildCronTaskSkippedResult("debts", degradedNote, poolError),
+    };
+  }
+
+  const report = await runCronTask("report", () => processDailyReports(env, now, sharedMeta));
+  if (sbIsPoolTimeout(report?.failed?.[0]?.error || null)) {
+    const poolError = new Error(report?.failed?.[0]?.error || "Supabase pool timeout");
+    const degradedNote = "skipped after Supabase connection pool timeout in earlier cron task";
+    return {
+      ok: false,
+      at: now.toISOString(),
+      source: meta.source || "manual",
+      cron: meta.cron || null,
+      scheduledTime: meta.scheduledTime || null,
+      degraded: true,
+      notifications,
+      daily,
+      report,
+      debts: buildCronTaskSkippedResult("debts", degradedNote, poolError),
+    };
+  }
+
+  const debts = await runCronTask("debts", () => processDebtReminders(env, now, sharedMeta));
 
   return {
     ok:
