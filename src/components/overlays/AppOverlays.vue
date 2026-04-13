@@ -542,6 +542,70 @@
     </div>
   </div>
 
+  <div class="ov" id="stg-sub-friends" onclick="closeOv('stg-sub-friends',event)">
+    <div class="sheet stg-sheet friends-sheet" onclick="event.stopPropagation()">
+      <div class="sh-hdl"></div>
+      <button class="sh-close" onclick="closeOv('stg-sub-friends')">✕</button>
+      <div class="sh-ttl" data-i18n="stg_friends">👥 Do'stlar</div>
+
+      <div class="friends-hero-card">
+        <div class="friends-hero-top">
+          <div>
+            <div class="friends-hero-eyebrow" data-i18n="friends_invite_title">Shaxsiy taklif linki</div>
+            <strong data-i18n="friends_invite_sub">5 ta do'st ro'yxatdan o'tsa 1 oylik Premium faollashadi</strong>
+          </div>
+          <span class="route-badge good" id="friends-progress-badge">0/5</span>
+        </div>
+
+        <div class="friends-link-box" id="friends-link-box">—</div>
+
+        <div class="friends-link-actions">
+          <button class="bcl" id="friends-copy-btn" onclick="copyFriendsInviteLink()" data-i18n="friends_copy_btn">Copy qilish</button>
+          <button class="bpri" id="friends-share-btn" onclick="shareFriendsInviteLink()" data-i18n="friends_share_btn">Yuborish</button>
+        </div>
+
+        <div class="friends-hero-note" id="friends-invite-note" data-i18n="friends_invite_note">Linkni do'stingizga yuboring. U botda ro'yxatdan o'tgach shu yerda ko'rinadi.</div>
+      </div>
+
+      <div class="stg-group friends-list-group">
+        <div class="friends-section-head">
+          <div>
+            <strong data-i18n="friends_list_title">Taklif qilingan foydalanuvchilar</strong>
+            <span data-i18n="friends_list_sub">Ro'yxatdan o'tgan yangi userlar</span>
+          </div>
+          <div class="friends-list-meta" id="friends-list-meta">0</div>
+        </div>
+        <div id="friends-list"></div>
+        <div class="friends-empty" id="friends-empty" data-i18n="friends_empty">Hali taklif qilingan do'stlar yo'q</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="ov center" id="ov-friend-detail" onclick="closeOv('ov-friend-detail',event)">
+    <div class="sheet c friend-detail-modal" onclick="event.stopPropagation()">
+      <div class="sh-ttl">👤 <span data-i18n="friends_detail_title">Taklif tafsiloti</span></div>
+      <div class="friend-detail-head">
+        <strong id="friend-detail-name">—</strong>
+        <span id="friend-detail-handle">—</span>
+      </div>
+      <div class="friend-detail-grid">
+        <div class="friend-detail-card">
+          <span data-i18n="friends_started_label">Start bosgan vaqti</span>
+          <strong id="friend-detail-started">—</strong>
+        </div>
+        <div class="friend-detail-card">
+          <span data-i18n="friends_joined_label">Invite biriktirilgan vaqti</span>
+          <strong id="friend-detail-invited">—</strong>
+        </div>
+      </div>
+      <div class="friend-detail-note" data-i18n="friends_detail_note">Profil tugmasi Telegram profilinga olib o'tadi.</div>
+      <div class="mrow">
+        <button class="bcl" onclick="closeOv('ov-friend-detail')" data-i18n="cancel">Bekor</button>
+        <button class="bpri" id="friend-detail-profile-btn" onclick="openFriendInviteProfile()" data-i18n="friends_open_profile_btn">Profilga o'tish</button>
+      </div>
+    </div>
+  </div>
+
   <div class="ov" id="stg-sub-lang" onclick="closeOv('stg-sub-lang',event)">
     <div class="sheet stg-sheet" onclick="event.stopPropagation()">
       <div class="sh-hdl"></div>

@@ -87,6 +87,7 @@ function buildAppConfig(env) {
   return {
     SUPABASE_URL: env.SUPABASE_URL || "",
     SUPABASE_ANON_KEY: env.SUPABASE_ANON_KEY || env.SUPABASE_KEY || "",
+    BOT_USERNAME: String(env.BOT_USERNAME || "").trim().replace(/^@+/, ""),
     ...buildPublicNotificationConfig(env),
   };
 }

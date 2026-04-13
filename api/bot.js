@@ -195,6 +195,9 @@ const numFmt = n => Number(n || 0).toLocaleString('ru-RU');
 const isAdmin = userId => ADMIN_IDS.has(String(userId));
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 const BOT_USERNAME = String(process.env.BOT_USERNAME || '').trim().replace(/^@+/, '').toLowerCase();
+const REFERRAL_INVITE_PREFIX = 'ref_';
+const REFERRAL_PREMIUM_THRESHOLD = 5;
+const REFERRAL_PREMIUM_DAYS = 30;
 let txSourceColumnSupported = null;
 let txSourceRefColumnSupported = null;
 let debtSettlementColumnSupported = null;
@@ -202,8 +205,10 @@ let categoryLimitNameColumnSupported = null;
 const SUBSCRIPTION_FIELDS = Array.isArray(subscriptionHelpers.SUBSCRIPTION_FIELDS)
   ? subscriptionHelpers.SUBSCRIPTION_FIELDS.slice()
   : ['plan_code', 'subscription_status', 'subscription_start_at', 'subscription_end_at', 'trial_end_at', 'canceled_at', 'grace_until', 'created_at', 'updated_at'];
+const BOT_USER_OPTIONAL_FIELDS = ['username', 'first_start_at', 'referred_by_user_id', 'referred_at', 'referral_premium_granted_at'];
 const BOT_USER_BASE_FIELDS = 'user_id, full_name, phone_number, last_start_date, exchange_rate';
 const BOT_USER_SELECT_FIELDS = [BOT_USER_BASE_FIELDS]
+  .concat(BOT_USER_OPTIONAL_FIELDS.length ? [BOT_USER_OPTIONAL_FIELDS.join(', ')] : [])
   .concat(SUBSCRIPTION_FIELDS.length ? [SUBSCRIPTION_FIELDS.join(', ')] : [])
   .join(', ');
 
@@ -473,6 +478,11 @@ function normalizeStartUserRow(row) {
     last_start_date: row.last_start_date || null,
     exchange_rate: Number(row.exchange_rate) > 0 ? Number(row.exchange_rate) : DEFAULT_RATE,
   };
+  for (const field of BOT_USER_OPTIONAL_FIELDS) {
+    if (Object.prototype.hasOwnProperty.call(row || {}, field)) {
+      normalized[field] = row[field];
+    }
+  }
   for (const field of SUBSCRIPTION_FIELDS) {
     if (Object.prototype.hasOwnProperty.call(row || {}, field)) {
       normalized[field] = row[field];
@@ -519,18 +529,36 @@ async function fetchBotUser(userId, { useStartCache = false } = {}) {
     if (cached.hit) return { data: cached.value, error: null };
   }
 
-  let res = await db
-    .from('users')
-    .select(BOT_USER_SELECT_FIELDS)
-    .eq('user_id', userId)
-    .maybeSingle();
+  let supportedOptionalFields = BOT_USER_OPTIONAL_FIELDS.slice();
+  let includeSubscription = true;
+  let res = null;
 
-  if (res.error && SUBSCRIPTION_FIELDS.some((field) => isMissingColumnError(res.error, field))) {
+  for (let attempt = 0; attempt < BOT_USER_OPTIONAL_FIELDS.length + 2; attempt += 1) {
+    const selectFields = [BOT_USER_BASE_FIELDS]
+      .concat(supportedOptionalFields.length ? [supportedOptionalFields.join(', ')] : [])
+      .concat(includeSubscription && SUBSCRIPTION_FIELDS.length ? [SUBSCRIPTION_FIELDS.join(', ')] : [])
+      .join(', ');
+
     res = await db
       .from('users')
-      .select(BOT_USER_BASE_FIELDS)
+      .select(selectFields)
       .eq('user_id', userId)
       .maybeSingle();
+
+    if (!res.error) break;
+
+    const missingOptionalField = supportedOptionalFields.find((field) => isMissingColumnError(res.error, field));
+    if (missingOptionalField) {
+      supportedOptionalFields = supportedOptionalFields.filter((field) => field !== missingOptionalField);
+      continue;
+    }
+
+    if (includeSubscription && SUBSCRIPTION_FIELDS.some((field) => isMissingColumnError(res.error, field))) {
+      includeSubscription = false;
+      continue;
+    }
+
+    break;
   }
 
   if (!res.error && useStartCache) {
@@ -538,6 +566,25 @@ async function fetchBotUser(userId, { useStartCache = false } = {}) {
   }
 
   return res;
+}
+
+async function upsertBotUserRow(payload = {}) {
+  let activePayload = { ...payload };
+
+  for (let attempt = 0; attempt < BOT_USER_OPTIONAL_FIELDS.length + 2; attempt += 1) {
+    const result = await db.from('users').upsert(activePayload, { onConflict: 'user_id' });
+    if (!result.error) return result;
+
+    const missingOptionalField = BOT_USER_OPTIONAL_FIELDS.find((field) => Object.prototype.hasOwnProperty.call(activePayload, field) && isMissingColumnError(result.error, field));
+    if (missingOptionalField) {
+      delete activePayload[missingOptionalField];
+      continue;
+    }
+
+    return result;
+  }
+
+  return { error: new Error('users upsert fallback exhausted') };
 }
 
 async function downloadTelegramFileBuffer(fileId) {
@@ -1090,6 +1137,106 @@ Tarif ${esc(untilText)} gacha davom etadi🎉`
     : `💎<b>Sizga premium berildi</b>🎉`;
 }
 // premium activated text
+
+function parseReferralInviterId(commandInfo, userId = 0) {
+  const raw = String(commandInfo?.args?.[0] || '').trim();
+  const match = raw.match(/^ref_(\d+)$/i);
+  if (!match) return null;
+
+  const inviterId = Number(match[1] || 0);
+  const currentUserId = Number(userId || 0);
+  if (!inviterId || !Number.isFinite(inviterId) || (currentUserId && inviterId === currentUserId)) {
+    return null;
+  }
+
+  return inviterId;
+}
+
+function buildReferralRewardUserText(row, qualifiedCount = REFERRAL_PREMIUM_THRESHOLD) {
+  const snapshot = getSubscriptionSnapshotForUser(row);
+  const untilText = fmtUzDayMonth(snapshot.accessUntil);
+  const countText = `${Math.max(qualifiedCount, REFERRAL_PREMIUM_THRESHOLD)} ta`;
+
+  return untilText
+    ? `🎉 <b>Premium tarif faollashtirildi!</b>
+
+${esc(countText)} do'stingiz botda ro'yxatdan o'tgani uchun sizga <b>1 oylik Premium</b> berildi.
+
+Tarif <b>${esc(untilText)}</b> gacha faol bo'ladi.`
+    : `🎉 <b>Premium tarif faollashtirildi!</b>
+
+${esc(countText)} do'stingiz botda ro'yxatdan o'tgani uchun sizga <b>1 oylik Premium</b> berildi.`;
+}
+
+async function countQualifiedReferrals(inviterId) {
+  const response = await db.from('users')
+    .select('user_id', { count: 'exact', head: true })
+    .eq('referred_by_user_id', inviterId)
+    .not('phone_number', 'is', null);
+
+  if (response.error) throw response.error;
+  return Number(response.count || 0);
+}
+
+async function maybeGrantReferralPremium(inviterId) {
+  const safeInviterId = Number(inviterId || 0);
+  if (!safeInviterId) return { rewarded: false, reason: 'missing_inviter' };
+
+  const inviterLookup = await fetchBotUser(safeInviterId, { useStartCache: false });
+  if (inviterLookup.error) throw inviterLookup.error;
+  const inviter = inviterLookup.data || null;
+  if (!inviter) return { rewarded: false, reason: 'inviter_not_found' };
+  if (inviter.referral_premium_granted_at) {
+    return { rewarded: false, reason: 'already_granted', qualifiedCount: await countQualifiedReferrals(safeInviterId) };
+  }
+
+  const qualifiedCount = await countQualifiedReferrals(safeInviterId);
+  if (qualifiedCount < REFERRAL_PREMIUM_THRESHOLD) {
+    return { rewarded: false, reason: 'threshold_not_reached', qualifiedCount };
+  }
+
+  const snapshot = getSubscriptionSnapshotForUser(inviter);
+  const activeUntil = snapshot?.accessUntil ? new Date(snapshot.accessUntil) : null;
+  const rewardEndBase = activeUntil && activeUntil.getTime() > Date.now() ? activeUntil : new Date();
+  const rewardPayload = {
+    plan_code: 'premium_monthly',
+    subscription_status: 'active',
+    subscription_start_at: inviter?.subscription_start_at || new Date().toISOString(),
+    subscription_end_at: new Date(rewardEndBase.getTime() + REFERRAL_PREMIUM_DAYS * 86400000).toISOString(),
+    trial_end_at: null,
+    canceled_at: null,
+    grace_until: null,
+    referral_premium_granted_at: iso(),
+  };
+
+  const updateResult = await db.from('users')
+    .update(rewardPayload)
+    .eq('user_id', safeInviterId)
+    .is('referral_premium_granted_at', null);
+
+  if (updateResult.error) throw updateResult.error;
+
+  const refreshedLookup = await fetchBotUser(safeInviterId, { useStartCache: false });
+  if (refreshedLookup.error) throw refreshedLookup.error;
+  const refreshed = refreshedLookup.data || { ...inviter, ...rewardPayload };
+
+  cacheStartUser(safeInviterId, refreshed);
+
+  try {
+    await bot.sendMessage(safeInviterId, buildReferralRewardUserText(refreshed, qualifiedCount), {
+      parse_mode: 'HTML',
+    });
+  } catch (notifyError) {
+    await logErr('referral-reward-notify', notifyError, {
+      userId: safeInviterId,
+      chatId: safeInviterId,
+      full_name: refreshed?.full_name || null,
+      qualified_count: qualifiedCount,
+    });
+  }
+
+  return { rewarded: true, qualifiedCount, user: refreshed };
+}
 
 function categoryLimitNameColumn() {
   return categoryLimitNameColumnSupported === 'name' ? 'name' : 'category_name';
@@ -3692,6 +3839,7 @@ module.exports = async (req, res) => {
 
     const text = (msg.text || msg.caption || '').trim();
     const commandInfo = parseTelegramCommand(text);
+    const isStartCommand = commandInfo?.command === '/start';
 
     log('msg', {
       userId,
@@ -3700,7 +3848,7 @@ module.exports = async (req, res) => {
     });
 
     // ── Foydalanuvchi ma'lumotlarini olish ──
-    const userLookup = await fetchBotUser(userId, { useStartCache: text === '/start' });
+    const userLookup = await fetchBotUser(userId, { useStartCache: isStartCommand });
     let { data: user, error: uErr } = userLookup;
     if (uErr) warn('user-fetch', { userId, msg: uErr.message });
     if (uErr && isTransientSupabaseError(uErr)) {
@@ -3717,15 +3865,19 @@ module.exports = async (req, res) => {
       // Faqat o'z kontaktini yuborishga ruxsat
       if (msg.contact.user_id !== userId) return res.status(200).json({ ok: true });
       const shouldNotifyNewRegistration = !hasRegisteredPhone(user) && !!normalizePhoneNumber(msg.contact.phone_number);
+      const pendingReferralUserId = Number(user?.referred_by_user_id || 0) || null;
+      const firstStartAt = user?.first_start_at || iso();
       const userContext = buildUserLogContext(msg, user, { phone_number: msg.contact.phone_number });
 
-      const { error: regErr } = await db.from('users').upsert({
+      const { error: regErr } = await upsertBotUserRow({
         user_id: userId,
         phone_number: msg.contact.phone_number,
         full_name: `${msg.from.first_name || ''} ${msg.from.last_name || ''}`.trim() || `User ${userId}`,
+        username: msg.from?.username || user?.username || null,
+        first_start_at: firstStartAt,
         last_start_date: iso(),
         exchange_rate: Number(user?.exchange_rate) > 0 ? Number(user.exchange_rate) : DEFAULT_RATE,
-      }, { onConflict: 'user_id' });
+      });
 
       if (regErr) {
         if (isTransientSupabaseError(regErr)) {
@@ -3760,8 +3912,13 @@ module.exports = async (req, res) => {
         user_id: userId,
         phone_number: msg.contact.phone_number,
         full_name: `${msg.from.first_name || ''} ${msg.from.last_name || ''}`.trim() || `User ${userId}`,
+        username: msg.from?.username || user?.username || null,
+        first_start_at: firstStartAt,
         last_start_date: iso(),
         exchange_rate: Number(user?.exchange_rate) > 0 ? Number(user.exchange_rate) : DEFAULT_RATE,
+        referred_by_user_id: pendingReferralUserId,
+        referred_at: user?.referred_at || null,
+        referral_premium_granted_at: user?.referral_premium_granted_at || null,
       });
 
       await bot.sendMessage(chatId,
@@ -3798,6 +3955,28 @@ module.exports = async (req, res) => {
             is_new_user: true,
           },
         }).catch(() => { });
+
+        if (pendingReferralUserId) {
+          runInBackground(req, async () => {
+            try {
+              const referralResult = await maybeGrantReferralPremium(pendingReferralUserId);
+              log('referral-reward-check', {
+                inviterId: pendingReferralUserId,
+                invitedUserId: userId,
+                rewarded: referralResult?.rewarded === true,
+                qualifiedCount: referralResult?.qualifiedCount || 0,
+                reason: referralResult?.reason || 'granted',
+              });
+            } catch (rewardError) {
+              await logErr('referral-reward', rewardError, {
+                userId: pendingReferralUserId,
+                chatId: pendingReferralUserId,
+                invited_user_id: userId,
+                full_name: user?.full_name || null,
+              });
+            }
+          }, 'referral-reward-check');
+        }
       }
 
       return res.status(200).json({ ok: true });
@@ -4130,15 +4309,56 @@ Sabab: <code>${esc(String(premiumNotifyStatus || "noma'lum"))}</code>`;
     }
 
     // ── Yangi foydalanuvchi — telefon so'rash ──
-    if (!user) {
+    if (!user || !hasRegisteredPhone(user)) {
+      if (isStartCommand) {
+        const timestamp = new Date().toISOString();
+        const inviterId = parseReferralInviterId(commandInfo, userId);
+        const fullName = `${msg.from?.first_name || ''} ${msg.from?.last_name || ''}`.trim() || `User ${userId}`;
+        const pendingPayload = {
+          user_id: userId,
+          full_name: user?.full_name || fullName,
+          username: msg.from?.username || user?.username || null,
+          first_start_at: user?.first_start_at || timestamp,
+          last_start_date: timestamp,
+          exchange_rate: Number(user?.exchange_rate) > 0 ? Number(user.exchange_rate) : DEFAULT_RATE,
+        };
+        if (!user?.referred_by_user_id && inviterId) {
+          pendingPayload.referred_by_user_id = inviterId;
+          pendingPayload.referred_at = timestamp;
+        }
+
+        const upsertResult = await upsertBotUserRow(pendingPayload);
+        if (!upsertResult.error) {
+          user = cacheStartUser(userId, {
+            ...user,
+            ...pendingPayload,
+            phone_number: user?.phone_number || null,
+            referral_premium_granted_at: user?.referral_premium_granted_at || null,
+          });
+        } else if (isTransientSupabaseError(upsertResult.error)) {
+          await bot.sendMessage(
+            chatId,
+            `⏳ <b>Server bilan ulanishda vaqtinchalik uzilish bor.</b>\n\nBir ozdan keyin yana urinib ko'ring.`,
+            { parse_mode: 'HTML' }
+          ).catch(() => { });
+          return res.status(200).json({ ok: true, retryable: true });
+        } else {
+          await logErr('referral-start-upsert', upsertResult.error, buildUserLogContext(msg, user, {
+            full_name: fullName,
+            username: msg.from?.username || user?.username || null,
+          }));
+        }
+      }
+
       await bot.sendMessage(chatId, `👋 Assalomu alaykum!\nBotdan foydalanish uchun telefon raqamingizni tasdiqlang.`, {
         reply_markup: CONTACT_REQUEST_REPLY_MARKUP,
       }
       ).catch(() => { });
 
-      if (text === '/start') {
+      if (isStartCommand) {
         const userContext = buildUserLogContext(msg, null);
         const timestamp = new Date().toISOString();
+        const inviterId = parseReferralInviterId(commandInfo, userId);
 
         runInBackground(req, () => getAppLogger().info({
           scope: 'start-new-user',
@@ -4151,6 +4371,7 @@ Sabab: <code>${esc(String(premiumNotifyStatus || "noma'lum"))}</code>`;
             has_username: !!msg.from?.username,
             full_name: `${msg.from?.first_name || ''} ${msg.from?.last_name || ''}`.trim(),
             contact_requested: true,
+            referral_inviter_id: inviterId,
           },
         }).catch(() => { }), 'start-new-user-log');
       }
@@ -4158,7 +4379,7 @@ Sabab: <code>${esc(String(premiumNotifyStatus || "noma'lum"))}</code>`;
     }
 
     // ── /start ──
-    if (text === '/start') {
+    if (isStartCommand) {
       const now = new Date();
       const todayStr = now.toDateString();
       const lastStr = user.last_start_date ? new Date(user.last_start_date).toDateString() : null;

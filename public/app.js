@@ -246,6 +246,20 @@ let subscriptionState = {
   rawUser: null,
   snapshot: null,
 };
+const FRIENDS_INVITE_THRESHOLD = 5;
+const FRIENDS_OWNER_OPTIONAL_FIELDS = ['referral_premium_granted_at'];
+const FRIENDS_LIST_OPTIONAL_FIELDS = ['username', 'first_start_at', 'last_start_date', 'referred_at'];
+let userReferralColumnsSupported = null;
+let friendsState = {
+  loading: false,
+  available: true,
+  inviteLink: '',
+  invitedRows: [],
+  qualifiedCount: 0,
+  rewardGrantedAt: null,
+  lastError: null,
+};
+let selectedFriendInvite = null;
 
 const FALLBACK_PRICING_SALE_START_AT = '2026-03-26T00:00:00+05:00';
 const FALLBACK_PRICING_SALE_END_AT = '2026-04-26T23:59:59+05:00';
@@ -1293,6 +1307,271 @@ function formatSubscriptionDateTime(value) {
   }
 }
 
+function replaceTemplateCount(template, count) {
+  return String(template || '').replace('{count}', String(count));
+}
+
+function getBotUsername() {
+  return String(window.__APP_CONFIG__?.BOT_USERNAME || '').trim().replace(/^@+/, '');
+}
+
+function getFriendsInviteLink() {
+  const botUsername = getBotUsername();
+  return UID && botUsername ? `https://t.me/${botUsername}?start=ref_${UID}` : '';
+}
+
+function getFriendStartedAt(row = {}) {
+  return row.first_start_at || row.last_start_date || row.referred_at || row.created_at || null;
+}
+
+function getFriendInvitedAt(row = {}) {
+  return row.referred_at || row.first_start_at || row.last_start_date || row.created_at || null;
+}
+
+function getFriendDisplayName(row = {}) {
+  return normalizeName(row.full_name) || `User ${row.user_id || '—'}`;
+}
+
+function getFriendHandleLabel(row = {}) {
+  const username = String(row.username || '').trim().replace(/^@+/, '');
+  return username ? `@${username}` : `ID ${row.user_id || '—'}`;
+}
+
+function canOpenFriendProfile(row = {}) {
+  return !!(String(row.username || '').trim() || Number(row.user_id || 0));
+}
+
+async function writeTextToClipboard(text = '') {
+  const value = String(text || '');
+  if (!value) return false;
+
+  try {
+    if (navigator?.clipboard?.writeText) {
+      await navigator.clipboard.writeText(value);
+      return true;
+    }
+  } catch (_) { }
+
+  try {
+    const el = document.createElement('textarea');
+    el.value = value;
+    el.setAttribute('readonly', 'readonly');
+    el.style.position = 'fixed';
+    el.style.opacity = '0';
+    el.style.pointerEvents = 'none';
+    document.body.appendChild(el);
+    el.focus();
+    el.select();
+    const copied = document.execCommand('copy');
+    document.body.removeChild(el);
+    return !!copied;
+  } catch (_) {
+    return false;
+  }
+}
+
+function openExternalUrl(url) {
+  const targetUrl = String(url || '').trim();
+  if (!targetUrl) return false;
+  try {
+    if (/^https?:\/\/t\.me\//i.test(targetUrl) && tg?.openTelegramLink) {
+      tg.openTelegramLink(targetUrl);
+      return true;
+    }
+    if (tg?.openLink) {
+      tg.openLink(targetUrl);
+      return true;
+    }
+    window.open(targetUrl, '_blank', 'noopener');
+    return true;
+  } catch (error) {
+    console.warn('[external-link]', error);
+    return false;
+  }
+}
+
+function openTelegramProfile(row = {}) {
+  const username = String(row.username || '').trim().replace(/^@+/, '');
+  if (username) {
+    return openExternalUrl(`https://t.me/${encodeURIComponent(username)}`);
+  }
+
+  const userId = Number(row.user_id || 0);
+  if (!userId) return false;
+  return openExternalUrl(`tg://user?id=${userId}`);
+}
+
+async function copyFriendsInviteLink() {
+  const inviteLink = friendsState.inviteLink || getFriendsInviteLink();
+  if (!inviteLink) {
+    showErr(tt('friends_share_missing', 'Bot linki hozircha sozlanmagan'));
+    return false;
+  }
+
+  const copied = await writeTextToClipboard(inviteLink);
+  if (copied) {
+    vib('light');
+    showErr(tt('friends_copy_success', 'Taklif linki nusxalandi ✅'), 2200);
+  } else {
+    showErr(tt('friends_copy_failed', 'Linkni copy qilib bo\'lmadi'));
+  }
+  return copied;
+}
+
+async function shareFriendsInviteLink() {
+  const inviteLink = friendsState.inviteLink || getFriendsInviteLink();
+  if (!inviteLink) {
+    showErr(tt('friends_share_missing', 'Bot linki hozircha sozlanmagan'));
+    return false;
+  }
+
+  const shareText = notifText(
+    'Kassa botiga mening taklif linkim orqali qo\'shiling:',
+    'Присоединяйтесь к Kassa по моей ссылке:',
+    'Join Kassa with my invite link:'
+  );
+
+  try {
+    if (navigator?.share) {
+      await navigator.share({
+        title: tt('stg_friends', 'Do\'stlar'),
+        text: shareText,
+        url: inviteLink,
+      });
+      return true;
+    }
+  } catch (error) {
+    if (String(error?.name || '') === 'AbortError') return false;
+    console.warn('[friends-share]', error);
+  }
+
+  const shareUrl = `https://t.me/share/url?url=${encodeURIComponent(inviteLink)}&text=${encodeURIComponent(shareText)}`;
+  const opened = openExternalUrl(shareUrl);
+  if (!opened) {
+    showErr(tt('friends_share_missing', 'Bot linki hozircha sozlanmagan'));
+  }
+  return opened;
+}
+
+function getFriendsStatusNote() {
+  if (friendsState.available === false) {
+    return tt('friends_unavailable', 'Referral dasturi uchun yangi migratsiya hali yoqilmagan.');
+  }
+
+  if (friendsState.loading && !friendsState.invitedRows.length) {
+    return tt('friends_loading', 'Do\'stlar ro\'yxati yuklanmoqda...');
+  }
+
+  if (friendsState.rewardGrantedAt) {
+    return tt('friends_progress_unlocked', '5 ta do\'st ro\'yxatdan o\'tgani uchun Premium faollashgan.');
+  }
+
+  const remaining = Math.max(0, FRIENDS_INVITE_THRESHOLD - Number(friendsState.qualifiedCount || 0));
+  if (remaining === 0) {
+    return tt('friends_progress_ready', 'Premium allaqachon referral orqali faollashgan.');
+  }
+
+  return replaceTemplateCount(
+    tt('friends_progress_remaining', 'Yana {count} ta do\'st ro\'yxatdan o\'tsa Premium ochiladi.'),
+    remaining
+  );
+}
+
+function renderFriendInviteDetail() {
+  const row = selectedFriendInvite;
+  const nameEl = $('friend-detail-name');
+  const handleEl = $('friend-detail-handle');
+  const startedEl = $('friend-detail-started');
+  const invitedEl = $('friend-detail-invited');
+  const profileBtn = $('friend-detail-profile-btn');
+
+  if (nameEl) nameEl.textContent = row ? getFriendDisplayName(row) : '—';
+  if (handleEl) handleEl.textContent = row ? getFriendHandleLabel(row) : '—';
+  if (startedEl) startedEl.textContent = row ? formatSubscriptionDateTime(getFriendStartedAt(row)) : '—';
+  if (invitedEl) invitedEl.textContent = row ? formatSubscriptionDateTime(getFriendInvitedAt(row)) : '—';
+  if (profileBtn) profileBtn.disabled = !canOpenFriendProfile(row || {});
+}
+
+function renderFriendsUi() {
+  const inviteLinkEl = $('friends-link-box');
+  const inviteNoteEl = $('friends-invite-note');
+  const progressEl = $('friends-progress-badge');
+  const metaEl = $('friends-list-meta');
+  const listEl = $('friends-list');
+  const emptyEl = $('friends-empty');
+  const copyBtn = $('friends-copy-btn');
+  const shareBtn = $('friends-share-btn');
+
+  const inviteLink = friendsState.inviteLink || getFriendsInviteLink();
+  const rows = Array.isArray(friendsState.invitedRows) ? friendsState.invitedRows : [];
+  const qualifiedCount = Math.max(0, Number(friendsState.qualifiedCount || 0));
+  const progressCount = Math.min(qualifiedCount, FRIENDS_INVITE_THRESHOLD);
+  const canShareInvite = !!inviteLink && friendsState.available !== false;
+
+  if (inviteLinkEl) {
+    inviteLinkEl.textContent = inviteLink || tt('friends_share_missing', 'Bot linki hozircha sozlanmagan');
+  }
+  if (inviteNoteEl) {
+    inviteNoteEl.textContent = getFriendsStatusNote();
+  }
+  if (progressEl) {
+    progressEl.textContent = friendsState.available === false
+      ? '—'
+      : `${progressCount}/${FRIENDS_INVITE_THRESHOLD}`;
+  }
+  if (metaEl) {
+    metaEl.textContent = String(rows.length);
+  }
+  if (copyBtn) copyBtn.disabled = !canShareInvite;
+  if (shareBtn) shareBtn.disabled = !canShareInvite;
+
+  if (listEl) {
+    listEl.innerHTML = rows.map((row) => {
+      const userId = Number(row.user_id || 0);
+      return `
+        <button type="button" class="friends-list-item" onclick="openFriendInviteDetail(${userId})">
+          <div class="friends-list-main">
+            <div class="friends-list-name">${escapeHtml(getFriendDisplayName(row))}</div>
+            <div class="friends-list-sub">${escapeHtml(getFriendHandleLabel(row))}</div>
+          </div>
+          <div class="friends-list-tail">
+            <span class="friends-list-sub">${escapeHtml(formatSubscriptionDateTime(getFriendStartedAt(row)))}</span>
+            <span class="stg-arrow">›</span>
+          </div>
+        </button>
+      `;
+    }).join('');
+  }
+
+  if (emptyEl) {
+    const shouldShowEmpty = friendsState.available === false || !rows.length;
+    emptyEl.style.display = shouldShowEmpty ? 'block' : 'none';
+    emptyEl.textContent = friendsState.available === false
+      ? tt('friends_unavailable', 'Referral dasturi uchun yangi migratsiya hali yoqilmagan.')
+      : !rows.length && friendsState.loading
+        ? tt('friends_loading', 'Do\'stlar ro\'yxati yuklanmoqda...')
+        : tt('friends_empty', 'Hali taklif qilingan do\'stlar yo\'q');
+  }
+}
+
+function openFriendInviteDetail(userId) {
+  const targetId = Number(userId || 0);
+  if (!targetId) return;
+  const nextFriend = (friendsState.invitedRows || []).find((row) => Number(row.user_id || 0) === targetId);
+  if (!nextFriend) return;
+  selectedFriendInvite = nextFriend;
+  renderFriendInviteDetail();
+  showOv('ov-friend-detail');
+}
+
+function openFriendInviteProfile() {
+  if (!selectedFriendInvite || !openTelegramProfile(selectedFriendInvite)) {
+    showErr(tt('friends_profile_unavailable', 'Telegram profili ochib bo\'lmadi'));
+    return false;
+  }
+  return true;
+}
+
 function getSubscriptionRelativeDayInfo(value) {
   const targetMs = toMs(value);
   const now = Date.now();
@@ -2033,6 +2312,39 @@ function userFieldMissing(error, field) {
   );
 }
 
+async function selectUsersWithFallback(requiredFields = [], optionalFields = [], applyQuery = null, options = {}) {
+  const baseFields = Array.from(new Set(requiredFields)).filter(Boolean);
+  let activeOptionalFields = Array.from(new Set(optionalFields)).filter(Boolean);
+  let result = null;
+
+  for (let attempt = 0; attempt < activeOptionalFields.length + 2; attempt += 1) {
+    const fields = baseFields.concat(activeOptionalFields).join(', ');
+    let query = db.from('users').select(fields);
+    query = typeof applyQuery === 'function' ? (applyQuery(query) || query) : query;
+    result = options.single ? await query.maybeSingle() : await query;
+
+    if (!result.error) {
+      return {
+        ...result,
+        supportedOptionalFields: activeOptionalFields.slice(),
+      };
+    }
+
+    const missingOptionalField = activeOptionalFields.find((field) => userFieldMissing(result.error, field));
+    if (missingOptionalField) {
+      activeOptionalFields = activeOptionalFields.filter((field) => field !== missingOptionalField);
+      continue;
+    }
+
+    break;
+  }
+
+  return {
+    ...(result || { data: options.single ? null : [], error: null }),
+    supportedOptionalFields: activeOptionalFields.slice(),
+  };
+}
+
 async function selectUserRow(extraFields = []) {
   const requestedExtraFields = Array.from(new Set(extraFields));
   const subscriptionFields = requestedExtraFields.filter((field) => SUBSCRIPTION_USER_FIELDS.includes(field));
@@ -2083,6 +2395,140 @@ async function selectUserRow(extraFields = []) {
     break;
   }
   return result;
+}
+
+async function fetchFriendsOwnerMeta() {
+  const result = await selectUsersWithFallback(
+    ['user_id'],
+    FRIENDS_OWNER_OPTIONAL_FIELDS,
+    (query) => query.eq('user_id', UID),
+    { single: true }
+  );
+
+  return {
+    data: result.data || { user_id: UID, referral_premium_granted_at: null },
+    error: result.error || null,
+  };
+}
+
+async function fetchInvitedFriendsRows() {
+  if (userReferralColumnsSupported === false) {
+    return { data: [], error: null, available: false };
+  }
+
+  const result = await selectUsersWithFallback(
+    ['user_id', 'full_name', 'phone_number', 'referred_by_user_id', 'created_at'],
+    FRIENDS_LIST_OPTIONAL_FIELDS,
+    (query) => query
+      .eq('referred_by_user_id', UID)
+      .not('phone_number', 'is', null)
+      .order('created_at', { ascending: false }),
+    { single: false }
+  );
+
+  if (result.error && userFieldMissing(result.error, 'referred_by_user_id')) {
+    userReferralColumnsSupported = false;
+    return { data: [], error: null, available: false };
+  }
+
+  if (!result.error) {
+    userReferralColumnsSupported = true;
+  }
+
+  return {
+    data: result.data || [],
+    error: result.error || null,
+    available: userReferralColumnsSupported !== false,
+  };
+}
+
+async function refreshFriendsData(options = {}) {
+  const syncSubscription = options.syncSubscription !== false;
+  friendsState = {
+    ...friendsState,
+    loading: true,
+    lastError: null,
+    inviteLink: getFriendsInviteLink(),
+  };
+  renderFriendsUi();
+
+  if (!db || !UID) {
+    friendsState = {
+      ...friendsState,
+      loading: false,
+      available: false,
+      invitedRows: [],
+      qualifiedCount: 0,
+      rewardGrantedAt: null,
+      lastError: 'missing_context',
+    };
+    renderFriendsUi();
+    renderFriendInviteDetail();
+    return friendsState;
+  }
+
+  try {
+    if (syncSubscription) {
+      const { data: subscriptionUser, error: subscriptionError } = await selectUserRow(SUBSCRIPTION_USER_FIELDS);
+      if (subscriptionError) throw subscriptionError;
+      syncSubscriptionState(subscriptionUser || subscriptionState.rawUser || {}, {
+        schemaReady: hasSubscriptionSchema(subscriptionUser) && userSubscriptionColumnsSupported !== false,
+      });
+    }
+
+    const ownerMeta = await fetchFriendsOwnerMeta();
+    if (ownerMeta.error) throw ownerMeta.error;
+
+    const invitedLookup = await fetchInvitedFriendsRows();
+    if (invitedLookup.error) throw invitedLookup.error;
+
+    const invitedRows = (invitedLookup.data || []).slice().sort((a, b) => toMs(getFriendStartedAt(b) || b.created_at) - toMs(getFriendStartedAt(a) || a.created_at));
+    const selectedFriendId = Number(selectedFriendInvite?.user_id || 0);
+
+    friendsState = {
+      ...friendsState,
+      loading: false,
+      available: invitedLookup.available !== false,
+      invitedRows,
+      qualifiedCount: invitedRows.filter((row) => !!row.phone_number).length,
+      rewardGrantedAt: ownerMeta.data?.referral_premium_granted_at || null,
+      lastError: null,
+      inviteLink: getFriendsInviteLink(),
+    };
+
+    selectedFriendInvite = selectedFriendId
+      ? invitedRows.find((row) => Number(row.user_id || 0) === selectedFriendId) || null
+      : null;
+  } catch (error) {
+    console.warn('[friends-refresh]', error);
+    if (userFieldMissing(error, 'referred_by_user_id')) {
+      userReferralColumnsSupported = false;
+    }
+    friendsState = {
+      ...friendsState,
+      loading: false,
+      available: userReferralColumnsSupported !== false,
+      invitedRows: userReferralColumnsSupported === false ? [] : friendsState.invitedRows,
+      qualifiedCount: userReferralColumnsSupported === false ? 0 : friendsState.qualifiedCount,
+      rewardGrantedAt: userReferralColumnsSupported === false ? null : friendsState.rewardGrantedAt,
+      lastError: error?.message || String(error),
+      inviteLink: getFriendsInviteLink(),
+    };
+
+    if (userReferralColumnsSupported !== false) {
+      showErr(notifText(
+        'Do\'stlar bo\'limini yangilab bo\'lmadi',
+        'Не удалось обновить раздел друзей',
+        'Could not refresh the friends section'
+      ));
+    }
+  }
+
+  renderFriendsUi();
+  renderFriendInviteDetail();
+  updateSubscriptionUI();
+  renderProfileUI();
+  return friendsState;
 }
 
 async function updateUserRow(values) {
@@ -5094,7 +5540,10 @@ function applyLang() {
   document.documentElement.lang = currentLang === 'ru' ? 'ru' : currentLang === 'en' ? 'en' : 'uz';
   document.title = tt('app_name', 'Kassa');
   renderProfileUI();
+  updateSubscriptionUI();
   updateNotificationSettingsUI();
+  renderFriendsUi();
+  renderFriendInviteDetail();
 }
 
 window.applyLang = applyLang;
@@ -5140,6 +5589,10 @@ function openStgSub(id) {
   }
   if (id === 'stg-sub-subscription') {
     updateSubscriptionUI();
+  }
+  if (id === 'stg-sub-friends') {
+    renderFriendsUi();
+    refreshFriendsData().catch(() => { });
   }
   if (id === 'stg-sub-terms') {
     const el = $('stg-terms-text');
@@ -5284,6 +5737,11 @@ function openSupport() {
     window.open(url, '_blank');
   }
 }
+
+window.copyFriendsInviteLink = copyFriendsInviteLink;
+window.shareFriendsInviteLink = shareFriendsInviteLink;
+window.openFriendInviteDetail = openFriendInviteDetail;
+window.openFriendInviteProfile = openFriendInviteProfile;
 
 
 

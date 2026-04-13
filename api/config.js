@@ -6,6 +6,7 @@ module.exports = async (_req, res) => {
   const payload = {
     SUPABASE_URL:      process.env.SUPABASE_URL || '',
     SUPABASE_ANON_KEY: anonKey,
+    BOT_USERNAME: String(process.env.BOT_USERNAME || '').trim().replace(/^@+/, ''),
     ...buildPublicNotificationConfig(process.env),
   };
 

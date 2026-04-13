@@ -50,10 +50,13 @@
           <div class="stg-txt" data-i18n="stg_categories">Kategoriyalar</div>
           <div class="stg-arrow">›</div>
         </div>
-        <div class="stg-item stg-disabled">
+        <div class="stg-item" onclick="openStgSub('stg-sub-friends')">
           <div class="stg-ico">👥</div>
-          <div class="stg-txt" data-i18n="stg_friends">Do'stlar</div>
-          <span class="stg-badge" data-i18n="stg_coming_soon">Tez kunda</span>
+          <div class="stg-info">
+            <div class="stg-txt" data-i18n="stg_friends">Do'stlar</div>
+            <div class="stg-sub" data-i18n="stg_friends_sub">Taklif qiling va mukofot oling</div>
+          </div>
+          <div class="stg-arrow">›</div>
         </div>
         <div class="stg-item" onclick="openStgSub('stg-sub-notifications')">
           <div class="stg-ico">🔔</div>
