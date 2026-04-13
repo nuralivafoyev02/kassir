@@ -11,6 +11,7 @@
     "build": "npm run build:miniapp",
     "build:miniapp": "vite build --config apps/miniapp/vite.config.mjs",
     "preview": "vite preview --config apps/miniapp/vite.config.mjs",
+    "test:bot-parser": "node scripts/bot-parser-regression.cjs",
     "cf:setup": "python3 scripts/kassir_cloudflare.py split-env",
     "deploy": "python3 scripts/kassir_cloudflare.py deploy",
     "deploy:backend": "wrangler deploy --config apps/backend/wrangler.jsonc --name kassir-backend",

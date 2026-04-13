@@ -18,7 +18,11 @@
   let debtSearchQuery = '';
   let planFilterState = 'all';
   let planAppNotifyReady = false;
-  let lastFeatureRefreshAt = 0;
+  const lastFeatureRefreshAt = {
+    all: 0,
+    debt: 0,
+    plan: 0,
+  };
   const planNotifyState = new Map();
   const getSubscriptionSnapshot = () => (
     typeof window.getSubscriptionSnapshot === 'function'
@@ -213,6 +217,28 @@
     if (typeof window.renderDashboardAnalytics === 'function') {
       window.renderDashboardAnalytics();
     }
+  };
+  const featureRefreshKeys = (mode = 'all') => {
+    if (mode === 'debt') return ['all', 'debt'];
+    if (mode === 'plan') return ['all', 'plan'];
+    return ['all', 'debt', 'plan'];
+  };
+  const shouldSkipFeatureRefresh = (mode = 'all', force = false, now = Date.now()) => {
+    if (force) return false;
+    return featureRefreshKeys(mode).some((key) => now - (lastFeatureRefreshAt[key] || 0) < 4000);
+  };
+  const markFeatureRefresh = (mode = 'all', now = Date.now()) => {
+    if (mode === 'debt') {
+      lastFeatureRefreshAt.debt = now;
+      return;
+    }
+    if (mode === 'plan') {
+      lastFeatureRefreshAt.plan = now;
+      return;
+    }
+    lastFeatureRefreshAt.all = now;
+    lastFeatureRefreshAt.debt = now;
+    lastFeatureRefreshAt.plan = now;
   };
   const normalizePlanName = (row) => String(row?.category_name || row?.name || row?.category || '').trim();
   const normalizePlanMonthKey = (row) => String(row?.month_key || row?.month || '').trim();
@@ -1357,8 +1383,8 @@
   async function refreshFeatureData(mode = 'all', force = false) {
     if (!db || !UID) return;
     const now = Date.now();
-    if (!force && now - lastFeatureRefreshAt < 4000) return;
-    lastFeatureRefreshAt = now;
+    if (shouldSkipFeatureRefresh(mode, force, now)) return;
+    markFeatureRefresh(mode, now);
     try {
       if (mode === 'all' || mode === 'debt') await loadDebtsData();
       if (mode === 'all' || mode === 'plan') await loadPlanData();
@@ -1375,6 +1401,12 @@
     } catch (error) {
       console.warn('[features] refresh failed', error);
     }
+  }
+
+  async function syncFeaturesAfterAppReady() {
+    if (!db || !UID) return;
+    await refreshFeatureData('all', true);
+    bindFeatureRealtime();
   }
 
   function bindFeatureRealtime() {
@@ -1502,9 +1534,27 @@
     renderPlans();
     renderStgCatsEnhanced();
     bindFeatureRealtime();
+    window.addEventListener('kassa:app-ready', () => {
+      syncFeaturesAfterAppReady().catch((error) => {
+        console.warn('[features] app-ready sync failed', error);
+      });
+    });
+    if (window.__KASSA_LEGACY_APP_READY__) {
+      setTimeout(() => {
+        syncFeaturesAfterAppReady().catch((error) => {
+          console.warn('[features] late ready sync failed', error);
+        });
+      }, 0);
+    }
 
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState === 'visible') refreshFeatureData('all');
+    });
+    window.addEventListener('focus', () => {
+      refreshFeatureData('all');
+    });
+    window.addEventListener('pageshow', () => {
+      refreshFeatureData('all');
     });
   }
 

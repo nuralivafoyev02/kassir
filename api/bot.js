@@ -12,6 +12,12 @@ const BOT_TOKEN = process.env.BOT_TOKEN;
 const SUPA_URL = process.env.SUPABASE_URL;
 const SUPA_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY;
 const OAI_KEY = process.env.OPENAI_API_KEY;
+const NGROK_API_KEY = String(process.env.NGROK_API_KEY || '').trim();
+const VOICE_TRANSCRIBE_URL = String(process.env.VOICE_TRANSCRIBE_URL || '').trim();
+const VOICE_TRANSCRIBE_PATH = String(process.env.VOICE_TRANSCRIBE_PATH || '/v1/audio/transcriptions').trim() || '/v1/audio/transcriptions';
+const VOICE_TRANSCRIBE_BEARER_TOKEN = String(process.env.VOICE_TRANSCRIBE_BEARER_TOKEN || '').trim();
+const VOICE_TRANSCRIBE_MODEL = String(process.env.VOICE_TRANSCRIBE_MODEL || 'whisper-1').trim() || 'whisper-1';
+const NGROK_VOICE_ENDPOINT_MATCH = String(process.env.NGROK_VOICE_ENDPOINT_MATCH || '').trim().toLowerCase();
 
 if (!BOT_TOKEN) throw new Error('BOT_TOKEN yo\'q');
 if (!SUPA_URL) throw new Error('SUPABASE_URL yo\'q');
@@ -28,6 +34,7 @@ const db = createClient(SUPA_URL, SUPA_KEY, {
 // OpenAI — faqat ovozli xabar uchun (ixtiyoriy)
 let openai = null;
 let openaiDisabledUntil = 0;
+let openaiDisabledReason = '';
 if (OAI_KEY && !OAI_KEY.startsWith('your-')) {
   try {
     const { OpenAI } = require('openai');
@@ -97,11 +104,18 @@ const ADMIN_IDS = new Set((process.env.ADMIN_IDS || '').split(',').map(v => v.tr
 const ADMIN_USERS_PAGE_SIZE = 10;
 const BROADCAST_USER_PAGE_SIZE = 1000;
 const ADMIN_CACHE_TTL_MS = 60 * 1000;
+const START_USER_CACHE_TTL_MS = 5 * 60 * 1000;
+const USER_CATEGORY_CACHE_TTL_MS = 30 * 1000;
+const VOICE_ENDPOINT_CACHE_TTL_MS = 5 * 60 * 1000;
+const VOICE_ENDPOINT_NEGATIVE_CACHE_TTL_MS = 60 * 1000;
 const SUPABASE_OUTAGE_TTL_MS = 30 * 1000;
 const SUPABASE_SCHEMA_CACHE_TTL_MS = 60 * 1000;
 const adminSnapshotCache = { value: null, expiresAt: 0 };
 const adminUserCountCache = { value: null, expiresAt: 0 };
 const supabaseOutageCircuit = { openUntil: 0, reason: '' };
+const voiceEndpointCache = { value: '', expiresAt: 0 };
+const startUserCache = new Map();
+const userCategoryCache = new Map();
 
 // ─── LOGGING ─────────────────────────────────────────────
 function getAdminNotifyChatId() {
@@ -109,15 +123,18 @@ function getAdminNotifyChatId() {
 }
 
 function getAppLogger() {
-  return createTelegramOps({
-    botToken: process.env.BOT_TOKEN || BOT_TOKEN,
-    logChannelId: process.env.LOG_CHANNEL_ID,
-    adminChatId: getAdminNotifyChatId(),
-    loggingEnabled: process.env.TELEGRAM_LOGGING_ENABLED,
-    logLevel: process.env.LOG_LEVEL || 'INFO',
-    localLevel: process.env.LOCAL_LOG_LEVEL || 'ERROR',
-    source: 'BOT',
-  });
+  if (!getAppLogger.instance) {
+    getAppLogger.instance = createTelegramOps({
+      botToken: process.env.BOT_TOKEN || BOT_TOKEN,
+      logChannelId: process.env.LOG_CHANNEL_ID,
+      adminChatId: getAdminNotifyChatId(),
+      loggingEnabled: process.env.TELEGRAM_LOGGING_ENABLED,
+      logLevel: process.env.LOG_LEVEL || 'INFO',
+      localLevel: process.env.LOCAL_LOG_LEVEL || 'ERROR',
+      source: 'BOT',
+    });
+  }
+  return getAppLogger.instance;
 }
 
 const log = (scope, data) => getAppLogger().local('INFO', scope, data);
@@ -185,6 +202,10 @@ let categoryLimitNameColumnSupported = null;
 const SUBSCRIPTION_FIELDS = Array.isArray(subscriptionHelpers.SUBSCRIPTION_FIELDS)
   ? subscriptionHelpers.SUBSCRIPTION_FIELDS.slice()
   : ['plan_code', 'subscription_status', 'subscription_start_at', 'subscription_end_at', 'trial_end_at', 'canceled_at', 'grace_until', 'created_at', 'updated_at'];
+const BOT_USER_BASE_FIELDS = 'user_id, full_name, phone_number, last_start_date, exchange_rate';
+const BOT_USER_SELECT_FIELDS = [BOT_USER_BASE_FIELDS]
+  .concat(SUBSCRIPTION_FIELDS.length ? [SUBSCRIPTION_FIELDS.join(', ')] : [])
+  .join(', ');
 
 function getCachedValue(cache) {
   if (!cache || cache.expiresAt <= Date.now()) return null;
@@ -204,9 +225,319 @@ function clearCachedValue(cache) {
   cache.expiresAt = 0;
 }
 
+function normalizeBaseUrl(value) {
+  return String(value || '').trim().replace(/\/+$/, '');
+}
+
+function joinBaseUrl(baseUrl, pathname = '/') {
+  const base = normalizeBaseUrl(baseUrl);
+  if (!base) return '';
+  const rawPath = String(pathname || '/').trim();
+  const normalizedPath = rawPath ? `/${rawPath.replace(/^\/+/, '')}` : '';
+  return normalizedPath && normalizedPath !== '/' ? `${base}${normalizedPath}` : base;
+}
+
+function readSimpleCache(cache) {
+  if (!cache || cache.expiresAt <= Date.now()) return null;
+  return cache.value;
+}
+
+function setSimpleCache(cache, value, ttlMs) {
+  if (!cache) return value;
+  cache.value = value;
+  cache.expiresAt = Date.now() + Math.max(1000, Number(ttlMs) || 1000);
+  return value;
+}
+
+function extractTranscriptText(data, raw = '') {
+  if (typeof data === 'string' && data.trim()) return data.trim();
+  const text = [
+    data?.text,
+    data?.transcript,
+    data?.result?.text,
+    data?.result?.transcript,
+    data?.data?.text,
+    data?.data?.transcript,
+  ].find((value) => typeof value === 'string' && value.trim());
+  if (text) return text.trim();
+  return typeof raw === 'string' ? raw.trim() : '';
+}
+
+function decodeBasicHtmlEntities(value) {
+  return String(value || '')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&amp;/g, '&')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'");
+}
+
+function stripHtmlToText(value) {
+  return decodeBasicHtmlEntities(
+    String(value || '')
+      .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+      .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+      .replace(/<[^>]+>/g, ' ')
+  ).replace(/\s+/g, ' ').trim();
+}
+
+function compactText(value, maxLength = 240) {
+  const text = String(value || '').replace(/\s+/g, ' ').trim();
+  if (!text) return '';
+  if (text.length <= maxLength) return text;
+  return `${text.slice(0, Math.max(0, maxLength - 3))}...`;
+}
+
+function extractNgrokErrorDetails(raw = '', headers = {}) {
+  const headerCode = String(headers?.ngrokErrorCode || '').trim();
+  const bodyCode = String(raw || '').match(/ERR_NGROK_\d+/)?.[0] || '';
+  const code = headerCode || bodyCode || '';
+  const noscriptMatch = String(raw || '').match(/<noscript>([\s\S]*?)<\/noscript>/i);
+  const text = compactText(stripHtmlToText(noscriptMatch?.[1] || raw), 500);
+  return { code, text };
+}
+
+function buildVoiceAttempt(provider, error, extra = {}) {
+  const status = Number(error?.status || error?.code || error?.response?.status || 0) || null;
+  const raw = String(error?.response?.raw || error?.response?.data?.raw || '');
+  const headers = error?.response?.headers || {};
+  const ngrok = provider === 'ngrok'
+    ? extractNgrokErrorDetails(raw, headers)
+    : { code: '', text: '' };
+  const rawMessage = ngrok.text || error?.message || String(error);
+  const normalizedMessage = compactText(rawMessage, 320);
+  let category = 'unknown';
+
+  if (provider === 'ngrok' && ngrok.code) {
+    category = 'ngrok_gateway';
+  } else if (isOpenAIAuthError(error)) {
+    category = 'auth';
+  } else if (status === 401) {
+    category = 'auth';
+  } else if (status === 403) {
+    category = 'forbidden';
+  } else if (status === 404) {
+    category = 'not_found';
+  } else if (status === 429 || isQuotaOrRateLimitError(error)) {
+    category = 'rate_limit';
+  } else if (status >= 500) {
+    category = 'provider_http';
+  } else if (normalizedMessage.toLowerCase().includes('fetch failed') || normalizedMessage.toLowerCase().includes('could not resolve host')) {
+    category = 'network';
+  }
+
+  return {
+    provider,
+    endpoint: extra.endpoint || null,
+    status,
+    category,
+    message: normalizedMessage || `${provider} failure`,
+    ngrok_error_code: ngrok.code || null,
+    response_snippet: compactText(ngrok.text || stripHtmlToText(raw), 500) || null,
+    disabled_until: extra.disabledUntil || null,
+    disabled_reason: extra.disabledReason || null,
+    openai_configured: typeof extra.openaiConfigured === 'boolean' ? extra.openaiConfigured : undefined,
+  };
+}
+
+function buildVoiceFailureMessage(attempts = []) {
+  const rows = Array.isArray(attempts) ? attempts.filter(Boolean) : [];
+  if (!rows.length) return 'Voice transcription failed';
+  const summary = rows
+    .map((item) => {
+      const parts = [item.provider || 'voice'];
+      if (item.status) parts.push(String(item.status));
+      if (item.ngrok_error_code) parts.push(item.ngrok_error_code);
+      return `${parts.join(': ')} - ${item.message || 'failed'}`;
+    })
+    .join(' | ');
+  return `Voice transcription failed: ${summary}`;
+}
+
+function hasExternalVoiceProvider() {
+  return !!(VOICE_TRANSCRIBE_URL || NGROK_API_KEY);
+}
+
+function pickNgrokEndpoint(endpoints) {
+  const rows = Array.isArray(endpoints) ? endpoints : [];
+  const publicRows = rows.filter((item) => {
+    const url = normalizeBaseUrl(item?.public_url || item?.url || item?.hostport || '');
+    return url.startsWith('https://');
+  });
+  if (!publicRows.length) return null;
+
+  if (NGROK_VOICE_ENDPOINT_MATCH) {
+    const matched = publicRows.find((item) => {
+      const haystack = [
+        item?.description,
+        item?.metadata,
+        item?.domain,
+        item?.public_url,
+        item?.url,
+        item?.hostport,
+      ].map((value) => String(value || '').toLowerCase()).join(' ');
+      return haystack.includes(NGROK_VOICE_ENDPOINT_MATCH);
+    });
+    if (matched) return matched;
+  }
+
+  return publicRows[0];
+}
+
+async function resolveVoiceEndpointBaseUrl() {
+  const explicitUrl = normalizeBaseUrl(VOICE_TRANSCRIBE_URL);
+  if (explicitUrl) return explicitUrl;
+
+  const cachedUrl = readSimpleCache(voiceEndpointCache);
+  if (cachedUrl !== null) return cachedUrl;
+  if (!NGROK_API_KEY) return setSimpleCache(voiceEndpointCache, '', VOICE_ENDPOINT_NEGATIVE_CACHE_TTL_MS);
+
+  try {
+    const response = await fetch('https://api.ngrok.com/endpoints', {
+      headers: {
+        Authorization: `Bearer ${NGROK_API_KEY}`,
+        'ngrok-version': '2',
+      },
+    });
+    const raw = await response.text();
+    let data;
+    try { data = JSON.parse(raw); } catch { data = { raw }; }
+
+    if (!response.ok) {
+      warn('ngrok-endpoints-http', { status: response.status, body: String(raw || '').slice(0, 200) });
+      return setSimpleCache(voiceEndpointCache, '', VOICE_ENDPOINT_NEGATIVE_CACHE_TTL_MS);
+    }
+
+    const endpoint = pickNgrokEndpoint(data?.endpoints || data?.data || []);
+    const baseUrl = normalizeBaseUrl(endpoint?.public_url || endpoint?.url || endpoint?.hostport || '');
+    if (!baseUrl) {
+      warn('ngrok-endpoints-empty', { count: Array.isArray(data?.endpoints) ? data.endpoints.length : 0 });
+      return setSimpleCache(voiceEndpointCache, '', VOICE_ENDPOINT_NEGATIVE_CACHE_TTL_MS);
+    }
+
+    log('ngrok-endpoint-selected', {
+      host: baseUrl.replace(/^https?:\/\//, ''),
+      description: endpoint?.description || '',
+      metadata: endpoint?.metadata || '',
+    });
+    return setSimpleCache(voiceEndpointCache, baseUrl, VOICE_ENDPOINT_CACHE_TTL_MS);
+  } catch (error) {
+    warn('ngrok-endpoints-error', { message: error?.message || String(error) });
+    return setSimpleCache(voiceEndpointCache, '', VOICE_ENDPOINT_NEGATIVE_CACHE_TTL_MS);
+  }
+}
+
+function readTimedMapCache(map, key) {
+  if (!map || !key || !map.has(key)) return { hit: false, value: null };
+  const entry = map.get(key);
+  if (!entry || entry.expiresAt <= Date.now()) {
+    map.delete(key);
+    return { hit: false, value: null };
+  }
+  return { hit: true, value: entry.value };
+}
+
+function writeTimedMapCache(map, key, value, ttlMs) {
+  if (!map || !key) return value;
+  map.set(key, {
+    value,
+    expiresAt: Date.now() + Math.max(1000, Number(ttlMs) || 1000),
+  });
+  return value;
+}
+
 function invalidateAdminCaches() {
   clearCachedValue(adminSnapshotCache);
   clearCachedValue(adminUserCountCache);
+}
+
+function readStartUserCache(userId) {
+  const key = String(userId || '').trim();
+  if (!key || !startUserCache.has(key)) return { hit: false, value: null };
+
+  const entry = startUserCache.get(key);
+  if (!entry || entry.expiresAt <= Date.now()) {
+    startUserCache.delete(key);
+    return { hit: false, value: null };
+  }
+
+  return { hit: true, value: entry.value || null };
+}
+
+function normalizeStartUserRow(row) {
+  if (!row) return null;
+  const normalized = {
+    user_id: row.user_id,
+    full_name: row.full_name || null,
+    phone_number: row.phone_number || null,
+    last_start_date: row.last_start_date || null,
+    exchange_rate: Number(row.exchange_rate) > 0 ? Number(row.exchange_rate) : DEFAULT_RATE,
+  };
+  for (const field of SUBSCRIPTION_FIELDS) {
+    if (Object.prototype.hasOwnProperty.call(row || {}, field)) {
+      normalized[field] = row[field];
+    }
+  }
+  return normalized;
+}
+
+function cacheStartUser(userId, row, ttlMs = START_USER_CACHE_TTL_MS) {
+  const key = String(userId || '').trim();
+  if (!key) return row;
+
+  const normalized = normalizeStartUserRow(row);
+  startUserCache.set(key, {
+    value: normalized,
+    expiresAt: Date.now() + Math.max(1000, Number(ttlMs) || START_USER_CACHE_TTL_MS),
+  });
+  return normalized;
+}
+
+async function fetchStartUser(userId) {
+  return fetchBotUser(userId, { useStartCache: true });
+}
+
+function runInBackground(req, task, label = 'background-task') {
+  try {
+    const promise = Promise.resolve()
+      .then(() => (typeof task === 'function' ? task() : task))
+      .catch((error) => {
+        console.warn(`[BOT:${label}]`, error?.message || error);
+      });
+
+    if (typeof req?.waitUntil === 'function') {
+      req.waitUntil(promise);
+    }
+  } catch (error) {
+    console.warn(`[BOT:${label}]`, error?.message || error);
+  }
+}
+
+async function fetchBotUser(userId, { useStartCache = false } = {}) {
+  if (useStartCache) {
+    const cached = readStartUserCache(userId);
+    if (cached.hit) return { data: cached.value, error: null };
+  }
+
+  let res = await db
+    .from('users')
+    .select(BOT_USER_SELECT_FIELDS)
+    .eq('user_id', userId)
+    .maybeSingle();
+
+  if (res.error && SUBSCRIPTION_FIELDS.some((field) => isMissingColumnError(res.error, field))) {
+    res = await db
+      .from('users')
+      .select(BOT_USER_BASE_FIELDS)
+      .eq('user_id', userId)
+      .maybeSingle();
+  }
+
+  if (!res.error && useStartCache) {
+    res.data = cacheStartUser(userId, res.data || null);
+  }
+
+  return res;
 }
 
 async function downloadTelegramFileBuffer(fileId) {
@@ -216,16 +547,20 @@ async function downloadTelegramFileBuffer(fileId) {
   return Buffer.from(await resp.arrayBuffer());
 }
 
-async function transcribeVoiceBuffer(buffer) {
-  if (!openai) throw new Error('OPENAI unavailable');
+async function transcribeVoiceBufferViaEndpoint(buffer, endpointUrl) {
   const form = new FormData();
   form.append('file', new Blob([buffer], { type: 'audio/ogg' }), 'voice.ogg');
-  form.append('model', 'whisper-1');
+  form.append('model', VOICE_TRANSCRIBE_MODEL);
   form.append('language', 'uz');
 
-  const resp = await fetch('https://api.openai.com/v1/audio/transcriptions', {
+  const headers = {};
+  if (VOICE_TRANSCRIBE_BEARER_TOKEN) {
+    headers.Authorization = `Bearer ${VOICE_TRANSCRIBE_BEARER_TOKEN}`;
+  }
+
+  const resp = await fetch(endpointUrl, {
     method: 'POST',
-    headers: { Authorization: `Bearer ${OAI_KEY}` },
+    headers,
     body: form,
   });
 
@@ -233,15 +568,134 @@ async function transcribeVoiceBuffer(buffer) {
   let data;
   try { data = JSON.parse(raw); } catch { data = { raw }; }
   if (!resp.ok) {
-    const error = new Error(data?.error?.message || data?.raw || `Whisper HTTP ${resp.status}`);
+    const headersMeta = {
+      contentType: resp.headers.get('content-type') || '',
+      ngrokErrorCode: resp.headers.get('ngrok-error-code') || '',
+    };
+    const ngrokDetails = extractNgrokErrorDetails(raw, headersMeta);
+    const message = data?.error?.message
+      || data?.message
+      || ngrokDetails.text
+      || `Voice endpoint HTTP ${resp.status}`;
+    const error = new Error(message);
     error.status = resp.status;
-    error.response = { data };
-    if (resp.status === 401) {
-      disableOpenAI('auth_error', { permanent: true, minutes: 12 * 60 });
-    }
+    error.response = { data, raw, headers: headersMeta };
+    error.provider = 'ngrok';
     throw error;
   }
-  return String(data?.text || '').trim();
+
+  const text = extractTranscriptText(data, raw);
+  if (!text) {
+    const error = new Error('Voice endpoint returned empty transcript');
+    error.provider = 'ngrok';
+    error.response = {
+      data,
+      raw,
+      headers: {
+        contentType: resp.headers.get('content-type') || '',
+        ngrokErrorCode: resp.headers.get('ngrok-error-code') || '',
+      },
+    };
+    throw error;
+  }
+  return text;
+}
+
+async function transcribeVoiceBuffer(buffer) {
+  const attempts = [];
+  const voiceBaseUrl = await resolveVoiceEndpointBaseUrl();
+  const voiceEndpointUrl = joinBaseUrl(voiceBaseUrl, VOICE_TRANSCRIBE_PATH);
+
+  if (voiceEndpointUrl) {
+    try {
+      const transcript = await transcribeVoiceBufferViaEndpoint(buffer, voiceEndpointUrl);
+      log('voice-transcribe-provider', { provider: 'ngrok', endpoint: voiceEndpointUrl });
+      return transcript;
+    } catch (error) {
+      const attempt = buildVoiceAttempt('ngrok', error, { endpoint: voiceEndpointUrl });
+      attempts.push(attempt);
+      warn('voice-transcribe-fallback', attempt);
+    }
+  }
+
+  const openaiEndpoint = 'https://api.openai.com/v1/audio/transcriptions';
+  const openaiTemporarilyDisabled = !!(openaiDisabledUntil && Date.now() < openaiDisabledUntil);
+  if (!openai || openaiTemporarilyDisabled) {
+    attempts.push({
+      provider: 'openai',
+      endpoint: openaiEndpoint,
+      status: null,
+      category: !OAI_KEY ? 'not_configured' : openaiTemporarilyDisabled ? 'disabled' : 'unavailable',
+      message: !OAI_KEY
+        ? 'OPENAI_API_KEY missing'
+        : openaiTemporarilyDisabled
+          ? `OpenAI fallback disabled until ${new Date(openaiDisabledUntil).toISOString()} (${openaiDisabledReason || 'temporary'})`
+          : `OpenAI client unavailable${openaiDisabledReason ? ` (${openaiDisabledReason})` : ''}`,
+      ngrok_error_code: null,
+      response_snippet: null,
+      disabled_until: openaiTemporarilyDisabled ? new Date(openaiDisabledUntil).toISOString() : null,
+      disabled_reason: openaiDisabledReason || null,
+      openai_configured: !!OAI_KEY,
+    });
+    const error = new Error(buildVoiceFailureMessage(attempts));
+    error.voice = {
+      attempts,
+      primary_provider: voiceEndpointUrl ? 'ngrok' : 'openai',
+      fallback_provider: 'openai',
+      final_provider: 'openai',
+    };
+    throw error;
+  }
+  const form = new FormData();
+  form.append('file', new Blob([buffer], { type: 'audio/ogg' }), 'voice.ogg');
+  form.append('model', 'whisper-1');
+  form.append('language', 'uz');
+
+  try {
+    const resp = await fetch(openaiEndpoint, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${OAI_KEY}` },
+      body: form,
+    });
+
+    const raw = await resp.text();
+    let data;
+    try { data = JSON.parse(raw); } catch { data = { raw }; }
+    if (!resp.ok) {
+      const error = new Error(data?.error?.message || data?.raw || `Whisper HTTP ${resp.status}`);
+      error.status = resp.status;
+      error.response = {
+        data,
+        raw,
+        headers: {
+          contentType: resp.headers.get('content-type') || '',
+        },
+      };
+      error.provider = 'openai';
+      if (resp.status === 401) {
+        disableOpenAI('auth_error', { permanent: true, minutes: 12 * 60 });
+      }
+      throw error;
+    }
+    log('voice-transcribe-provider', { provider: 'openai' });
+    return String(data?.text || '').trim();
+  } catch (error) {
+    const attempt = buildVoiceAttempt('openai', error, {
+      endpoint: openaiEndpoint,
+      disabledUntil: openaiDisabledUntil ? new Date(openaiDisabledUntil).toISOString() : null,
+      disabledReason: openaiDisabledReason || null,
+      openaiConfigured: !!OAI_KEY,
+    });
+    attempts.push(attempt);
+    error.message = buildVoiceFailureMessage(attempts);
+    error.voice = {
+      attempts,
+      primary_provider: voiceEndpointUrl ? 'ngrok' : 'openai',
+      fallback_provider: voiceEndpointUrl ? 'openai' : null,
+      final_provider: 'openai',
+    };
+    throw error;
+  }
 }
 
 function fmtDateTime(v) {
@@ -250,6 +704,40 @@ function fmtDateTime(v) {
     return new Date(v).toLocaleString('uz-UZ');
   } catch {
     return String(v);
+  }
+}
+
+function fmtUzDayMonth(value, timeZone = 'Asia/Tashkent') {
+  if (!value) return '';
+  try {
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return '';
+    const uzMonths = [
+      'yanvar',
+      'fevral',
+      'mart',
+      'aprel',
+      'may',
+      'iyun',
+      'iyul',
+      'avgust',
+      'sentabr',
+      'oktabr',
+      'noyabr',
+      'dekabr',
+    ];
+    const parts = new Intl.DateTimeFormat('uz-UZ', {
+      timeZone,
+      day: 'numeric',
+      month: 'numeric',
+    }).formatToParts(date);
+    const day = parts.find((part) => part.type === 'day')?.value || '';
+    const monthIndex = Number(parts.find((part) => part.type === 'month')?.value || 0) - 1;
+    const month = uzMonths[monthIndex] || '';
+    if (!day || !month) return '';
+    return `${day}-${month}`;
+  } catch {
+    return '';
   }
 }
 
@@ -442,10 +930,11 @@ function isOpenAIAuthError(error) {
 }
 
 function disableOpenAI(reason = 'disabled', { permanent = false, minutes = 30 } = {}) {
+  openaiDisabledReason = String(reason || 'disabled');
   openaiDisabledUntil = Date.now() + (Math.max(1, Number(minutes) || 30) * 60 * 1000);
   if (permanent) openai = null;
   warn('openai-disabled', {
-    reason,
+    reason: openaiDisabledReason,
     permanent,
     disabledUntil: new Date(openaiDisabledUntil).toISOString(),
   });
@@ -592,18 +1081,13 @@ function formatSubscriptionDurationLabel(durationDays) {
 
 function buildPremiumActivatedUserText(row, durationDays) {
   const snapshot = getSubscriptionSnapshotForUser(row);
-  const durationLabel = formatSubscriptionDurationLabel(durationDays);
-  const displayName = String(row?.full_name || '').trim();
-  const greetingLine = displayName ? `👤 <b>${esc(displayName)}</b>
-` : '';
+  const untilText = fmtUzDayMonth(snapshot.accessUntil);
 
-  return `🎉 <b>Premium obuna faollashtirildi</b>
+  return untilText
+    ? `💎<b>Sizga premium berildi</b>
 
-${greetingLine}💎 Sizga <b>${esc(durationLabel)}</b> obuna faollashtirildi.
-${snapshot.accessUntil ? `⌛️ Amal qilish muddati: <b>
-${esc(fmtDateTime(snapshot.accessUntil))}</b>
-` : ''}
-✨ Endi Premium imkoniyatlardan foydalanishingiz mumkin.`;
+Tarif ${esc(untilText)} gacha davom etadi🎉`
+    : `💎<b>Sizga premium berildi</b>🎉`;
 }
 // premium activated text
 
@@ -769,7 +1253,8 @@ async function sendCategoryLimitAlert(userId, chatId, category, latestAmount, tx
   }
 }
 
-async function insertTransactions(rows, source = 'bot') {
+async function insertTransactions(rows, source = 'bot', options = {}) {
+  const shouldReturnRows = options?.returning !== false;
   const payload = (rows || []).map(row => ({ ...row }));
 
   if (txSourceColumnSupported !== false || txSourceRefColumnSupported !== false) {
@@ -780,7 +1265,9 @@ async function insertTransactions(rows, source = 'bot') {
       return next;
     });
 
-    const res = await db.from('transactions').insert(enriched).select();
+    const res = shouldReturnRows
+      ? await db.from('transactions').insert(enriched).select()
+      : await db.from('transactions').insert(enriched);
     if (!res.error) {
       if (txSourceColumnSupported !== false) txSourceColumnSupported = true;
       if (payload.some(row => row.source_ref)) txSourceRefColumnSupported = true;
@@ -789,19 +1276,21 @@ async function insertTransactions(rows, source = 'bot') {
 
     if (isMissingColumnError(res.error, 'source_ref')) {
       txSourceRefColumnSupported = false;
-      return insertTransactions(rows, source);
+      return insertTransactions(rows, source, options);
     }
 
     if (isMissingColumnError(res.error, 'source')) {
       txSourceColumnSupported = false;
-      return insertTransactions(rows, source);
+      return insertTransactions(rows, source, options);
     }
 
     return res;
   }
 
   const plain = payload.map(({ source_ref, ...rest }) => ({ ...rest }));
-  return db.from('transactions').insert(plain).select();
+  return shouldReturnRows
+    ? db.from('transactions').insert(plain).select()
+    : db.from('transactions').insert(plain);
 }
 
 
@@ -1505,12 +1994,22 @@ function buildBroadcastResultMarkup(bc, result) {
 }
 
 async function fetchUserCategories(userId) {
+  const cacheKey = String(userId || '').trim();
+  const cached = readTimedMapCache(userCategoryCache, cacheKey);
+  if (cached.hit) return cached.value || [];
+
   let res = await db.from('categories').select('id, name, type, keywords').eq('user_id', userId);
   if (res.error && isMissingColumnError(res.error, 'keywords')) {
     res = await db.from('categories').select('id, name, type').eq('user_id', userId);
   }
   if (res.error) throw res.error;
-  return res.data || [];
+  return writeTimedMapCache(userCategoryCache, cacheKey, res.data || [], USER_CATEGORY_CACHE_TTL_MS);
+}
+
+function invalidateUserCategoryCache(userId) {
+  const cacheKey = String(userId || '').trim();
+  if (!cacheKey) return;
+  userCategoryCache.delete(cacheKey);
 }
 
 const CATEGORY_ALIASES = {
@@ -1548,26 +2047,266 @@ function genericCategoryName(value) {
   return !v || ['xarajat', 'expense', 'chiqim', 'kirim', 'income', 'daromad'].includes(v);
 }
 
-function scoreCategoryFromAliases(type, haystack) {
-  const aliasPool = CATEGORY_ALIASES[type] || {};
-  let best = null;
-  let bestScore = 0;
+const UZBEK_CASE_SUFFIXES = [
+  'larining',
+  'laridan',
+  'laringiz',
+  'larimiz',
+  'laring',
+  'laringni',
+  'larning',
+  'lariga',
+  'larini',
+  'lardan',
+  'larga',
+  'larni',
+  'ingiz',
+  'ingizni',
+  'ingizga',
+  'ingizdan',
+  'imizni',
+  'imizga',
+  'imizdan',
+  'imiz',
+  'sining',
+  'sini',
+  'siga',
+  'sidan',
+  'ning',
+  'dan',
+  'tan',
+  'ga',
+  'ka',
+  'qa',
+  'da',
+  'ta',
+  'ni',
+];
 
-  for (const [name, aliases] of Object.entries(aliasPool)) {
-    let score = 0;
-    for (const alias of aliases) {
-      const token = normalizeTextForMatch(alias);
-      if (!token) continue;
-      if (haystack === token) score += 12;
-      else if (haystack.includes(token)) score += Math.max(3, token.length);
+const CATEGORY_CONNECTOR_TOKENS = new Set(['uchun', 'bilan', 'boyicha', "bo'yicha", 'haqida']);
+const NON_PERSON_REFERENCE_TOKENS = new Set([
+  'suv',
+  'gaz',
+  'svet',
+  'internet',
+  'wifi',
+  'uy',
+  'kvartira',
+  'ijara',
+  'arenda',
+  'transport',
+  'taksi',
+  'taxi',
+  'yandex',
+  'metro',
+  'bus',
+  'avtobus',
+  'zapravka',
+  'benzin',
+  'ovqat',
+  'osh',
+  'tushlik',
+  'non',
+  'market',
+  'korzinka',
+  'bozor',
+  "do'kon",
+  'dokon',
+  'magazin',
+  'kafe',
+  'choyxona',
+  'restoran',
+  'apteka',
+  'klinika',
+  'shifoxona',
+  'stomatolog',
+  'bank',
+  'kredit',
+  'obuna',
+  'subscription',
+  'kiyim',
+  'maktab',
+  "bog'cha",
+  'bogcha',
+  'universitet',
+  'institut',
+]);
+
+const AMOUNT_SUFFIX_TOKENS = new Set([
+  'k',
+  'ming',
+  'min',
+  'mln',
+  'mn',
+  'million',
+  'm',
+  'mlrd',
+  'milliard',
+  'b',
+]);
+
+const AMOUNT_SUFFIX_CASE_SUFFIXES = [
+  'liklarining',
+  'liklaridan',
+  'liklariga',
+  'liklarini',
+  'liklarning',
+  'liklardan',
+  'liklarga',
+  'liklarni',
+  'ligining',
+  'ligidan',
+  'ligiga',
+  'ligini',
+  'ligida',
+  'likning',
+  'likdan',
+  'likka',
+  'likqa',
+  'likga',
+  'likda',
+  'likni',
+  'ligi',
+  'lik',
+  'ning',
+  'dan',
+  'tan',
+  'ga',
+  'ka',
+  'qa',
+  'da',
+  'ta',
+  'ni',
+];
+
+function stripUzbekCaseSuffix(token) {
+  let normalized = normalizeTextForMatch(token);
+  if (!normalized) return '';
+
+  for (const suffix of UZBEK_CASE_SUFFIXES) {
+    if (!normalized.endsWith(suffix)) continue;
+    if (normalized.length - suffix.length < 3) continue;
+    normalized = normalized.slice(0, -suffix.length);
+    break;
+  }
+
+  return normalized;
+}
+
+function normalizeCategoryHint(value) {
+  const cleaned = cleanupCategoryText(value);
+  const normalized = normalizeTextForMatch(cleaned);
+  if (!normalized) return '';
+
+  return normalized
+    .split(' ')
+    .filter(Boolean)
+    .map((token) => (CATEGORY_CONNECTOR_TOKENS.has(token) ? '' : token))
+    .filter(Boolean)
+    .join(' ')
+    .trim();
+}
+
+function buildCategoryMatchVariants(value) {
+  const variants = new Set();
+  const direct = normalizeTextForMatch(value);
+  const hinted = normalizeCategoryHint(value);
+
+  for (const variant of [direct, hinted]) {
+    if (!variant) continue;
+    variants.add(variant);
+
+    const tokens = variant.split(' ').filter(Boolean);
+    if (tokens.length > 1) {
+      const stemmedPhrase = tokens.map(stripUzbekCaseSuffix).filter(Boolean).join(' ').trim();
+      if (stemmedPhrase) variants.add(stemmedPhrase);
     }
-    if (score > bestScore) {
-      bestScore = score;
-      best = name;
+
+    for (const token of tokens) {
+      variants.add(token);
+      const stemmed = stripUzbekCaseSuffix(token);
+      if (stemmed) variants.add(stemmed);
     }
   }
 
-  return { best, bestScore };
+  return [...variants].filter(Boolean);
+}
+
+function collectCategoryHints(raw, type = 'expense', amountMeta = null) {
+  const text = String(raw || '').trim();
+  if (!text) return [];
+
+  const noAmount = amountMeta ? stripAmountFragment(text, amountMeta) : text;
+  const hints = [];
+  const seen = new Set();
+  const addHint = (value) => {
+    const normalized = normalizeCategoryHint(value);
+    if (!normalized || seen.has(normalized)) return;
+    seen.add(normalized);
+    hints.push(normalized);
+  };
+
+  if (type === 'expense') {
+    const afterUchun = noAmount.match(/\buchun\s+(.+)$/iu);
+    if (afterUchun?.[1]) addHint(afterUchun[1]);
+
+    const afterDative = noAmount.match(/^(?:[\p{L}0-9'’`\-]+\s+){0,3}[\p{L}0-9'’`\-]+(?:ga|ka|qa)\s+(.+)$/iu);
+    if (afterDative?.[1]) addHint(afterDative[1]);
+  }
+
+  if (type === 'income') {
+    const afterAblative = noAmount.match(/^(?:[\p{L}0-9'’`\-]+\s+){0,3}[\p{L}0-9'’`\-]+(?:dan|tan)\s+(.+)$/iu);
+    if (afterAblative?.[1]) addHint(afterAblative[1]);
+  }
+
+  const tokens = normalizeTextForMatch(noAmount).split(' ').filter(Boolean);
+  if (tokens.length === 1 || /(?:ga|ka|qa|dan|tan|da|ta|ni|ning)$/.test(tokens[0] || '')) {
+    addHint(tokens[0] || '');
+  }
+
+  addHint(noAmount);
+  return hints;
+}
+
+function scoreCategoryFromAliases(type, haystack) {
+  const aliasPool = CATEGORY_ALIASES[type] || {};
+  const sources = (Array.isArray(haystack) ? haystack : [haystack])
+    .flatMap(buildCategoryMatchVariants)
+    .filter(Boolean);
+
+  let best = null;
+  let bestScore = 0;
+  let matchedCount = 0;
+  let exactAliasMatch = false;
+
+  for (const [name, aliases] of Object.entries(aliasPool)) {
+    let score = 0;
+    let currentMatchedCount = 0;
+    let currentExactAliasMatch = false;
+
+    for (const alias of aliases) {
+      const tokens = buildCategoryMatchVariants(alias);
+      for (const token of tokens) {
+        if (!token) continue;
+        if (sources.includes(token)) {
+          currentMatchedCount += 1;
+          if (normalizeTextForMatch(alias) === token) currentExactAliasMatch = true;
+          score += 12;
+        } else if (sources.some(source => source.includes(token))) {
+          score += Math.max(3, token.length);
+        }
+      }
+    }
+
+    if (score > bestScore) {
+      bestScore = score;
+      best = name;
+      matchedCount = currentMatchedCount;
+      exactAliasMatch = currentExactAliasMatch;
+    }
+  }
+
+  return { best, bestScore, matchedCount, exactAliasMatch };
 }
 
 function resolveCategoryForUser(parsed, categories, rawText = '') {
@@ -1575,23 +2314,52 @@ function resolveCategoryForUser(parsed, categories, rawText = '') {
 
   const type = parsed.type === 'income' ? 'income' : 'expense';
   const pool = (categories || []).filter(cat => cat.type === type);
-  const haystack = `${normalizeTextForMatch(rawText)} ${normalizeTextForMatch(parsed.category)}`.trim();
+  const amountMeta = rawText ? extractAmountMeta(rawText) : null;
+  const rawHints = []
+    .concat(Array.isArray(parsed.categoryHints) ? parsed.categoryHints : [])
+    .concat(collectCategoryHints(rawText, type, amountMeta))
+    .concat([parsed.rawCategory, parsed.category])
+    .map(normalizeCategoryHint)
+    .filter(Boolean);
 
-  const direct = pool.find(cat => normalizeTextForMatch(cat.name) === normalizeTextForMatch(parsed.category));
-  if (direct) return direct.name;
+  for (const hint of rawHints) {
+    const direct = pool.find((cat) => buildCategoryMatchVariants(cat.name).includes(hint));
+    if (direct) return direct.name;
+  }
 
   let best = null;
   let bestScore = 0;
   for (const cat of pool) {
-    const words = [cat.name]
+    const targets = [cat.name]
       .concat(Array.isArray(cat.keywords) ? cat.keywords : [])
-      .map(normalizeTextForMatch)
       .filter(Boolean);
+    const targetVariants = [...new Set(targets.flatMap(buildCategoryMatchVariants))];
 
     let score = 0;
-    for (const word of words) {
-      if (haystack === word) score += 14;
-      else if (haystack.includes(word)) score += Math.max(3, word.length);
+    for (const hint of rawHints) {
+      const hintVariants = buildCategoryMatchVariants(hint);
+      for (const word of targetVariants) {
+        if (hintVariants.includes(word)) {
+          score += 26 + Math.min(word.length, 12);
+        } else if (hint.includes(word)) {
+          score += 8 + Math.min(word.length, 8);
+        }
+      }
+    }
+
+    const rawTextVariants = buildCategoryMatchVariants(rawText);
+    for (const word of targetVariants) {
+      if (rawTextVariants.includes(word)) {
+        score += 8 + Math.min(word.length, 8);
+      } else if (normalizeTextForMatch(rawText).includes(word)) {
+        score += Math.max(3, Math.min(word.length, 6));
+      }
+    }
+
+    for (const word of targetVariants) {
+      if (buildCategoryMatchVariants(parsed.category).includes(word)) {
+        score += 4 + Math.min(word.length, 5);
+      }
     }
 
     if (score > bestScore) {
@@ -1602,7 +2370,7 @@ function resolveCategoryForUser(parsed, categories, rawText = '') {
 
   if (best && bestScore >= 4) return best;
 
-  const aliasHit = scoreCategoryFromAliases(type, haystack);
+  const aliasHit = scoreCategoryFromAliases(type, rawHints.concat(rawText, parsed.category));
   if (aliasHit.best) {
     const matchedUserCategory = pool.find(cat => normalizeTextForMatch(cat.name) === normalizeTextForMatch(aliasHit.best));
     if (matchedUserCategory) return matchedUserCategory.name;
@@ -1693,7 +2461,7 @@ function parseLocalizedAmountToken(token) {
 }
 
 function applyAmountMultiplier(amount, suffix = '') {
-  const normalized = String(suffix || '').replace(/\s/g, '').toLowerCase();
+  const normalized = normalizeAmountSuffixToken(String(suffix || '').replace(/\s/g, ''));
   let finalAmount = amount;
 
   if (normalized === 'k' || normalized === 'ming' || normalized === 'min') {
@@ -1722,25 +2490,48 @@ function extractAmountMeta(raw) {
     .replace(/\s+/g, ' ')
     .trim();
 
-  const m = clean.match(/(\d[\d\s,.]*(?:\s*(?:k|ming|min|mln|mn|mlrd|million|milliard|m|b)\b)?(?:\s+\d[\d\s,.]*(?:\s*(?:k|ming|min|mln|mn|mlrd|million|milliard|m|b)\b)?){0,3})/i);
-  if (!m) return null;
+  const tokens = clean.match(/\d[\d.,]*|[a-zа-яёӣқғҳў']+/gi) || [];
+  if (!tokens.length) return null;
 
-  const phrase = m[1].trim();
-  const tokens = phrase.match(/\d[\d.,]*|[a-zа-яёӣқғҳў']+/gi) || [];
+  let phrase = '';
   let total = 0;
 
-  for (let i = 0; i < tokens.length; i += 1) {
-    if (!/^\d/.test(tokens[i])) continue;
+  for (let start = 0; start < tokens.length; start += 1) {
+    if (!/^\d/.test(tokens[start])) continue;
 
-    const amount = parseLocalizedAmountToken(tokens[i]);
-    if (!amount) continue;
+    const consumed = [];
+    let currentTotal = 0;
+    let groups = 0;
 
-    const suffix = tokens[i + 1] && /^[a-zа-яёӣқғҳў']+$/i.test(tokens[i + 1]) ? tokens[i + 1] : '';
-    total += applyAmountMultiplier(amount, suffix);
-    if (suffix) i += 1;
+    for (let i = start; i < tokens.length && groups < 4;) {
+      if (!/^\d/.test(tokens[i])) break;
+
+      const amount = parseLocalizedAmountToken(tokens[i]);
+      if (!amount) break;
+
+      consumed.push(tokens[i]);
+      groups += 1;
+
+      const suffixToken = tokens[i + 1] && /^[a-zа-яёӣқғҳў']+$/i.test(tokens[i + 1]) ? tokens[i + 1] : '';
+      const normalizedSuffix = normalizeAmountSuffixToken(suffixToken);
+      currentTotal += applyAmountMultiplier(amount, normalizedSuffix || suffixToken);
+
+      if (normalizedSuffix) {
+        consumed.push(suffixToken);
+        i += 2;
+      } else {
+        i += 1;
+      }
+    }
+
+    if (currentTotal > 0) {
+      phrase = consumed.join(' ').trim();
+      total = currentTotal;
+      break;
+    }
   }
 
-  if (!Number.isFinite(total) || total <= 0) return null;
+  if (!phrase || !Number.isFinite(total) || total <= 0) return null;
 
   return {
     amount: Math.round(total),
@@ -1764,6 +2555,7 @@ function inferTransactionType(lower) {
   if (/\b(?:dadam|onam|akam|ukam|opam|singlim|do'?stim|mijoz|klient|boshliq|ishxona|kompaniya|ustoz)\b.*\b(?:berdi|berdilar|yubordi|jo'?natdi|o'?tkazdi|tashladi|to'?ladi)\b/i.test(normalized)) incomeScore += 8;
   if (/\b(?:menga|hisobimga|kartamga)\b.*\b(?:tushdi|keldi|o'?tdi|kelib tushdi)\b/i.test(normalized)) incomeScore += 8;
   if (/\b(?:mijozdan|klientdan|dadamdan|onamdan|akamdan|ukamdan|opamdan|singlimdan|do'?stimdan|boshliqdan)\b.*\b(?:oldim|oldik|qabul qildim)\b/i.test(normalized)) incomeScore += 7;
+  if (/\b[\p{L}0-9'’`\-]+(?:dan|tan)\b.*\b(?:oldim|oldik|qabul qildim|keldi|tushdi|o'?tdi|kelib tushdi)\b/iu.test(normalized)) incomeScore += 9;
   if (/\b(?:tushdi|keldi|kelib tushdi|o'?tdi)\b/i.test(normalized) && !/\b(?:chiqim|xarajat|berdim|to'?ladim|sarfladim|jo'?natdim|o'?tkazdim|uzatdim)\b/i.test(normalized)) incomeScore += 4;
   if (/\b(?:qaytdi|qaytarib berdi|qaytarildi)\b/i.test(normalized)) incomeScore += 4;
   if (/\b(?:sovg'a|sovga|hadya)\b/i.test(normalized)) incomeScore += 4;
@@ -1772,7 +2564,8 @@ function inferTransactionType(lower) {
   if (/\b(?:berdim|to'?ladim|sarfladim|jo'?natdim|o'?tkazdim|uzatdim)\b/i.test(normalized)) expenseScore += 8;
   if (/\b(?:sotib oldim|xarid qildim)\b/i.test(normalized)) expenseScore += 8;
   if (/\boldim\b/i.test(normalized) && !/\b(?:mijozdan|klientdan|dadamdan|onamdan|akamdan|ukamdan|opamdan|singlimdan|do'?stimdan|boshliqdan)\b/i.test(normalized) && !/\b(?:oylik|maosh|avans|bonus|cashback|daromad|foyda|qaytim|astatka|kirim)\b/i.test(normalized)) expenseScore += 4;
-  if (/\b\S+ga\b.*\b(?:berdim|to'?ladim|o'?tkazdim)\b/i.test(normalized)) expenseScore += 5;
+  if (/\b[\p{L}0-9'’`\-]+(?:ga|ka|qa)\b.*\b(?:berdim|to'?ladim|sarfladim|jo'?natdim|o'?tkazdim|uzatdim)\b/iu.test(normalized)) expenseScore += 9;
+  if (/\buchun\b/i.test(normalized) && /\b(?:berdim|to'?ladim|sarfladim|sotib oldim|xarid qildim|oldim)\b/i.test(normalized)) expenseScore += 6;
   if (/\b(?:taksi|yandex|ovqat|tushlik|kechki ovqat|non|market|korzinka|bozor|ijara|kommunal|kredit|dori|apteka|internet|wifi|benzin|zapravka|subscription|obuna|kiyim|krossovka)\b/i.test(normalized)) expenseScore += 5;
 
   return {
@@ -1783,19 +2576,38 @@ function inferTransactionType(lower) {
 }
 
 function inferSemanticCategory(lower, type, rawCategory) {
+  const normalizedRawCategory = normalizeCategoryHint(rawCategory);
+  const rawTokens = normalizedRawCategory.split(' ').filter(Boolean);
+  const displayRawCategory = rawTokens.length === 1 && /(?:ga|ka|qa|dan|tan|ning|ni)$/iu.test(normalizedRawCategory)
+    ? stripUzbekCaseSuffix(normalizedRawCategory)
+    : normalizedRawCategory;
+  const familySourcePattern = /\b(?:dadam|onam|akam|ukam|opam|singlim|do'?stim)(?:dan|tan|ga|ka|qa)?\b/i;
+  const saleSourcePattern = /\b(?:mijoz|klient|sotuv|zakaz|savdo)(?:dan|tan|ga|ka|qa)?\b/i;
+
   if (type === 'income') {
     if (/\b(?:oylik|maosh)\b/i.test(lower)) return 'Oylik';
     if (/\bavans\b/i.test(lower)) return 'Avans';
     if (/\b(?:bonus|cashback|mukofot)\b/i.test(lower)) return 'Bonus';
-    if (/\b(?:mijoz|klient|sotuv|zakaz|savdo)\b/i.test(lower)) return 'Sotuv';
-    if (/\b(?:dadam|onam|akam|ukam|opam|singlim|do'?stim|sovg'a|sovga|hadya)\b/i.test(lower)) return "Sovg'a";
+    if (saleSourcePattern.test(lower)) return 'Sotuv';
+    if (familySourcePattern.test(lower) || /\b(?:sovg'a|sovga|hadya)\b/i.test(lower)) return "Sovg'a";
     if (/\b(?:qaytdi|qaytarib berdi|qaytarildi)\b/i.test(lower)) return 'Astatka';
   }
 
-  const aliasHit = scoreCategoryFromAliases(type, normalizeTextForMatch(`${lower} ${rawCategory}`));
-  if (aliasHit.best) return aliasHit.best;
+  const aliasHit = scoreCategoryFromAliases(type, [lower, rawCategory]);
+  if (aliasHit.best) {
+    const shouldKeepSpecificRaw = type === 'expense'
+      && rawTokens.length === 1
+      && !genericCategoryName(normalizedRawCategory)
+      && aliasHit.exactAliasMatch
+      && aliasHit.matchedCount <= 1;
 
-  return rawCategory;
+    if (shouldKeepSpecificRaw) {
+      return titleCaseWords(displayRawCategory || normalizedRawCategory);
+    }
+    return aliasHit.best;
+  }
+
+  return titleCaseWords(displayRawCategory || normalizedRawCategory || rawCategory);
 }
 
 function shouldUseGenericIncomeCategory(lower, rawCategory) {
@@ -1806,6 +2618,29 @@ function shouldUseGenericIncomeCategory(lower, rawCategory) {
   const tokens = normalized.split(' ').filter(Boolean);
   if (!tokens.length || tokens.length > 3) return false;
   return tokens.every(token => token.length >= 1 && token.length <= 20);
+}
+
+function shouldUseGenericExpenseCategory(text, rawCategory, amountMeta = null) {
+  const normalized = normalizeCategoryHint(rawCategory);
+  if (!normalized || genericCategoryName(normalized)) return false;
+
+  const noAmount = normalizeTextForMatch(amountMeta ? stripAmountFragment(text, amountMeta) : text);
+  if (!/^(?:[\p{L}'’`\-]+\s+){0,2}[\p{L}'’`\-]+(?:ga|ka|qa|dan|tan)$/iu.test(noAmount)) {
+    return false;
+  }
+
+  const aliasHit = scoreCategoryFromAliases('expense', normalized);
+  if (aliasHit.exactAliasMatch && aliasHit.matchedCount > 0) return false;
+
+  const tokens = normalized.split(' ').filter(Boolean);
+  const normalizedTokens = tokens.map((token) => stripUzbekCaseSuffix(token) || token);
+  if (!tokens.length || tokens.length > 2) return false;
+
+  return normalizedTokens.every((token) => {
+    if (token.length < 3 || token.length > 24) return false;
+    if (NON_PERSON_REFERENCE_TOKENS.has(token)) return false;
+    return /^[\p{L}'’-]+$/iu.test(token);
+  });
 }
 
 function cleanupCategoryText(value) {
@@ -1821,6 +2656,53 @@ function escapeRegExp(value) {
   return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+const AMOUNT_SUFFIX_CASE_PATTERN = `(?:${AMOUNT_SUFFIX_CASE_SUFFIXES.map((suffix) => escapeRegExp(suffix)).join('|')})?`;
+
+function normalizeAmountSuffixToken(value) {
+  let normalized = String(value || '')
+    .replace(/[’`]/g, "'")
+    .toLowerCase()
+    .replace(/[^a-zа-яёӣқғҳў']/gi, '');
+
+  if (!normalized) return '';
+
+  for (let i = 0; i < 4; i += 1) {
+    if (AMOUNT_SUFFIX_TOKENS.has(normalized)) return normalized;
+
+    let stripped = normalized;
+    for (const suffix of AMOUNT_SUFFIX_CASE_SUFFIXES) {
+      if (!normalized.endsWith(suffix)) continue;
+      if (normalized.length <= suffix.length) continue;
+      stripped = normalized.slice(0, -suffix.length);
+      break;
+    }
+
+    if (stripped === normalized) break;
+    normalized = stripped;
+  }
+
+  return AMOUNT_SUFFIX_TOKENS.has(normalized) ? normalized : '';
+}
+
+function buildAmountTokenPattern(value) {
+  const raw = String(value || '').trim();
+  const normalized = normalizeAmountSuffixToken(raw);
+  if (!normalized) return escapeRegExp(raw);
+
+  let variants = '';
+  if (normalized === 'k' || normalized === 'ming' || normalized === 'min') {
+    variants = '(?:k|ming|min)';
+  } else if (normalized === 'mln' || normalized === 'mn' || normalized === 'million' || normalized === 'm') {
+    variants = '(?:mln|mn|million|m)';
+  } else if (normalized === 'mlrd' || normalized === 'milliard' || normalized === 'b') {
+    variants = '(?:mlrd|milliard|b)';
+  } else {
+    return escapeRegExp(raw);
+  }
+
+  return `${variants}${AMOUNT_SUFFIX_CASE_PATTERN}`;
+}
+
 function stripAmountFragment(text, amountMeta) {
   const source = String(text || '');
   const rawMatch = String(amountMeta?.rawMatch || '').trim();
@@ -1830,13 +2712,7 @@ function stripAmountFragment(text, amountMeta) {
   const pattern = rawMatch
     .split(/\s+/)
     .filter(Boolean)
-    .map((part) => {
-      const lower = part.toLowerCase();
-      if (lower === 'ming' || lower === 'min') return '(?:ming|min)';
-      if (lower === 'mln' || lower === 'mn' || lower === 'million' || lower === 'm') return '(?:mln|mn|million|m)';
-      if (lower === 'mlrd' || lower === 'milliard' || lower === 'b') return '(?:mlrd|milliard|b)';
-      return escapeRegExp(part);
-    })
+    .map(buildAmountTokenPattern)
     .join('\\s*');
 
   try {
@@ -1849,7 +2725,7 @@ function stripAmountFragment(text, amountMeta) {
 
 function cleanupIntentName(value) {
   return titleCaseWords(String(value || '')
-    .replace(/\b(?:uchun|ga|ka|qa|dan|ni|pul|summa|bo'?yicha|oylik|oyiga|joriy|shu|oy|plan|reja|limit|byudjet|budjet)\b/gi, ' ')
+    .replace(/\b(?:uchun|ga|ka|qa|dan|tan|ni|pul|summa|bo'?yicha|oylik|oyiga|joriy|shu|oy|plan|reja|limit|byudjet|budjet)\b/gi, ' ')
     .replace(/[.,!?;:]+/g, ' ')
     .replace(/\s+/g, ' ')
     .trim());
@@ -1866,7 +2742,10 @@ function cleanupPersonName(value) {
 function extractNameBySuffix(text, suffix) {
   const safe = String(text || '').trim();
   if (!safe) return '';
-  const escaped = escapeRegExp(String(suffix || '').trim());
+  const suffixes = (Array.isArray(suffix) ? suffix : [suffix])
+    .map((item) => escapeRegExp(String(item || '').trim()))
+    .filter(Boolean);
+  const escaped = suffixes.join('|');
   if (!escaped) return '';
   const re = new RegExp(`([\\p{L}0-9'’\\s-]{2,}?)(?:${escaped})\\b`, 'iu');
   const match = safe.match(re);
@@ -1923,8 +2802,8 @@ function parseDebtIntent(raw) {
   const noAmount = stripAmountFragment(text, amountMeta);
   const hasGiveVerb = /\b(?:berdim|berib turdim|yozib berdim|beraman)\b/i.test(lower);
   const hasTakeVerb = /\b(?:oldim|olib turdim|olaman)\b/i.test(lower);
-  const hasGa = /[\p{L}0-9'’`\-]+ga\b/iu.test(noAmount);
-  const hasDan = /[\p{L}0-9'’`\-]+dan\b/iu.test(noAmount);
+  const hasGa = /[\p{L}0-9'’`\-]+(?:ga|ka|qa)\b/iu.test(noAmount);
+  const hasDan = /[\p{L}0-9'’`\-]+(?:dan|tan)\b/iu.test(noAmount);
 
   let direction = null;
   if (hasGa || hasGiveVerb) direction = 'receivable';
@@ -1932,8 +2811,8 @@ function parseDebtIntent(raw) {
   if (!direction) return null;
 
   let personName = direction === 'receivable'
-    ? extractNameBySuffix(noAmount, 'ga')
-    : extractNameBySuffix(noAmount, 'dan');
+    ? extractNameBySuffix(noAmount, ['ga', 'ka', 'qa'])
+    : extractNameBySuffix(noAmount, ['dan', 'tan']);
 
   if (!personName) personName = extractLooseName(noAmount);
   if (!personName) return null;
@@ -1956,8 +2835,8 @@ function parseDebtSettlementIntent(raw) {
   const hasReturnVerb = /\b(?:qaytdi|qaytardi|qaytardim|qaytarildi|qaytarib berdi|qaytarib berdim|uzdim|uzildi|to'?ladim)\b/i.test(lower);
   const hasDebtHint = /\b(?:qarz|nasiya)\b/i.test(lower);
   if (hasDebtHint && !hasReturnVerb) return null;
-  const hasGa = /[\p{L}0-9'’`\-]+ga\b/iu.test(noAmount);
-  const hasDan = /[\p{L}0-9'’`\-]+dan\b/iu.test(noAmount);
+  const hasGa = /[\p{L}0-9'’`\-]+(?:ga|ka|qa)\b/iu.test(noAmount);
+  const hasDan = /[\p{L}0-9'’`\-]+(?:dan|tan)\b/iu.test(noAmount);
 
   let direction = null;
   if (/\b(?:qaytardi|qaytdi|qaytarildi|qaytarib berdi)\b/i.test(lower)) direction = 'receivable';
@@ -1967,8 +2846,8 @@ function parseDebtSettlementIntent(raw) {
   if (!direction) return null;
 
   let personName = direction === 'receivable'
-    ? extractNameBySuffix(noAmount, 'dan')
-    : extractNameBySuffix(noAmount, 'ga');
+    ? extractNameBySuffix(noAmount, ['dan', 'tan'])
+    : extractNameBySuffix(noAmount, ['ga', 'ka', 'qa']);
 
   if (!personName) personName = extractLooseName(noAmount);
   if (!personName) return null;
@@ -1985,10 +2864,14 @@ function parseDebtSettlementIntent(raw) {
   };
 }
 
-async function ensureExpenseCategory(userId, categoryName) {
-  const cats = await fetchUserCategories(userId);
+function findExpenseCategory(categories, categoryName) {
   const normalized = normalizeTextForMatch(categoryName);
-  const existing = (cats || []).find(cat => cat.type === 'expense' && normalizeTextForMatch(cat.name) === normalized);
+  return (categories || []).find(cat => cat.type === 'expense' && normalizeTextForMatch(cat.name) === normalized) || null;
+}
+
+async function ensureExpenseCategory(userId, categoryName, preloadedCategories = null) {
+  const cats = Array.isArray(preloadedCategories) ? preloadedCategories : await fetchUserCategories(userId);
+  const existing = findExpenseCategory(cats, categoryName);
   if (existing) return existing;
 
   const { data, error } = await db
@@ -1998,16 +2881,29 @@ async function ensureExpenseCategory(userId, categoryName) {
     .maybeSingle();
 
   if (error && !String(error.message || '').toLowerCase().includes('duplicate')) throw error;
-  if (data) return data;
+  if (data) {
+    invalidateUserCategoryCache(userId);
+    writeTimedMapCache(
+      userCategoryCache,
+      String(userId || '').trim(),
+      (cats || []).concat([data]),
+      USER_CATEGORY_CACHE_TTL_MS,
+    );
+    return data;
+  }
 
+  invalidateUserCategoryCache(userId);
   const fresh = await fetchUserCategories(userId);
-  return fresh.find(cat => cat.type === 'expense' && normalizeTextForMatch(cat.name) === normalized) || null;
+  return findExpenseCategory(fresh, categoryName);
 }
 
 async function savePlanIntent(userId, chatId, intent, user = null) {
-  const category = await ensureExpenseCategory(userId, intent.categoryName);
+  const [categories, existingRows] = await Promise.all([
+    fetchUserCategories(userId),
+    fetchCategoryLimitCandidates(userId),
+  ]);
+  const category = await ensureExpenseCategory(userId, intent.categoryName, categories);
   const categoryName = category?.name || intent.categoryName;
-  const existingRows = await fetchCategoryLimitCandidates(userId);
   const current = findExistingCategoryLimit(existingRows, categoryName, intent.monthKey);
 
   if (!current) {
@@ -2170,7 +3066,7 @@ function pickBestDebtMatch(rows, personName) {
 async function findOpenDebtByPerson(userId, personName, direction) {
   const { data, error } = await db
     .from('debts')
-    .select('*')
+    .select('id, person_name, amount, direction, status')
     .eq('user_id', userId)
     .eq('status', 'open')
     .eq('direction', direction)
@@ -2221,15 +3117,16 @@ async function createDebtSettlementTx(userId, debt, amount) {
 }
 
 async function saveDebtIntent(userId, chatId, intent, user = null) {
-  const { count, error: countError } = await db
+  const { data: openDebtRows, error: countError } = await db
     .from('debts')
-    .select('id', { count: 'exact', head: true })
+    .select('id')
     .eq('user_id', userId)
-    .eq('status', 'open');
+    .eq('status', 'open')
+    .limit(2);
   if (countError) throw countError;
 
   const gate = evaluateFeatureAccess('debt_create', user, {
-    activeDebtsCount: Number(count || 0),
+    activeDebtsCount: Array.isArray(openDebtRows) ? openDebtRows.length : 0,
   });
   if (!gate.allowed) {
     await sendFeatureBlockedMessage(chatId, gate.featureKey);
@@ -2341,13 +3238,19 @@ function parseText(raw) {
   const typeMeta = inferTransactionType(lower);
   const type = typeMeta.type;
 
-  let catPart = amountMeta.clean.replace(amountMeta.rawMatch, ' ').replace(/^\s*[+\-]\s*/, '').trim();
-  catPart = cleanupCategoryText(catPart);
+  const categoryHints = collectCategoryHints(text, type, amountMeta);
+  let catPart = categoryHints[0] || '';
   if (!catPart || catPart.length < 2) catPart = type === 'income' ? 'kirim' : 'xarajat';
 
-  let inferredCategory = inferSemanticCategory(lower, type, titleCaseWords(catPart));
+  let rawCategory = titleCaseWords(catPart);
+  let inferredCategory = inferSemanticCategory(lower, type, rawCategory);
   if (type === 'income' && shouldUseGenericIncomeCategory(lower, inferredCategory || catPart)) {
     inferredCategory = 'Kirim';
+  }
+  if (type === 'expense' && shouldUseGenericExpenseCategory(text, rawCategory, amountMeta)) {
+    inferredCategory = 'Xarajat';
+    rawCategory = 'Xarajat';
+    categoryHints.length = 0;
   }
   const category = titleCaseWords(inferredCategory || catPart || (type === 'income' ? 'Kirim' : 'Xarajat'));
 
@@ -2355,6 +3258,8 @@ function parseText(raw) {
     amount: amountMeta.amount,
     type,
     category,
+    rawCategory,
+    categoryHints,
     isUSD: amountMeta.isUSD
   };
 }
@@ -2380,7 +3285,7 @@ function isSuspiciousLocalParse(rawText, parsed) {
 }
 
 // ─── SAVE TRANSACTION ────────────────────────────────────
-async function saveTx(userId, chatId, parsed, receiptUrl = null, exRate = DEFAULT_RATE, replyId = null, rawText = '') {
+async function saveTx(userId, chatId, parsed, receiptUrl = null, exRate = DEFAULT_RATE, replyId = null, rawText = '', req = null) {
   const safeRate = Number(exRate) > 0 ? Number(exRate) : DEFAULT_RATE;
 
   let amount = parsed.amount;
@@ -2409,16 +3314,10 @@ async function saveTx(userId, chatId, parsed, receiptUrl = null, exRate = DEFAUL
     receipt_url: receiptUrl || null,
   };
 
-  const { data, error } = await insertTransactions([row], 'bot');
+  const { error } = await insertTransactions([row], 'bot', { returning: false });
   if (error) {
     await logErr('save-tx', error, { userId, chatId, amount, category });
     await bot.sendMessage(chatId, '⚠️ Bazaga yozishda xatolik. Keyinroq urinib ko\'ring.').catch(() => { });
-    return null;
-  }
-
-  const saved = Array.isArray(data) ? data[0] : data;
-  if (!saved) {
-    await bot.sendMessage(chatId, '⚠️ Tranzaksiya saqlanganini tasdiqlab bo\'lmadi.').catch(() => { });
     return null;
   }
 
@@ -2438,9 +3337,9 @@ async function saveTx(userId, chatId, parsed, receiptUrl = null, exRate = DEFAUL
     opts
   ).catch(() => { });
 
-  await sendCategoryLimitAlert(userId, chatId, category, amount, parsed.type);
-  log('tx-saved', { userId, id: saved.id, type: saved.type, amount: saved.amount, category });
-  return saved;
+  runInBackground(req, () => sendCategoryLimitAlert(userId, chatId, category, amount, parsed.type), 'tx-limit-alert');
+  log('tx-saved', { userId, type: parsed.type, amount, category });
+  return row;
 }
 
 // ─── REPORT BUILDER ──────────────────────────────────────
@@ -2801,8 +3700,8 @@ module.exports = async (req, res) => {
     });
 
     // ── Foydalanuvchi ma'lumotlarini olish ──
-    let { data: user, error: uErr } = await db
-      .from('users').select('*').eq('user_id', userId).maybeSingle();
+    const userLookup = await fetchBotUser(userId, { useStartCache: text === '/start' });
+    let { data: user, error: uErr } = userLookup;
     if (uErr) warn('user-fetch', { userId, msg: uErr.message });
     if (uErr && isTransientSupabaseError(uErr)) {
       await bot.sendMessage(
@@ -2857,6 +3756,13 @@ module.exports = async (req, res) => {
       }
 
       invalidateAdminCaches();
+      user = cacheStartUser(userId, {
+        user_id: userId,
+        phone_number: msg.contact.phone_number,
+        full_name: `${msg.from.first_name || ''} ${msg.from.last_name || ''}`.trim() || `User ${userId}`,
+        last_start_date: iso(),
+        exchange_rate: Number(user?.exchange_rate) > 0 ? Number(user.exchange_rate) : DEFAULT_RATE,
+      });
 
       await bot.sendMessage(chatId,
         `🎉 <b>Ro'yxatdan o'tdingiz!</b>\n\nEndi kirim-chiqimlarni yozishingiz mumkin.\n\n${GUIDE}`,
@@ -3225,12 +4131,16 @@ Sabab: <code>${esc(String(premiumNotifyStatus || "noma'lum"))}</code>`;
 
     // ── Yangi foydalanuvchi — telefon so'rash ──
     if (!user) {
+      await bot.sendMessage(chatId, `👋 Assalomu alaykum!\nBotdan foydalanish uchun telefon raqamingizni tasdiqlang.`, {
+        reply_markup: CONTACT_REQUEST_REPLY_MARKUP,
+      }
+      ).catch(() => { });
+
       if (text === '/start') {
         const userContext = buildUserLogContext(msg, null);
         const timestamp = new Date().toISOString();
 
-        // INFO log to channel - yangi user /start bosdi
-        await getAppLogger().info({
+        runInBackground(req, () => getAppLogger().info({
           scope: 'start-new-user',
           ...userContext,
           message: "🆕 Yangi foydalanuvchi /start bosdi (ro'yxatdan o'tmagan)",
@@ -3242,13 +4152,8 @@ Sabab: <code>${esc(String(premiumNotifyStatus || "noma'lum"))}</code>`;
             full_name: `${msg.from?.first_name || ''} ${msg.from?.last_name || ''}`.trim(),
             contact_requested: true,
           },
-        }).catch(() => { });
+        }).catch(() => { }), 'start-new-user-log');
       }
-
-      await bot.sendMessage(chatId, `👋 Assalomu alaykum!\nBotdan foydalanish uchun telefon raqamingizni tasdiqlang.`, {
-        reply_markup: CONTACT_REQUEST_REPLY_MARKUP,
-      }
-      ).catch(() => { });
       return res.status(200).json({ ok: true });
     }
 
@@ -3259,6 +4164,7 @@ Sabab: <code>${esc(String(premiumNotifyStatus || "noma'lum"))}</code>`;
       const lastStr = user.last_start_date ? new Date(user.last_start_date).toDateString() : null;
       const isNew = lastStr !== todayStr;
       const isFirstTime = !user.last_start_date;
+      const startedAtIso = now.toISOString();
 
       const firstName = (user.full_name || 'Boshliq').split(' ')[0];
       const greeting = `Xush kelibsiz, <b>${esc(firstName)}</b>☺️!\nBemalol kirim yoki chiqim qilishingiz mumkin💸`;
@@ -3266,28 +4172,38 @@ Sabab: <code>${esc(String(premiumNotifyStatus || "noma'lum"))}</code>`;
       await bot.sendMessage(chatId, greeting, { reply_markup: KB, parse_mode: 'HTML' }).catch(() => { });
 
       if (isNew) {
-        await db.from('users').update({ last_start_date: iso() }).eq('user_id', userId);
+        user = cacheStartUser(userId, { ...user, last_start_date: startedAtIso });
       }
 
-      // INFO log to channel
       const userContext = buildUserLogContext(msg, user);
-      await getAppLogger().info({
-        scope: 'start-existing-user',
-        ...userContext,
-        message: isFirstTime
-          ? "🔄 Mavjud foydalanuvchi /start bosdi (birinchi marta)"
-          : isNew
-            ? "📅 Foydalanuvchi bugun birinchi marta /start bosdi"
-            : "👋 Foydalanuvchi /start bosdi (qayta)",
-        payload: {
-          event: 'existing_user_start',
-          timestamp: now.toISOString(),
-          is_first_time: isFirstTime,
-          is_first_today: isNew,
-          chat_id: chatId,
-          has_phone: hasRegisteredPhone(user),
-        },
-      }).catch(() => { });
+      runInBackground(req, async () => {
+        const tasks = [];
+        if (isNew) {
+          tasks.push(
+            db.from('users').update({ last_start_date: startedAtIso }).eq('user_id', userId)
+          );
+        }
+        tasks.push(
+          getAppLogger().info({
+            scope: 'start-existing-user',
+            ...userContext,
+            message: isFirstTime
+              ? "🔄 Mavjud foydalanuvchi /start bosdi (birinchi marta)"
+              : isNew
+                ? "📅 Foydalanuvchi bugun birinchi marta /start bosdi"
+                : "👋 Foydalanuvchi /start bosdi (qayta)",
+            payload: {
+              event: 'existing_user_start',
+              timestamp: startedAtIso,
+              is_first_time: isFirstTime,
+              is_first_today: isNew,
+              chat_id: chatId,
+              has_phone: hasRegisteredPhone(user),
+            },
+          }).catch(() => { })
+        );
+        await Promise.allSettled(tasks);
+      }, 'start-existing-user-followup');
 
       return res.status(200).json({ ok: true });
     }
@@ -3426,7 +4342,8 @@ Sabab: <code>${esc(String(premiumNotifyStatus || "noma'lum"))}</code>`;
       const proc = await bot.sendMessage(chatId, '🎙 Ovozli xabar qabul qilindi...').catch(() => null);
 
       try {
-        if (!openai || (openaiDisabledUntil && Date.now() < openaiDisabledUntil)) {
+        const openaiReady = !!openai && !(openaiDisabledUntil && Date.now() < openaiDisabledUntil);
+        if (!openaiReady && !hasExternalVoiceProvider()) {
           const voiceDisabledText = OAI_KEY
             ? '🤖 Ovozli tahlil hozircha vaqtincha ishlamayapti. Matn orqali yozib yuboring.'
             : '🤖 Ovozli tahlil yoqilmagan. Matn orqali yozib yuboring.';
@@ -3434,7 +4351,7 @@ Sabab: <code>${esc(String(premiumNotifyStatus || "noma'lum"))}</code>`;
           return res.status(200).json({ ok: true });
         }
 
-        if (proc) await bot.editMessageText('⏳ Ovoz tahlil qilinmoqda (Whisper)...', { chat_id: chatId, message_id: proc.message_id }).catch(() => { });
+        if (proc) await bot.editMessageText('⏳ Ovoz tahlil qilinmoqda...', { chat_id: chatId, message_id: proc.message_id }).catch(() => { });
 
         const voiceBuffer = await downloadTelegramFileBuffer(msg.voice.file_id);
         const spoken = await transcribeVoiceBuffer(voiceBuffer);
@@ -3458,11 +4375,24 @@ Sabab: <code>${esc(String(premiumNotifyStatus || "noma'lum"))}</code>`;
 
         if (proc) await bot.deleteMessage(chatId, proc.message_id).catch(() => { });
 
-        await saveTx(userId, chatId, parsed, null, user.exchange_rate, msg.message_id, spoken);
+        await saveTx(userId, chatId, parsed, null, user.exchange_rate, msg.message_id, spoken, req);
 
       } catch (e) {
-        await logErr('voice', e, { userId });
-        const voiceErrorText = isOpenAIAuthError(e)
+        const voiceAttempts = Array.isArray(e?.voice?.attempts) ? e.voice.attempts : [];
+        const authError = isOpenAIAuthError(e)
+          || voiceAttempts.some((attempt) => attempt?.provider === 'openai' && attempt?.category === 'auth');
+        await logErr('voice', e, {
+          userId,
+          chatId,
+          voice: e?.voice || null,
+          voice_meta: {
+            file_id: msg.voice.file_id,
+            duration: msg.voice.duration || null,
+            mime_type: msg.voice.mime_type || null,
+            file_size: msg.voice.file_size || null,
+          },
+        });
+        const voiceErrorText = authError
           ? '🔐 Ovozli xabar funksiyamiz hali ishga tushurilmagan. Hozircha matn orqali yozib yuboring.'
           : '😕 Ovozli xabarni qayta ishlashda xatolik yuz berdi. Matn orqali yozib yuboring.';
         if (proc) await bot.editMessageText(voiceErrorText, { chat_id: chatId, message_id: proc.message_id }).catch(() => { });
@@ -3512,7 +4442,7 @@ Sabab: <code>${esc(String(premiumNotifyStatus || "noma'lum"))}</code>`;
         }
       }
 
-      await saveTx(userId, chatId, parsed, receiptUrl, user.exchange_rate, msg.message_id, text);
+      await saveTx(userId, chatId, parsed, receiptUrl, user.exchange_rate, msg.message_id, text, req);
       return res.status(200).json({ ok: true });
     }
 

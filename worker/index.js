@@ -1624,6 +1624,7 @@ const HANDLER_LOADERS = {
   "send-report-files": () => import("../api/send-report-files.js"),
   "send-report-pdf": () => import("../api/send-report-pdf.js"),
 };
+const LEGACY_HANDLER_CACHE = new Map();
 
 function seedLegacyProcessEnv(env) {
   if (!env || typeof process === "undefined" || !process?.env) return;
@@ -1634,6 +1635,7 @@ function seedLegacyProcessEnv(env) {
     "SUPABASE_SERVICE_ROLE_KEY",
     "SUPABASE_KEY",
     "OPENAI_API_KEY",
+    "NGROK_API_KEY",
     "ADMIN_IDS",
     "OWNER_ID",
     "CRON_SECRET",
@@ -1644,6 +1646,11 @@ function seedLegacyProcessEnv(env) {
     "BOT_WEBHOOK_SECRET",
     "WEBHOOK_SECRET",
     "WEBAPP_URL",
+    "VOICE_TRANSCRIBE_URL",
+    "VOICE_TRANSCRIBE_PATH",
+    "VOICE_TRANSCRIBE_BEARER_TOKEN",
+    "VOICE_TRANSCRIBE_MODEL",
+    "NGROK_VOICE_ENDPOINT_MATCH",
     "LOG_CHANNEL_ID",
     "TELEGRAM_LOGGING_ENABLED",
     "LOG_LEVEL",
@@ -1673,21 +1680,35 @@ function resolveLegacyHandler(mod) {
 }
 
 async function getLegacyHandler(name, env) {
+  if (LEGACY_HANDLER_CACHE.has(name)) {
+    return LEGACY_HANDLER_CACHE.get(name);
+  }
+
   const loader = HANDLER_LOADERS[name];
   if (!loader) throw new Error(`Unknown legacy handler: ${name}`);
 
-  seedLegacyProcessEnv(env);
-  const mod = await loader();
-  const handler = resolveLegacyHandler(mod);
+  const handlerPromise = (async () => {
+    seedLegacyProcessEnv(env);
+    const mod = await loader();
+    const handler = resolveLegacyHandler(mod);
 
-  if (typeof handler !== "function") {
-    throw new Error(`Legacy handler is not a function: ${name}`);
+    if (typeof handler !== "function") {
+      throw new Error(`Legacy handler is not a function: ${name}`);
+    }
+
+    return handler;
+  })();
+
+  LEGACY_HANDLER_CACHE.set(name, handlerPromise);
+  try {
+    return await handlerPromise;
+  } catch (error) {
+    LEGACY_HANDLER_CACHE.delete(name);
+    throw error;
   }
-
-  return handler;
 }
 
-async function buildLegacyReq(request, env) {
+async function buildLegacyReq(request, env, ctx = null) {
   const url = new URL(request.url);
   const contentType = request.headers.get("content-type") || "";
   const rawBody = ["GET", "HEAD"].includes(request.method) ? "" : await request.text();
@@ -1719,6 +1740,7 @@ async function buildLegacyReq(request, env) {
     rawBody,
     env,
     cf: request.cf || null,
+    waitUntil: typeof ctx?.waitUntil === "function" ? ctx.waitUntil.bind(ctx) : null,
   };
 }
 
@@ -1791,9 +1813,9 @@ function createLegacyRes(resolve) {
   };
 }
 
-async function invokeLegacyHandler(name, request, env) {
+async function invokeLegacyHandler(name, request, env, ctx = null) {
   const handler = await getLegacyHandler(name, env);
-  const req = await buildLegacyReq(request, env);
+  const req = await buildLegacyReq(request, env, ctx);
 
   return await new Promise(async (resolve, reject) => {
     const res = createLegacyRes(resolve);
@@ -2332,7 +2354,7 @@ export default {
 
       // Telegram webhook
       if (url.pathname === "/api/bot") {
-        return invokeLegacyHandler("bot", request, env);
+        return invokeLegacyHandler("bot", request, env, ctx);
       }
 
       // Mini app notification
@@ -2342,11 +2364,11 @@ export default {
 
       // Report delivery to Telegram bot
       if (url.pathname === "/api/send-report-files") {
-        return invokeLegacyHandler("send-report-files", request, env);
+        return invokeLegacyHandler("send-report-files", request, env, ctx);
       }
 
       if (url.pathname === "/api/send-report-pdf") {
-        return invokeLegacyHandler("send-report-pdf", request, env);
+        return invokeLegacyHandler("send-report-pdf", request, env, ctx);
       }
 
       // Notification APIs

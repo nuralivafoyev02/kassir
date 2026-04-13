@@ -2169,6 +2169,17 @@ function hideLoader() {
   setTimeout(() => { el.style.display = 'none'; }, 500);
 }
 
+function markLegacyAppReady() {
+  if (window.__KASSA_LEGACY_APP_READY__) return;
+  window.__KASSA_LEGACY_APP_READY__ = true;
+  window.dispatchEvent(new CustomEvent('kassa:app-ready', {
+    detail: {
+      uid: UID,
+      hasDb: !!db,
+    },
+  }));
+}
+
 // ─── INIT: entry point ──────────────────────────────────
 (async () => {
   startLoaderMessages();
@@ -2197,6 +2208,7 @@ function hideLoader() {
       await ensureUser();
       await loadData();
       initRealtime(); // Real-time ulanishni yoqish
+      markLegacyAppReady();
     } catch (e) {
       console.error('[boot]', e);
       showErr(tt('err_boot_data_load', "Ma'lumotlar yuklanmadi") + ': ' + (e?.message || e));
