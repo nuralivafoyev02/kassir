@@ -9,6 +9,10 @@ import {
   upsertPushDevice,
 } from "../db/push-devices.mjs";
 import { sendNotification } from "../services/notifications/send-notification.mjs";
+import {
+  buildDailyReportPdf,
+  summarizeDailyReport,
+} from "../services/reports/daily-report.mjs";
 
 const { createTelegramOps } = telegramOpsPkg;
 const SUBSCRIPTION_FIELDS = Array.isArray(subscriptionHelpers?.SUBSCRIPTION_FIELDS)
@@ -165,6 +169,68 @@ async function tgSendMessage(env, chatId, htmlText, extra = {}) {
     disable_web_page_preview: true,
     ...extra,
   });
+}
+
+async function tgSendDocument(env, chatId, blob, fileName, caption = "", contentType = "application/octet-stream") {
+  const parsedChatId = toSafeChatId(chatId);
+  if (!parsedChatId) {
+    throw new Error(`Invalid Telegram chat_id: ${chatId}`);
+  }
+
+  const form = new FormData();
+  form.set("chat_id", String(parsedChatId));
+  if (caption) form.set("caption", caption);
+  if (caption) form.set("parse_mode", "HTML");
+  form.set("document", new File([blob], fileName, { type: contentType }));
+
+  const resp = await fetch(buildTgApiUrl(env, "sendDocument"), {
+    method: "POST",
+    body: form,
+  });
+
+  const raw = await resp.text();
+  let data;
+  try {
+    data = JSON.parse(raw);
+  } catch {
+    data = { ok: false, raw };
+  }
+
+  if (!resp.ok || data?.ok === false) {
+    throw new Error(data?.description || data?.raw || `Telegram HTTP ${resp.status}`);
+  }
+
+  return data;
+}
+
+async function tgSendSticker(env, chatId, blob, fileName = "kassa-reminder.webp") {
+  const parsedChatId = toSafeChatId(chatId);
+  if (!parsedChatId) {
+    throw new Error(`Invalid Telegram chat_id: ${chatId}`);
+  }
+
+  const form = new FormData();
+  form.set("chat_id", String(parsedChatId));
+  form.set("sticker", new File([blob], fileName, { type: "image/webp" }));
+
+  const resp = await fetch(buildTgApiUrl(env, "sendSticker"), {
+    method: "POST",
+    body: form,
+  });
+
+  const raw = await resp.text();
+  let data;
+  try {
+    data = JSON.parse(raw);
+  } catch {
+    data = { ok: false, raw };
+  }
+
+  if (!resp.ok || data?.ok === false) {
+    throw new Error(data?.description || data?.raw || `Telegram HTTP ${resp.status}`);
+  }
+
+  return data;
 }
 
 function sbBase(env) {
@@ -362,10 +428,91 @@ function canUseNotificationFeature(row, featureKey) {
   return { allowed: true, featureKey, degraded: true };
 }
 
+function getSubscriptionSnapshot(row) {
+  if (typeof subscriptionHelpers?.getSubscriptionSnapshot === "function") {
+    return subscriptionHelpers.getSubscriptionSnapshot(row || {}, {
+      schemaReady: hasSubscriptionSchema(row),
+    });
+  }
+
+  return {
+    schemaReady: hasSubscriptionSchema(row),
+    isPremium: false,
+    planCode: "free",
+    uiStatusLabel: "Obuna bo'lmagan",
+  };
+}
+
 const TASHKENT_TIME_ZONE = "Asia/Tashkent";
 const DEFAULT_CRON_INTERVAL_MINUTES = 30;
 const DEBT_REMINDER_BATCH_SIZE = 300;
 const DEBT_REMINDER_SCAN_LIMIT = 5000;
+const UZBEK_WEEKDAY_BY_EN_SHORT = Object.freeze({
+  sun: "yakshanba",
+  mon: "dushanba",
+  tue: "seshanba",
+  wed: "chorshanba",
+  thu: "payshanba",
+  fri: "juma",
+  sat: "shanba",
+});
+const EMPTY_REPORT_STICKER_WEBP_BASE64 = `
+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
+`;
 
 const NOTIFICATION_DEFAULTS = {
   daily_reminder: {
@@ -381,6 +528,24 @@ Bugungi xarajatlarni kiritib borishni unutmang.
 
 📅 Bugun: {{today}}
 🤝 <i>24/7 xizmatingizda man!</i>`,
+    config: { window_minutes: 5, batch_size: 100, per_run_limit: 10000 },
+  },
+  free_daily_reminder: {
+    key: "free_daily_reminder",
+    title: "Premium taklifi",
+    enabled: true,
+    send_time: "10:00",
+    timezone: TASHKENT_TIME_ZONE,
+    message_template: `✨ <b>Assalomu aleykum{{name_block}}</b>
+
+Bugun {{weekday}} va siz hali <b>Premium</b> tarifini faollashtirmagansiz.
+
+Premium bilan:
+• hisob-kitoblaringiz yanada tartibli bo'ladi
+• qarz va limitlarni qulay nazorat qilasiz
+• foydali kunlik eslatmalarni o'z vaqtida olasiz
+
+💎 Moliyaviy tartibni kuchaytirish uchun Premium tarifini yoqib ko'ring.`,
     config: { window_minutes: 5, batch_size: 100, per_run_limit: 10000 },
   },
   daily_report: {
@@ -641,6 +806,40 @@ function uzDayStartUtcIso(value = new Date(), timeZone = TASHKENT_TIME_ZONE) {
   return dayStartUtcIsoInZone(value, timeZone);
 }
 
+function uzNextDayStartUtcIso(value = new Date(), timeZone = TASHKENT_TIME_ZONE) {
+  const p = getTimeZoneParts(value, timeZone);
+  const approxUtc = new Date(Date.UTC(p.year, p.month - 1, p.day + 1, 0, 0, 0, 0));
+  const offsetMs = getTimeZoneOffsetMillis(approxUtc, timeZone);
+  return new Date(approxUtc.getTime() - offsetMs).toISOString();
+}
+
+function getUzbekWeekdayLabel(value = new Date(), timeZone = TASHKENT_TIME_ZONE) {
+  const safeTimeZone = String(timeZone || TASHKENT_TIME_ZONE);
+
+  try {
+    const weekdayKey = new Intl.DateTimeFormat("en-US", {
+      timeZone: safeTimeZone,
+      weekday: "short",
+    })
+      .format(new Date(value))
+      .slice(0, 3)
+      .toLowerCase();
+    if (UZBEK_WEEKDAY_BY_EN_SHORT[weekdayKey]) {
+      return UZBEK_WEEKDAY_BY_EN_SHORT[weekdayKey];
+    }
+  } catch {}
+
+  try {
+    const localized = new Intl.DateTimeFormat("uz-UZ", {
+      timeZone: safeTimeZone,
+      weekday: "long",
+    }).format(new Date(value));
+    return String(localized || "").trim().toLowerCase() || "bugun";
+  } catch {
+    return "bugun";
+  }
+}
+
 function buildDailyReminderText(setting, fullName = "", now = new Date()) {
   const template = setting?.message_template || NOTIFICATION_DEFAULTS.daily_reminder.message_template;
   const timeZone = setting?.timezone || TASHKENT_TIME_ZONE;
@@ -659,6 +858,42 @@ function buildDailyReportText(setting, fullName = "", now = new Date()) {
     name_block: String(fullName || "").trim() ? `, <b>${esc(fullName)}</b>` : "",
     today: esc(new Date(now).toLocaleDateString("uz-UZ", { timeZone })),
   });
+}
+
+function buildFreeDailyReminderText(setting, fullName = "", now = new Date()) {
+  const template = setting?.message_template || NOTIFICATION_DEFAULTS.free_daily_reminder.message_template;
+  const timeZone = setting?.timezone || TASHKENT_TIME_ZONE;
+  const weekday = getUzbekWeekdayLabel(now, timeZone);
+
+  return renderTemplate(template, {
+    name_block: String(fullName || "").trim() ? `, <b>${esc(fullName)}</b>` : "",
+    today: esc(new Date(now).toLocaleDateString("uz-UZ", { timeZone })),
+    weekday: esc(weekday || "bugun"),
+  });
+}
+
+function buildDailyReportCaption(fullName = "", summary = {}, now = new Date(), timeZone = TASHKENT_TIME_ZONE) {
+  const nameBlock = String(fullName || "").trim() ? `, <b>${esc(fullName)}</b>` : "";
+  return `🌙 <b>Kunlik hisobotingiz${nameBlock}</b>
+
+📅 Bugun: ${esc(new Date(now).toLocaleDateString("uz-UZ", { timeZone }))}
+📥 Kirim: <b>+${numFmt(summary.income || 0)} so'm</b>
+📤 Chiqim: <b>-${numFmt(summary.expense || 0)} so'm</b>
+🧾 Tranzaksiyalar: <b>${Number(summary.transactionsCount || 0)} ta</b>
+🤝 Qarzlar: <b>${Number(summary.debtsCount || 0)} ta</b>
+🎯 Rejalar: <b>${Number(summary.plansCount || 0)} ta</b>`;
+}
+
+function buildEmptyDailyReportText(fullName = "", now = new Date(), timeZone = TASHKENT_TIME_ZONE) {
+  const nameBlock = String(fullName || "").trim() ? `, <b>${esc(fullName)}</b>` : "";
+  return `🌙 <b>Bugungi kunda faoliyat ko'rinmadi${nameBlock}</b>
+
+📅 Sana: ${esc(new Date(now).toLocaleDateString("uz-UZ", { timeZone }))}
+
+Kun davomida kirim-chiqimlar, qarzlar yoki rejalar kiritilmadi.
+Moliyaviy hisobotingizni to'g'ri shakllantirib borish uchun hozir barchasini kiritishning ayni vaqti.
+
+✨ Har bir yozuv ertangi qarorlaringizni aniqroq qiladi.`;
 }
 
 function buildDebtReminderText(setting, debt, targetDate, now = new Date()) {
@@ -995,21 +1230,117 @@ async function markDailyReportSent(env, userId, nowIso) {
   }
 }
 
-async function processDailyReminders(env, now = new Date(), meta = {}) {
-  const settings = meta.settings || await sbGetNotificationSettings(env);
-  const dailySetting = settings.daily_reminder || mergeNotificationSetting("daily_reminder");
+function buildTelegramDeliveryMeta(messageId, extra = {}) {
+  return buildDeliveryMeta(
+    {
+      provider: "telegram",
+      deliveredCount: 1,
+      targetCount: 1,
+    },
+    {
+      telegram_message_id: messageId || null,
+      ...extra,
+    }
+  );
+}
 
-  const timeZone = dailySetting?.timezone || TASHKENT_TIME_ZONE;
-  const sendTime = dailySetting?.send_time || "09:00";
-  const windowMinutes = resolveDailyWindowMinutes(dailySetting, meta);
+async function fetchDailyReportTransactions(env, userId, dayStartIso, dayEndIso) {
+  try {
+    const rows = await sbFetch(
+      env,
+      `/transactions?select=*&user_id=eq.${encodeURIComponent(userId)}` +
+      `&date=gte.${encodeURIComponent(dayStartIso)}` +
+      `&date=lt.${encodeURIComponent(dayEndIso)}` +
+      `&order=date.asc&limit=1000`
+    );
+    return Array.isArray(rows) ? rows : [];
+  } catch (error) {
+    if (sbMissingTable(error, "transactions") || sbMissingColumn(error, "date")) return [];
+    throw error;
+  }
+}
 
-  const batchSize = Math.max(1, Math.min(1000, Number(dailySetting?.config?.batch_size || 100)));
-  const perRunLimit = Math.max(batchSize, Math.min(50000, Number(dailySetting?.config?.per_run_limit || 10000)));
+async function fetchDailyReportDebts(env, userId, dayStartIso, dayEndIso) {
+  try {
+    const rows = await sbFetch(
+      env,
+      `/debts?select=*&user_id=eq.${encodeURIComponent(userId)}` +
+      `&created_at=gte.${encodeURIComponent(dayStartIso)}` +
+      `&created_at=lt.${encodeURIComponent(dayEndIso)}` +
+      `&order=created_at.asc&limit=200`
+    );
+    return Array.isArray(rows) ? rows : [];
+  } catch (error) {
+    if (sbMissingTable(error, "debts") || sbMissingColumn(error, "created_at")) return [];
+    throw error;
+  }
+}
 
-  const result = {
+async function fetchDailyReportPlans(env, userId, dayStartIso, dayEndIso) {
+  try {
+    const rows = await sbFetch(
+      env,
+      `/category_limits?select=*&user_id=eq.${encodeURIComponent(userId)}` +
+      `&created_at=gte.${encodeURIComponent(dayStartIso)}` +
+      `&created_at=lt.${encodeURIComponent(dayEndIso)}` +
+      `&order=created_at.asc&limit=200`
+    );
+    return Array.isArray(rows) ? rows : [];
+  } catch (error) {
+    if (sbMissingTable(error, "category_limits") || sbMissingColumn(error, "created_at")) return [];
+    throw error;
+  }
+}
+
+async function buildDailyReportDataset(env, userId, dayStartIso, dayEndIso) {
+  const [transactions, debts, plans] = await Promise.all([
+    fetchDailyReportTransactions(env, userId, dayStartIso, dayEndIso),
+    fetchDailyReportDebts(env, userId, dayStartIso, dayEndIso),
+    fetchDailyReportPlans(env, userId, dayStartIso, dayEndIso),
+  ]);
+
+  return {
+    transactions,
+    debts,
+    plans,
+  };
+}
+
+function decodeBase64ToBytes(value = "") {
+  const safe = String(value || "").replace(/\s+/g, "").trim();
+  if (!safe) return new Uint8Array(0);
+  return Uint8Array.from(atob(safe), (char) => char.charCodeAt(0));
+}
+
+function buildEmptyReportStickerBlob() {
+  const bytes = decodeBase64ToBytes(EMPTY_REPORT_STICKER_WEBP_BASE64);
+  if (!bytes.length) return null;
+  return new Blob([bytes], { type: "image/webp" });
+}
+
+async function runDailyReminderSegment(env, result, options = {}) {
+  const {
+    key,
+    setting,
+    now = new Date(),
+    meta = {},
+    buildHtml,
+    isEligible,
+  } = options;
+
+  const timeZone = setting?.timezone || TASHKENT_TIME_ZONE;
+  const defaultSendTime = key === "free_daily_reminder" ? "10:00" : "09:00";
+  const sendTime = setting?.send_time || defaultSendTime;
+  const windowMinutes = resolveDailyWindowMinutes(setting, meta);
+  const batchSize = Math.max(1, Math.min(1000, Number(setting?.config?.batch_size || 100)));
+  const perRunLimit = Math.max(batchSize, Math.min(50000, Number(setting?.config?.per_run_limit || 10000)));
+
+  const segment = {
+    key,
     checked: 0,
     sent: 0,
     failed: [],
+    enabled: setting?.enabled !== false,
     todayKey: uzDateKey(now, timeZone),
     local_now: timeInZoneLabel(now, timeZone),
     time_zone: timeZone,
@@ -1019,20 +1350,21 @@ async function processDailyReminders(env, now = new Date(), meta = {}) {
     per_run_limit: perRunLimit,
     effective_window_minutes: windowMinutes,
   };
+  result.segments[key] = segment;
 
-  if (dailySetting.enabled === false) {
-    result.note = "daily reminder disabled";
-    return result;
+  if (setting?.enabled === false) {
+    segment.note = `${key} disabled`;
+    return;
   }
 
-  if (!result.window_open) {
-    result.note = "outside daily reminder window";
-    return result;
+  if (!segment.window_open) {
+    segment.note = `outside ${key} window`;
+    return;
   }
 
   const nowIso = new Date(now).toISOString();
   const dayStartIso = uzDayStartUtcIso(now, timeZone);
-  result.day_start_utc = dayStartIso;
+  segment.day_start_utc = dayStartIso;
 
   let lastUserId = null;
   let totalScanned = 0;
@@ -1048,15 +1380,15 @@ async function processDailyReminders(env, now = new Date(), meta = {}) {
       });
     } catch (error) {
       if (sbMissingTable(error, "users")) {
-        result.note = "users table missing";
-        return result;
+        segment.note = "users table missing";
+        return;
       }
       throw error;
     }
 
     if (page?.migrationRequired) {
-      result.note = page.migrationRequired;
-      return result;
+      segment.note = page.migrationRequired;
+      return;
     }
 
     const rawRows = Array.isArray(page?.rows) ? page.rows : [];
@@ -1067,34 +1399,37 @@ async function processDailyReminders(env, now = new Date(), meta = {}) {
 
     const candidates = rawRows.filter((row) => {
       if (!row || !toSafeChatId(row.user_id) || row.daily_reminder_enabled === false) return false;
-      return canUseNotificationFeature(row, "daily_reminder").allowed;
+      const snapshot = getSubscriptionSnapshot(row);
+      return isEligible({ row, snapshot });
     });
 
+    segment.checked += candidates.length;
     result.checked += candidates.length;
 
     for (const row of candidates) {
-      const html = buildDailyReminderText(dailySetting, row.full_name, now);
+      const snapshot = getSubscriptionSnapshot(row);
+      const html = buildHtml(setting, row.full_name, now, snapshot);
 
       try {
         const delivery = await sendNotification(env, {
           userId: row.user_id,
           html,
-          title: dailySetting.title || "Kunlik eslatma",
-          type: "daily_reminder",
+          title: setting.title || (key === "free_daily_reminder" ? "Premium taklifi" : "Kunlik eslatma"),
+          type: key,
           clickUrl: "/",
-          tag: `daily-reminder-${row.user_id}`,
+          tag: `${key.replace(/_/g, "-")}-${row.user_id}`,
           data: {
             url: "/",
-            setting_key: "daily_reminder",
+            setting_key: key,
           },
         });
         if (!delivery.ok) {
           throw new Error(delivery.error || delivery.reason || "Notification delivery failed");
         }
-        await markDailyReminderSent(env, row.user_id, nowIso);
 
+        await markDailyReminderSent(env, row.user_id, nowIso);
         await sbInsertNotificationLog(env, {
-          setting_key: "daily_reminder",
+          setting_key: key,
           user_id: row.user_id,
           status: "sent",
           message_text: html,
@@ -1103,18 +1438,24 @@ async function processDailyReminders(env, now = new Date(), meta = {}) {
             send_time: sendTime,
             source: meta.source || "scheduled",
             batch_size: batchSize,
+            segment: key,
+            plan_code: snapshot?.planCode || null,
           }),
         });
 
+        segment.sent += 1;
         result.sent += 1;
       } catch (error) {
-        result.failed.push({
+        const failure = {
           user_id: row.user_id,
           error: error?.message || String(error),
-        });
+          setting_key: key,
+        };
+        segment.failed.push(failure);
+        result.failed.push(failure);
 
         await sbInsertNotificationLog(env, {
-          setting_key: "daily_reminder",
+          setting_key: key,
           user_id: row.user_id,
           status: "failed",
           message_text: html,
@@ -1124,6 +1465,8 @@ async function processDailyReminders(env, now = new Date(), meta = {}) {
             send_time: sendTime,
             source: meta.source || "scheduled",
             batch_size: batchSize,
+            segment: key,
+            plan_code: snapshot?.planCode || null,
           }),
         });
       }
@@ -1132,12 +1475,117 @@ async function processDailyReminders(env, now = new Date(), meta = {}) {
     if (rawRows.length < pageLimit) break;
   }
 
-  if (result.sent > 0) {
-    await sbTouchNotificationSetting(env, "daily_reminder", { last_sent_at: nowIso });
+  if (segment.sent > 0) {
+    await sbTouchNotificationSetting(env, key, { last_sent_at: nowIso });
   }
 
   if (totalScanned >= perRunLimit) {
-    result.note = `per_run_limit reached (${perRunLimit})`;
+    segment.note = `per_run_limit reached (${perRunLimit})`;
+  }
+}
+
+function summarizeDailyReminderSegment(segment = {}) {
+  return {
+    enabled: segment?.enabled !== false,
+    window_open: segment?.window_open === true,
+    checked: Number(segment?.checked || 0),
+    sent: Number(segment?.sent || 0),
+    failed: Array.isArray(segment?.failed) ? segment.failed.length : 0,
+    today_key: segment?.todayKey || null,
+    local_now: segment?.local_now || null,
+    time_zone: segment?.time_zone || null,
+    scheduled_for: segment?.scheduled_for || null,
+    batch_size: Number(segment?.batch_size || 0) || null,
+    per_run_limit: Number(segment?.per_run_limit || 0) || null,
+    effective_window_minutes: Number(segment?.effective_window_minutes || 0) || null,
+    note: segment?.note || null,
+  };
+}
+
+async function logDailyReminderSegment(env, key, segment, meta = {}) {
+  if (!segment) return;
+
+  const logger = getWorkerLogger(env);
+  const payload = {
+    ...summarizeDailyReminderSegment(segment),
+    source: meta.source || "scheduled",
+    cron: meta.cron || null,
+    scheduledTime: meta.scheduledTime || null,
+    setting_key: key,
+  };
+
+  if (Array.isArray(segment.failed) && segment.failed.length > 0) {
+    await logger.error({
+      scope: `notifications.${key}`,
+      message: `${key} xatolar bilan yakunlandi`,
+      payload: {
+        ...payload,
+        failures: segment.failed.slice(0, 10),
+      },
+    }).catch(() => {});
+    return;
+  }
+
+  if (Number(segment.sent || 0) > 0) {
+    await logger.success({
+      scope: `notifications.${key}`,
+      message: `${key} muvaffaqiyatli yuborildi`,
+      payload,
+    }).catch(() => {});
+    return;
+  }
+
+  if (segment.window_open === true) {
+    await logger.info({
+      scope: `notifications.${key}`,
+      message: `${key} uchun yuboriladigan foydalanuvchi topilmadi`,
+      payload,
+    }).catch(() => {});
+  }
+}
+
+async function processDailyReminders(env, now = new Date(), meta = {}) {
+  const settings = meta.settings || await sbGetNotificationSettings(env);
+  const premiumSetting = settings.daily_reminder || mergeNotificationSetting("daily_reminder");
+  const freeSetting = settings.free_daily_reminder || mergeNotificationSetting("free_daily_reminder");
+
+  const result = {
+    checked: 0,
+    sent: 0,
+    failed: [],
+    todayKey: uzDateKey(now, TASHKENT_TIME_ZONE),
+    local_now: timeInZoneLabel(now, TASHKENT_TIME_ZONE),
+    time_zone: TASHKENT_TIME_ZONE,
+    segments: {},
+  };
+
+  await runDailyReminderSegment(env, result, {
+    key: "daily_reminder",
+    setting: premiumSetting,
+    now,
+    meta,
+    buildHtml: buildDailyReminderText,
+    isEligible: ({ row, snapshot }) => (
+      snapshot?.schemaReady === true &&
+      snapshot?.isPremium === true &&
+      canUseNotificationFeature(row, "daily_reminder").allowed
+    ),
+  });
+
+  await runDailyReminderSegment(env, result, {
+    key: "free_daily_reminder",
+    setting: freeSetting,
+    now,
+    meta,
+    buildHtml: buildFreeDailyReminderText,
+    isEligible: ({ snapshot }) => snapshot?.schemaReady === true && snapshot?.isPremium !== true,
+  });
+
+  await logDailyReminderSegment(env, "free_daily_reminder", result.segments.free_daily_reminder, meta);
+
+  result.window_open = Object.values(result.segments).some((segment) => segment.window_open === true);
+  if (!result.window_open) {
+    result.note = "outside daily reminder windows";
   }
 
   return result;
@@ -1157,6 +1605,7 @@ async function processDailyReports(env, now = new Date(), meta = {}) {
   const result = {
     checked: 0,
     sent: 0,
+    empty_state_sent: 0,
     failed: [],
     todayKey: uzDateKey(now, timeZone),
     local_now: timeInZoneLabel(now, timeZone),
@@ -1180,7 +1629,9 @@ async function processDailyReports(env, now = new Date(), meta = {}) {
 
   const nowIso = new Date(now).toISOString();
   const dayStartIso = uzDayStartUtcIso(now, timeZone);
+  const dayEndIso = uzNextDayStartUtcIso(now, timeZone);
   result.day_start_utc = dayStartIso;
+  result.day_end_utc = dayEndIso;
 
   let lastUserId = null;
   let totalScanned = 0;
@@ -1215,63 +1666,110 @@ async function processDailyReports(env, now = new Date(), meta = {}) {
 
     const candidates = rawRows.filter((row) => {
       if (!row || !toSafeChatId(row.user_id) || row.daily_reminder_enabled === false) return false;
-      return canUseNotificationFeature(row, "daily_report").allowed;
+      const snapshot = getSubscriptionSnapshot(row);
+      return (
+        snapshot?.schemaReady === true &&
+        snapshot?.isPremium === true &&
+        canUseNotificationFeature(row, "daily_report").allowed
+      );
     });
 
     result.checked += candidates.length;
 
     for (const row of candidates) {
-      const html = buildDailyReportText(reportSetting, row.full_name, now);
-
       try {
-        const delivery = await sendNotification(env, {
-          userId: row.user_id,
-          html,
-          title: reportSetting.title || "Kunlik hisobot",
-          type: "daily_report",
-          clickUrl: "/",
-          tag: `daily-report-${row.user_id}`,
-          data: {
-            url: "/",
-            setting_key: "daily_report",
-          },
-        });
-        if (!delivery.ok) {
-          throw new Error(delivery.error || delivery.reason || "Notification delivery failed");
+        const dataset = await buildDailyReportDataset(env, row.user_id, dayStartIso, dayEndIso);
+        const summary = summarizeDailyReport(dataset);
+        const hasActivity = Number(summary.totalActivities || 0) > 0;
+
+        let messageText = "";
+        let deliveryMeta = null;
+
+        if (hasActivity) {
+          const pdfBytes = buildDailyReportPdf(dataset, {
+            generatedAt: now,
+            timeZone,
+            fullName: row.full_name || "",
+          });
+          const pdfBlob = new Blob([pdfBytes], { type: "application/pdf" });
+          const caption = buildDailyReportCaption(row.full_name, summary, now, timeZone);
+          const fileName = `Kassa_daily_${result.todayKey}.pdf`;
+          const tgResult = await tgSendDocument(env, row.user_id, pdfBlob, fileName, caption, "application/pdf");
+
+          messageText = caption;
+          deliveryMeta = buildTelegramDeliveryMeta(tgResult?.result?.message_id || null, {
+            send_time: sendTime,
+            source: meta.source || "scheduled",
+            batch_size: batchSize,
+            report_kind: "pdf",
+            transactions_count: summary.transactionsCount,
+            debts_count: summary.debtsCount,
+            plans_count: summary.plansCount,
+            total_activities: summary.totalActivities,
+          });
+        } else {
+          const warningText = buildEmptyDailyReportText(row.full_name, now, timeZone);
+          const stickerBlob = buildEmptyReportStickerBlob();
+          let stickerResult = null;
+          let stickerError = null;
+
+          if (stickerBlob) {
+            try {
+              stickerResult = await tgSendSticker(env, row.user_id, stickerBlob);
+            } catch (error) {
+              stickerError = error?.message || String(error);
+            }
+          }
+
+          const tgResult = await tgSendMessage(env, row.user_id, warningText);
+          messageText = warningText;
+          deliveryMeta = buildTelegramDeliveryMeta(tgResult?.result?.message_id || null, {
+            send_time: sendTime,
+            source: meta.source || "scheduled",
+            batch_size: batchSize,
+            report_kind: "empty_state",
+            transactions_count: 0,
+            debts_count: 0,
+            plans_count: 0,
+            total_activities: 0,
+            sticker_sent: !!stickerResult,
+            sticker_message_id: stickerResult?.result?.message_id || null,
+            sticker_error: stickerError,
+          });
+          result.empty_state_sent += 1;
         }
+
         await markDailyReportSent(env, row.user_id, nowIso);
 
         await sbInsertNotificationLog(env, {
           setting_key: "daily_report",
           user_id: row.user_id,
           status: "sent",
-          message_text: html,
+          message_text: messageText,
           sent_at: nowIso,
-          meta: buildDeliveryMeta(delivery, {
-            send_time: sendTime,
-            source: meta.source || "scheduled",
-            batch_size: batchSize,
-          }),
+          meta: deliveryMeta,
         });
 
         result.sent += 1;
       } catch (error) {
-        result.failed.push({
+        const failure = {
           user_id: row.user_id,
           error: error?.message || String(error),
-        });
+        };
+        result.failed.push(failure);
 
         await sbInsertNotificationLog(env, {
           setting_key: "daily_report",
           user_id: row.user_id,
           status: "failed",
-          message_text: html,
+          message_text: buildDailyReportText(reportSetting, row.full_name, now),
           error_text: error?.message || String(error),
           sent_at: nowIso,
           meta: buildDeliveryMeta(null, {
             send_time: sendTime,
             source: meta.source || "scheduled",
             batch_size: batchSize,
+            report_kind: "failed",
           }),
         });
       }
@@ -1960,6 +2458,9 @@ async function handleNotifyMiniAppTx(request, env) {
 
     const userId = body.user_id || body.userId;
     const amount = Number(body.amount || 0);
+    const currency = String(body.currency || "UZS").trim().toUpperCase() === "USD" ? "USD" : "UZS";
+    const originalAmount = Number(body.original_amount || body.originalAmount || 0);
+    const exchangeRateUsed = Number(body.exchange_rate_used || body.exchangeRateUsed || 0);
     const type = String(body.type || "expense") === "income" ? "income" : "expense";
     const category = String(body.category || "Xarajat").trim() || "Xarajat";
     const source = String(body.source || "mini_app").trim() || "mini_app";
@@ -1972,12 +2473,18 @@ async function handleNotifyMiniAppTx(request, env) {
 
     const icon = type === "income" ? "🟢" : "🔴";
     const label = type === "income" ? "Kirim" : "Chiqim";
+    const amountHtml = currency === "USD" && originalAmount > 0
+      ? `${`$${numFmt(originalAmount)}`}\n<i>${numFmt(amount)} so'm${exchangeRateUsed > 0 ? ` · kurs ${numFmt(exchangeRateUsed)}` : ""}</i>`
+      : `${numFmt(amount)} so'm`;
+    const amountBody = currency === "USD" && originalAmount > 0
+      ? `${numFmt(originalAmount)} USD · ${numFmt(amount)} so'm`
+      : `${numFmt(amount)} so'm`;
 
     const lines = [
       `${icon} <b>Mini App orqali yangi operatsiya kiritildi</b>`,
       ``,
       `<b>Turi:</b> ${label}`,
-      `<b>Summa:</b> ${numFmt(amount)} so'm`,
+      `<b>Summa:</b> ${amountHtml}`,
       `<b>Kategoriya:</b> ${esc(category)}`,
       `<b>Manba:</b> ${esc(source)}`,
     ];
@@ -1993,7 +2500,7 @@ async function handleNotifyMiniAppTx(request, env) {
     const delivery = await sendNotification(env, {
       userId: chatId,
       title: "Yangi operatsiya",
-      body: `${label}: ${numFmt(amount)} so'm · ${category}`,
+      body: `${label}: ${amountBody} · ${category}`,
       html: lines.join("\n"),
       type: "miniapp_tx",
       clickUrl: "/history",
@@ -2004,6 +2511,8 @@ async function handleNotifyMiniAppTx(request, env) {
         source,
         category,
         amount: String(amount),
+        currency,
+        original_amount: originalAmount > 0 ? String(originalAmount) : "",
       },
     });
     if (!delivery.ok) {

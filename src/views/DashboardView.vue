@@ -32,7 +32,45 @@
         </div>
 
         <div class="balance-card" id="bc">
-          <div class="bc-label" data-i18n="balance_title">Umumiy Qoldiq</div>
+          <div class="bc-head">
+            <div class="bc-label" data-i18n="balance_title">Umumiy Qoldiq</div>
+            <div class="bc-tools">
+              <button
+                type="button"
+                class="bc-tool-btn"
+                onclick="openBalanceConverter('UZS','USD')"
+                data-i18n-title="balance_convert_open_uzs_usd"
+                data-i18n-aria-label="balance_convert_open_uzs_usd"
+                title="UZS → USD"
+                aria-label="UZS → USD"
+              >
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M4 7h11"></path>
+                  <path d="M11 4l4 3-4 3"></path>
+                  <path d="M20 17H9"></path>
+                  <path d="M13 14l-4 3 4 3"></path>
+                </svg>
+                <span>UZS</span>
+              </button>
+              <button
+                type="button"
+                class="bc-tool-btn"
+                onclick="openBalanceConverter('USD','UZS')"
+                data-i18n-title="balance_convert_open_usd_uzs"
+                data-i18n-aria-label="balance_convert_open_usd_uzs"
+                title="USD → UZS"
+                aria-label="USD → UZS"
+              >
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M4 7h11"></path>
+                  <path d="M11 4l4 3-4 3"></path>
+                  <path d="M20 17H9"></path>
+                  <path d="M13 14l-4 3 4 3"></path>
+                </svg>
+                <span>USD</span>
+              </button>
+            </div>
+          </div>
           <div class="bc-amount loading" id="total-bal">— so'm</div>
           <div class="bc-pills">
             <div class="cpill on" id="pill-uzs" onclick="setCur('UZS')">UZS</div>

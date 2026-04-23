@@ -192,6 +192,46 @@ const md2html = (t) => String(t ?? '')
 
 // Raqamni lokal formatda ko'rsatish
 const numFmt = n => Number(n || 0).toLocaleString('ru-RU');
+const normalizeTransactionCurrency = value => String(value || '').trim().toUpperCase() === 'USD' ? 'USD' : 'UZS';
+const roundOriginalTransactionAmount = (value, currencyCode = 'UZS') => {
+  const amount = Number(value || 0);
+  if (!Number.isFinite(amount) || amount <= 0) return 0;
+  return normalizeTransactionCurrency(currencyCode) === 'USD'
+    ? Math.round(amount * 100) / 100
+    : Math.round(amount);
+};
+const resolveTransactionBaseAmount = (value, currencyCode = 'UZS', exchangeRate = DEFAULT_RATE) => {
+  const originalAmount = roundOriginalTransactionAmount(value, currencyCode);
+  if (!originalAmount) return 0;
+  if (normalizeTransactionCurrency(currencyCode) === 'USD') {
+    const safeRate = Number(exchangeRate || DEFAULT_RATE);
+    return safeRate > 0 ? Math.round(originalAmount * safeRate) : 0;
+  }
+  return Math.round(originalAmount);
+};
+function formatTransactionOriginalAmount(value, currencyCode = 'UZS') {
+  const normalizedCurrency = normalizeTransactionCurrency(currencyCode);
+  const safeAmount = roundOriginalTransactionAmount(value, normalizedCurrency);
+  if (normalizedCurrency === 'USD') return `$${numFmt(safeAmount)}`;
+  return `${numFmt(safeAmount)} so'm`;
+}
+function buildPreparedAmountText(prepared = {}) {
+  const currencyCode = normalizeTransactionCurrency(prepared.currency);
+  if (currencyCode === 'USD' && Number(prepared.originalAmount || 0) > 0) {
+    const rateLine = Number(prepared.exchangeRateUsed || 0) > 0
+      ? `${numFmt(prepared.exchangeRateUsed)} kurs bo'yicha ${numFmt(prepared.amount)} so'm`
+      : `${numFmt(prepared.amount)} so'm`;
+    return `${formatTransactionOriginalAmount(prepared.originalAmount, currencyCode)}\n<i>${rateLine}</i>`;
+  }
+  return `${numFmt(prepared.amount)} so'm`;
+}
+function buildPreparedAmountInline(prepared = {}) {
+  const currencyCode = normalizeTransactionCurrency(prepared.currency);
+  if (currencyCode === 'USD' && Number(prepared.originalAmount || 0) > 0) {
+    return `${numFmt(prepared.originalAmount)} USD · ${numFmt(prepared.amount)} so'm`;
+  }
+  return `${numFmt(prepared.amount)} so'm`;
+}
 const isAdmin = userId => ADMIN_IDS.has(String(userId));
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 const BOT_USERNAME = String(process.env.BOT_USERNAME || '').trim().replace(/^@+/, '').toLowerCase();
@@ -200,6 +240,9 @@ const REFERRAL_PREMIUM_THRESHOLD = 5;
 const REFERRAL_PREMIUM_DAYS = 30;
 let txSourceColumnSupported = null;
 let txSourceRefColumnSupported = null;
+let txCurrencyColumnSupported = null;
+let txOriginalAmountColumnSupported = null;
+let txExchangeRateColumnSupported = null;
 let debtSettlementColumnSupported = null;
 let categoryLimitNameColumnSupported = null;
 const SUBSCRIPTION_FIELDS = Array.isArray(subscriptionHelpers.SUBSCRIPTION_FIELDS)
@@ -1238,6 +1281,40 @@ async function maybeGrantReferralPremium(inviterId) {
   return { rewarded: true, qualifiedCount, user: refreshed };
 }
 
+function buildReferralStartNotifyText(invitedUserName, qualifiedCount = 0) {
+  const safeQualifiedCount = Math.max(0, Number(qualifiedCount || 0));
+  const remaining = Math.max(0, REFERRAL_PREMIUM_THRESHOLD - safeQualifiedCount);
+  const safeName = esc(invitedUserName || 'Yangi foydalanuvchi');
+
+  if (remaining > 0) {
+    return `👋 <b>${safeName}</b> sizning referral linkingiz orqali /start bosdi.
+
+Premium tarifni faollashtirish uchun yana <b>${remaining} ta</b> do'stingiz to'liq ro'yxatdan o'tishi kerak.`;
+  }
+
+  return `👋 <b>${safeName}</b> sizning referral linkingiz orqali /start bosdi.
+
+Referral bo'yicha kerakli limit allaqachon yig'ilgan. Endi foydalanuvchi ro'yxatdan o'tsa hisobga qo'shiladi.`;
+}
+
+async function notifyReferralInviterOnStart(inviterId, invitedUserName) {
+  const safeInviterId = Number(inviterId || 0);
+  if (!safeInviterId) return { ok: false, reason: 'missing_inviter' };
+
+  const qualifiedCount = await countQualifiedReferrals(safeInviterId);
+  await bot.sendMessage(
+    safeInviterId,
+    buildReferralStartNotifyText(invitedUserName, qualifiedCount),
+    { parse_mode: 'HTML' }
+  );
+
+  return {
+    ok: true,
+    qualifiedCount,
+    remaining: Math.max(0, REFERRAL_PREMIUM_THRESHOLD - qualifiedCount),
+  };
+}
+
 function categoryLimitNameColumn() {
   return categoryLimitNameColumnSupported === 'name' ? 'name' : 'category_name';
 }
@@ -1403,41 +1480,58 @@ async function sendCategoryLimitAlert(userId, chatId, category, latestAmount, tx
 async function insertTransactions(rows, source = 'bot', options = {}) {
   const shouldReturnRows = options?.returning !== false;
   const payload = (rows || []).map(row => ({ ...row }));
+  const enriched = payload.map(row => {
+    const next = { ...row };
+    if (txSourceColumnSupported !== false) next.source = source;
+    else delete next.source;
 
-  if (txSourceColumnSupported !== false || txSourceRefColumnSupported !== false) {
-    const enriched = payload.map(row => {
-      const next = { ...row };
-      if (txSourceColumnSupported !== false) next.source = source;
-      if (txSourceRefColumnSupported !== false && row.source_ref) next.source_ref = row.source_ref;
-      return next;
-    });
+    if (txSourceRefColumnSupported !== false && row.source_ref) next.source_ref = row.source_ref;
+    else delete next.source_ref;
 
-    const res = shouldReturnRows
-      ? await db.from('transactions').insert(enriched).select()
-      : await db.from('transactions').insert(enriched);
-    if (!res.error) {
-      if (txSourceColumnSupported !== false) txSourceColumnSupported = true;
-      if (payload.some(row => row.source_ref)) txSourceRefColumnSupported = true;
-      return res;
-    }
+    if (txCurrencyColumnSupported === false) delete next.currency;
+    if (txOriginalAmountColumnSupported === false) delete next.original_amount;
+    if (txExchangeRateColumnSupported === false) delete next.exchange_rate_used;
+    return next;
+  });
 
-    if (isMissingColumnError(res.error, 'source_ref')) {
-      txSourceRefColumnSupported = false;
-      return insertTransactions(rows, source, options);
-    }
-
-    if (isMissingColumnError(res.error, 'source')) {
-      txSourceColumnSupported = false;
-      return insertTransactions(rows, source, options);
-    }
-
+  const res = shouldReturnRows
+    ? await db.from('transactions').insert(enriched).select()
+    : await db.from('transactions').insert(enriched);
+  if (!res.error) {
+    if (txSourceColumnSupported !== false) txSourceColumnSupported = true;
+    if (payload.some(row => row.source_ref)) txSourceRefColumnSupported = true;
+    if (payload.some(row => row.currency)) txCurrencyColumnSupported = true;
+    if (payload.some(row => row.original_amount != null)) txOriginalAmountColumnSupported = true;
+    if (payload.some(row => row.exchange_rate_used != null)) txExchangeRateColumnSupported = true;
     return res;
   }
 
-  const plain = payload.map(({ source_ref, ...rest }) => ({ ...rest }));
-  return shouldReturnRows
-    ? db.from('transactions').insert(plain).select()
-    : db.from('transactions').insert(plain);
+  if (isMissingColumnError(res.error, 'source_ref')) {
+    txSourceRefColumnSupported = false;
+    return insertTransactions(rows, source, options);
+  }
+
+  if (isMissingColumnError(res.error, 'source')) {
+    txSourceColumnSupported = false;
+    return insertTransactions(rows, source, options);
+  }
+
+  if (isMissingColumnError(res.error, 'currency')) {
+    txCurrencyColumnSupported = false;
+    return insertTransactions(rows, source, options);
+  }
+
+  if (isMissingColumnError(res.error, 'original_amount')) {
+    txOriginalAmountColumnSupported = false;
+    return insertTransactions(rows, source, options);
+  }
+
+  if (isMissingColumnError(res.error, 'exchange_rate_used')) {
+    txExchangeRateColumnSupported = false;
+    return insertTransactions(rows, source, options);
+  }
+
+  return res;
 }
 
 
@@ -1455,6 +1549,24 @@ Bugungi xarajatlarni kiritib borishni unutmang.
 
 📅 Bugun: {{today}}
 🤝 <i>24/7 xizmatingizda man!</i>`,
+    config: { window_minutes: 5 }
+  },
+  free_daily_reminder: {
+    key: 'free_daily_reminder',
+    title: '✨ Premium taklifi',
+    enabled: true,
+    send_time: '10:00',
+    timezone: 'Asia/Tashkent',
+    message_template: `✨ <b>Assalomu aleykum{{name_block}}</b>
+
+Bugun {{weekday}} va siz hali <b>Premium</b> tarifini faollashtirmagansiz.
+
+Premium bilan:
+• hisob-kitoblaringiz yanada tartibli bo'ladi
+• qarz va limitlarni qulay nazorat qilasiz
+• foydali kunlik eslatmalarni o'z vaqtida olasiz
+
+💎 Moliyaviy tartibni kuchaytirish uchun Premium tarifini yoqib ko'ring.`,
     config: { window_minutes: 5 }
   },
   daily_report: {
@@ -1497,7 +1609,7 @@ Bugungi kirim-chiqimlaringizni yakunlab, kunlik hisobotingizni tekshirib chiqing
   }
 };
 
-const NOTIFICATION_SETTING_ORDER = ['daily_reminder', 'daily_report', 'debt_reminder', 'scheduled_queue'];
+const NOTIFICATION_SETTING_ORDER = ['daily_reminder', 'free_daily_reminder', 'daily_report', 'debt_reminder', 'scheduled_queue'];
 
 function normalizeNotifTime(value, fallback = '09:00') {
   const raw = String(value || '').trim();
@@ -1653,13 +1765,15 @@ function buildNotificationHelpText(key) {
 <b>/notif on ${sample}</b> — yoqish
 <b>/notif off ${sample}</b> — o'chirish
 <b>/notif time daily_reminder 08:30</b> — ertalabgi eslatma vaqtini o'zgartirish
+<b>/notif time free_daily_reminder 10:00</b> — premium taklif vaqtini o'zgartirish
 <b>/notif time daily_report 22:00</b> — kunlik hisobot vaqtini o'zgartirish
 <b>/notif text daily_reminder Assalomu aleykum...</b> — matnni yangilash
+<b>/notif text free_daily_reminder Premium tarifini yoqing...</b> — matnni yangilash
 <b>/notif text daily_report Kunlik hisobotingiz...</b> — matnni yangilash
 <b>/notif reset daily_report</b> — default matnni qaytarish
 <b>/notif test daily_report</b> — test yuborish
 
-Mavjud keylar: <code>daily_reminder</code>, <code>daily_report</code>, <code>debt_reminder</code>, <code>scheduled_queue</code>`;
+Mavjud keylar: <code>daily_reminder</code>, <code>free_daily_reminder</code>, <code>daily_report</code>, <code>debt_reminder</code>, <code>scheduled_queue</code>`;
 }
 
 function buildNotificationDetailText(setting) {
@@ -1680,16 +1794,22 @@ function buildNotificationDetailMarkup(setting) {
     ]
   ];
 
-  if (setting.key === 'daily_reminder' || setting.key === 'daily_report') {
+  if (setting.key === 'daily_reminder' || setting.key === 'free_daily_reminder' || setting.key === 'daily_report') {
+    const fallbackTime = setting.key === 'daily_report' ? '22:00' : setting.key === 'free_daily_reminder' ? '10:00' : '09:00';
+    const presetTimes = setting.key === 'daily_report'
+      ? ['21:00', '22:00', '23:00']
+      : setting.key === 'free_daily_reminder'
+        ? ['09:30', '10:00', '10:30']
+        : ['08:00', '09:00', '10:00'];
     rows.push([
       { text: '➖ 30m', callback_data: `notif_shift:${setting.key}:-30` },
-      { text: `🕒 ${setting.send_time || (setting.key === 'daily_report' ? '22:00' : '09:00')}`, callback_data: `notif_noop:${setting.key}` },
+      { text: `🕒 ${setting.send_time || fallbackTime}`, callback_data: `notif_noop:${setting.key}` },
       { text: '➕ 30m', callback_data: `notif_shift:${setting.key}:30` }
     ]);
     rows.push([
-      { text: setting.key === 'daily_report' ? '21:00' : '08:00', callback_data: `notif_preset:${setting.key}:${setting.key === 'daily_report' ? '21-00' : '08-00'}` },
-      { text: setting.key === 'daily_report' ? '22:00' : '09:00', callback_data: `notif_preset:${setting.key}:${setting.key === 'daily_report' ? '22-00' : '09-00'}` },
-      { text: setting.key === 'daily_report' ? '23:00' : '10:00', callback_data: `notif_preset:${setting.key}:${setting.key === 'daily_report' ? '23-00' : '10-00'}` }
+      { text: presetTimes[0], callback_data: `notif_preset:${setting.key}:${presetTimes[0].replace(':', '-')}` },
+      { text: presetTimes[1], callback_data: `notif_preset:${setting.key}:${presetTimes[1].replace(':', '-')}` },
+      { text: presetTimes[2], callback_data: `notif_preset:${setting.key}:${presetTimes[2].replace(':', '-')}` }
     ]);
   }
 
@@ -1714,7 +1834,8 @@ function buildNotificationPreviewVars(settingKey) {
 
   return {
     name_block: `, <b>${esc('Nurali')}</b>`,
-    today: esc(new Date().toLocaleDateString('uz-UZ'))
+    today: esc(new Date().toLocaleDateString('uz-UZ')),
+    weekday: esc(new Intl.DateTimeFormat('uz-UZ', { weekday: 'long' }).format(new Date()))
   };
 }
 
@@ -1881,7 +2002,7 @@ async function fetchAdminUsersPage(offset = 0, pageSize = ADMIN_USERS_PAGE_SIZE)
           .order('created_at', { ascending: false })
           .order('user_id', { ascending: false })
           .range(safeOffset, to);
-        }
+      }
       return response;
     })(),
     getCachedAdminUserCount(),
@@ -2703,6 +2824,7 @@ function inferTransactionType(lower) {
   if (/\b(?:menga|hisobimga|kartamga)\b.*\b(?:tushdi|keldi|o'?tdi|kelib tushdi)\b/i.test(normalized)) incomeScore += 8;
   if (/\b(?:mijozdan|klientdan|dadamdan|onamdan|akamdan|ukamdan|opamdan|singlimdan|do'?stimdan|boshliqdan)\b.*\b(?:oldim|oldik|qabul qildim)\b/i.test(normalized)) incomeScore += 7;
   if (/\b[\p{L}0-9'’`\-]+(?:dan|tan)\b.*\b(?:oldim|oldik|qabul qildim|keldi|tushdi|o'?tdi|kelib tushdi)\b/iu.test(normalized)) incomeScore += 9;
+  if (/^\s*[\p{L}0-9'’`\-]+(?:dan|tan)\b(?:\s+\d[\d\s.,]*|\s+\d+\s*(?:ming|min|mln|mn|m|mlrd|million|milliard)\b|\s+\$?\d)/iu.test(normalized)) incomeScore += 7;
   if (/\b(?:tushdi|keldi|kelib tushdi|o'?tdi)\b/i.test(normalized) && !/\b(?:chiqim|xarajat|berdim|to'?ladim|sarfladim|jo'?natdim|o'?tkazdim|uzatdim)\b/i.test(normalized)) incomeScore += 4;
   if (/\b(?:qaytdi|qaytarib berdi|qaytarildi)\b/i.test(normalized)) incomeScore += 4;
   if (/\b(?:sovg'a|sovga|hadya)\b/i.test(normalized)) incomeScore += 4;
@@ -2710,6 +2832,7 @@ function inferTransactionType(lower) {
   if (/\b(?:chiqim|xarajat)\b/i.test(normalized)) expenseScore += 12;
   if (/\b(?:berdim|to'?ladim|sarfladim|jo'?natdim|o'?tkazdim|uzatdim)\b/i.test(normalized)) expenseScore += 8;
   if (/\b(?:sotib oldim|xarid qildim)\b/i.test(normalized)) expenseScore += 8;
+  if (/^\s*[\p{L}0-9'’`\-]+(?:ga|ka|qa)\b(?:\s+\d[\d\s.,]*|\s+\d+\s*(?:ming|min|mln|mn|m|mlrd|million|milliard)\b|\s+\$?\d)/iu.test(normalized)) expenseScore += 7;
   if (/\boldim\b/i.test(normalized) && !/\b(?:mijozdan|klientdan|dadamdan|onamdan|akamdan|ukamdan|opamdan|singlimdan|do'?stimdan|boshliqdan)\b/i.test(normalized) && !/\b(?:oylik|maosh|avans|bonus|cashback|daromad|foyda|qaytim|astatka|kirim)\b/i.test(normalized)) expenseScore += 4;
   if (/\b[\p{L}0-9'’`\-]+(?:ga|ka|qa)\b.*\b(?:berdim|to'?ladim|sarfladim|jo'?natdim|o'?tkazdim|uzatdim)\b/iu.test(normalized)) expenseScore += 9;
   if (/\buchun\b/i.test(normalized) && /\b(?:berdim|to'?ladim|sarfladim|sotib oldim|xarid qildim|oldim)\b/i.test(normalized)) expenseScore += 6;
@@ -3431,25 +3554,85 @@ function isSuspiciousLocalParse(rawText, parsed) {
   return false;
 }
 
-// ─── SAVE TRANSACTION ────────────────────────────────────
-async function saveTx(userId, chatId, parsed, receiptUrl = null, exRate = DEFAULT_RATE, replyId = null, rawText = '', req = null) {
-  const safeRate = Number(exRate) > 0 ? Number(exRate) : DEFAULT_RATE;
+function splitBatchTransactionLines(raw) {
+  return String(raw || '')
+    .split(/\r?\n+/)
+    .map((line) => String(line || '').replace(/^\s*[-*•]+\s*/, '').trim())
+    .filter(Boolean);
+}
 
-  let amount = parsed.amount;
+async function parseBatchTransactions(raw) {
+  const lines = splitBatchTransactionLines(raw);
+  if (lines.length < 2) return null;
+
+  const items = [];
+  const errors = [];
+
+  for (const line of lines) {
+    if (/\b(?:qarz|nasiya|reja|plan|limit|byudjet|budjet|qaytdi|qaytardi|qaytarildi|qaytarib berdi|uzdim)\b/i.test(line)) {
+      return null;
+    }
+
+    let parsed = parseText(line);
+    if (line.length > 5 && openai && (!parsed || isSuspiciousLocalParse(line, parsed))) {
+      const gptParsed = await gptParse(line);
+      if (gptParsed) parsed = gptParsed;
+    }
+
+    if (!parsed) {
+      errors.push(line);
+      continue;
+    }
+
+    items.push({ rawText: line, parsed });
+  }
+
+  return {
+    lines,
+    items,
+    errors,
+    ok: errors.length === 0 && items.length > 0,
+  };
+}
+
+function buildBatchParseErrorText(lines = []) {
+  const preview = (lines || [])
+    .slice(0, 5)
+    .map((line, index) => `${index + 1}. <code>${esc(line)}</code>`)
+    .join('\n');
+
+  return `⚠️ Ba'zi satrlarni tushunmadim.
+
+Iltimos, quyidagi yozuvlarni aniqroq yuboring:
+${preview}
+
+<i>Masalan:
+Abedga 50 ming
+Dadamdan 100 ming
+Ustaga 5 mln</i>`;
+}
+
+async function prepareParsedTransactionForInsert(userId, parsed, options = {}) {
+  const safeRate = Number(options?.exRate) > 0 ? Number(options.exRate) : DEFAULT_RATE;
+  const receiptUrl = options?.receiptUrl || null;
+  const rawText = options?.rawText || '';
+  const userCats = Array.isArray(options?.userCats) ? options.userCats : null;
+
+  const currency = normalizeTransactionCurrency(parsed?.isUSD ? 'USD' : 'UZS');
+  const originalAmount = roundOriginalTransactionAmount(parsed.amount, currency);
+  const exchangeRateUsed = currency === 'USD' && safeRate > 0 ? safeRate : null;
+  let amount = resolveTransactionBaseAmount(originalAmount, currency, safeRate);
   let category = parsed.category;
 
-  try {
-    const userCats = await fetchUserCategories(userId);
+  if (userCats) {
     category = resolveCategoryForUser(parsed, userCats, rawText) || category;
-  } catch (error) {
-    await logErr('category-resolve', error, { userId });
-  }
-  let amtTxt = `${numFmt(amount)} so'm`;
-
-  if (parsed.isUSD) {
-    amount = Math.round(parsed.amount * safeRate);
-    category = `${parsed.category} ($${parsed.amount})`;
-    amtTxt = `${numFmt(amount)} so'm\n<i>($${numFmt(parsed.amount)} × ${numFmt(safeRate)})</i>`;
+  } else {
+    try {
+      const freshCats = await fetchUserCategories(userId);
+      category = resolveCategoryForUser(parsed, freshCats, rawText) || category;
+    } catch (error) {
+      await logErr('category-resolve', error, { userId });
+    }
   }
 
   const row = {
@@ -3459,7 +3642,104 @@ async function saveTx(userId, chatId, parsed, receiptUrl = null, exRate = DEFAUL
     type: parsed.type,
     date: iso(),
     receipt_url: receiptUrl || null,
+    currency,
+    original_amount: originalAmount,
+    exchange_rate_used: exchangeRateUsed,
   };
+
+  const amtTxt = buildPreparedAmountText({
+    amount,
+    currency,
+    originalAmount,
+    exchangeRateUsed,
+  });
+
+  return {
+    row,
+    amount,
+    currency,
+    originalAmount,
+    exchangeRateUsed,
+    amountInline: buildPreparedAmountInline({
+      amount,
+      currency,
+      originalAmount,
+    }),
+    category,
+    amtTxt,
+    parsed,
+    ico: parsed.type === 'income' ? '🟢' : '🔴',
+    typ: parsed.type === 'income' ? 'Kirim' : 'Chiqim',
+    chk: receiptUrl ? '📸 Bor' : 'Yo\'q',
+  };
+}
+
+function buildBatchSavedSummary(preparedRows = []) {
+  const preview = preparedRows
+    .slice(0, 8)
+    .map((item) => `${item.ico} <b>${item.typ}</b> · ${esc(item.amountInline || buildPreparedAmountInline(item))} · ${esc(item.row.category)}`)
+    .join('\n');
+  const hiddenCount = Math.max(0, preparedRows.length - 8);
+
+  return `✅ <b>${preparedRows.length} ta yozuv saqlandi!</b>
+
+${preview}${hiddenCount > 0 ? `\n… yana <b>${hiddenCount} ta</b> yozuv saqlandi.` : ''}`;
+}
+
+async function saveTxBatch(userId, chatId, items, exRate = DEFAULT_RATE, replyId = null, req = null) {
+  let userCats = [];
+  try {
+    userCats = await fetchUserCategories(userId);
+  } catch (error) {
+    await logErr('category-resolve-batch', error, { userId });
+  }
+
+  const preparedRows = [];
+  for (const item of items || []) {
+    const prepared = await prepareParsedTransactionForInsert(userId, item.parsed, {
+      exRate,
+      rawText: item.rawText,
+      userCats,
+    });
+    preparedRows.push(prepared);
+  }
+
+  const rows = preparedRows.map((item) => item.row);
+  const { error } = await insertTransactions(rows, 'bot', { returning: false });
+  if (error) {
+    await logErr('save-tx-batch', error, { userId, chatId, count: rows.length });
+    await bot.sendMessage(chatId, '⚠️ Bazaga yozishda xatolik. Keyinroq urinib ko\'ring.').catch(() => { });
+    return null;
+  }
+
+  const opts = { parse_mode: 'HTML' };
+  if (replyId) opts.reply_to_message_id = replyId;
+
+  await bot.sendMessage(chatId, buildBatchSavedSummary(preparedRows), opts).catch(() => { });
+
+  runInBackground(req, async () => {
+    const tasks = preparedRows.map((item) => (
+      sendCategoryLimitAlert(userId, chatId, item.row.category, item.row.amount, item.row.type)
+    ));
+    await Promise.allSettled(tasks);
+  }, 'tx-batch-limit-alert');
+
+  log('tx-batch-saved', {
+    userId,
+    count: rows.length,
+    currencies: preparedRows.map((item) => item.currency || 'UZS'),
+  });
+  return rows;
+}
+
+// ─── SAVE TRANSACTION ────────────────────────────────────
+async function saveTx(userId, chatId, parsed, receiptUrl = null, exRate = DEFAULT_RATE, replyId = null, rawText = '', req = null) {
+  const prepared = await prepareParsedTransactionForInsert(userId, parsed, {
+    receiptUrl,
+    exRate,
+    rawText,
+  });
+  const { row, amount, category, amtTxt, ico, typ, chk } = prepared;
 
   const { error } = await insertTransactions([row], 'bot', { returning: false });
   if (error) {
@@ -3467,10 +3747,6 @@ async function saveTx(userId, chatId, parsed, receiptUrl = null, exRate = DEFAUL
     await bot.sendMessage(chatId, '⚠️ Bazaga yozishda xatolik. Keyinroq urinib ko\'ring.').catch(() => { });
     return null;
   }
-
-  const ico = parsed.type === 'income' ? '🟢' : '🔴';
-  const typ = parsed.type === 'income' ? 'Kirim' : 'Chiqim';
-  const chk = receiptUrl ? '📸 Bor' : 'Yo\'q';
 
   const opts = { parse_mode: 'HTML' };
   if (replyId) opts.reply_to_message_id = replyId;
@@ -3485,7 +3761,14 @@ async function saveTx(userId, chatId, parsed, receiptUrl = null, exRate = DEFAUL
   ).catch(() => { });
 
   runInBackground(req, () => sendCategoryLimitAlert(userId, chatId, category, amount, parsed.type), 'tx-limit-alert');
-  log('tx-saved', { userId, type: parsed.type, amount, category });
+  log('tx-saved', {
+    userId,
+    type: parsed.type,
+    amount,
+    category,
+    currency: prepared.currency,
+    original_amount: prepared.originalAmount,
+  });
   return row;
 }
 
@@ -3638,7 +3921,7 @@ module.exports = async (req, res) => {
         const [action, key, rawValue] = data.split(':');
 
         if (action === 'notif_noop') {
-          await bot.answerCallbackQuery(q.id, { text: `Custom vaqt uchun /notif time ${key} ${key === 'daily_report' ? '22:00' : '08:30'} deb yozing` }).catch(() => { });
+          await bot.answerCallbackQuery(q.id, { text: `Custom vaqt uchun /notif time ${key} ${key === 'daily_report' ? '22:00' : key === 'free_daily_reminder' ? '10:00' : '08:30'} deb yozing` }).catch(() => { });
           return res.status(200).json({ ok: true });
         }
 
@@ -3676,7 +3959,7 @@ module.exports = async (req, res) => {
         if (action === 'notif_shift') {
           try {
             const current = await getNotificationSetting(key);
-            const nextTime = shiftNotifTime(current.send_time || (current.key === 'daily_report' ? '22:00' : '09:00'), Number(rawValue || 0));
+            const nextTime = shiftNotifTime(current.send_time || (current.key === 'daily_report' ? '22:00' : current.key === 'free_daily_reminder' ? '10:00' : '09:00'), Number(rawValue || 0));
             await saveNotificationSetting(key, { send_time: nextTime });
             await bot.answerCallbackQuery(q.id, { text: `Yangi vaqt: ${nextTime}` }).catch(() => { });
             await sendNotificationDetail(chatId, msgId, key);
@@ -4122,7 +4405,7 @@ Sabab: <code>${esc(String(premiumNotifyStatus || "noma'lum"))}</code>`;
         if (sub === 'on' || sub === 'off') {
           const key = parts[2];
           if (!NOTIFICATION_SETTING_DEFAULTS[key]) {
-            await bot.sendMessage(chatId, '⚠️ Noto\'g\'ri key. Mavjudlari: daily_reminder, daily_report, debt_reminder, scheduled_queue').catch(() => { });
+            await bot.sendMessage(chatId, '⚠️ Noto\'g\'ri key. Mavjudlari: daily_reminder, free_daily_reminder, daily_report, debt_reminder, scheduled_queue').catch(() => { });
             return res.status(200).json({ ok: true });
           }
           const saved = await saveNotificationSetting(key, { enabled: sub === 'on' });
@@ -4139,8 +4422,8 @@ Sabab: <code>${esc(String(premiumNotifyStatus || "noma'lum"))}</code>`;
         if (sub === 'time') {
           const key = parts[2];
           const timeValue = parts[3];
-          if (key !== 'daily_reminder' && key !== 'daily_report') {
-            await bot.sendMessage(chatId, '⚠️ Vaqt sozlamasi hozircha faqat daily_reminder va daily_report uchun mavjud.').catch(() => { });
+          if (key !== 'daily_reminder' && key !== 'free_daily_reminder' && key !== 'daily_report') {
+            await bot.sendMessage(chatId, '⚠️ Vaqt sozlamasi hozircha faqat daily_reminder, free_daily_reminder va daily_report uchun mavjud.').catch(() => { });
             return res.status(200).json({ ok: true });
           }
           const normalized = normalizeNotifTime(timeValue, '');
@@ -4200,7 +4483,7 @@ Sabab: <code>${esc(String(premiumNotifyStatus || "noma'lum"))}</code>`;
         }
 
         if (sub === 'text') {
-          const m = full.match(/^\/notif\s+text\s+(daily_reminder|daily_report|debt_reminder)\s+([\s\S]+)$/i);
+          const m = full.match(/^\/notif\s+text\s+(daily_reminder|free_daily_reminder|daily_report|debt_reminder)\s+([\s\S]+)$/i);
           if (!m) {
             await bot.sendMessage(chatId, '⚠️ Format: /notif text daily_report Kunlik hisobotingiz...').catch(() => { });
             return res.status(200).json({ ok: true });
@@ -4314,6 +4597,7 @@ Sabab: <code>${esc(String(premiumNotifyStatus || "noma'lum"))}</code>`;
         const timestamp = new Date().toISOString();
         const inviterId = parseReferralInviterId(commandInfo, userId);
         const fullName = `${msg.from?.first_name || ''} ${msg.from?.last_name || ''}`.trim() || `User ${userId}`;
+        const shouldNotifyInviterStart = !user?.referred_by_user_id && !!inviterId;
         const pendingPayload = {
           user_id: userId,
           full_name: user?.full_name || fullName,
@@ -4335,6 +4619,27 @@ Sabab: <code>${esc(String(premiumNotifyStatus || "noma'lum"))}</code>`;
             phone_number: user?.phone_number || null,
             referral_premium_granted_at: user?.referral_premium_granted_at || null,
           });
+
+          if (shouldNotifyInviterStart) {
+            runInBackground(req, async () => {
+              try {
+                const notifyResult = await notifyReferralInviterOnStart(inviterId, fullName);
+                log('referral-start-notify', {
+                  inviterId,
+                  invitedUserId: userId,
+                  qualifiedCount: notifyResult?.qualifiedCount || 0,
+                  remaining: notifyResult?.remaining ?? null,
+                });
+              } catch (notifyError) {
+                await logErr('referral-start-notify', notifyError, {
+                  userId: inviterId,
+                  chatId: inviterId,
+                  invited_user_id: userId,
+                  full_name: fullName,
+                });
+              }
+            }, 'referral-start-notify');
+          }
         } else if (isTransientSupabaseError(upsertResult.error)) {
           await bot.sendMessage(
             chatId,
@@ -4623,6 +4928,22 @@ Sabab: <code>${esc(String(premiumNotifyStatus || "noma'lum"))}</code>`;
     }
 
     // ── Matn (rasm bilan yoki yolg'iz) ──
+    if (!msg.photo) {
+      const batchParse = await parseBatchTransactions(text);
+      if (batchParse) {
+        if (!batchParse.ok) {
+          await bot.sendMessage(chatId, buildBatchParseErrorText(batchParse.errors), {
+            parse_mode: 'HTML',
+            reply_to_message_id: msg.message_id,
+          }).catch(() => { });
+          return res.status(200).json({ ok: true });
+        }
+
+        await saveTxBatch(userId, chatId, batchParse.items, user.exchange_rate, msg.message_id, req);
+        return res.status(200).json({ ok: true });
+      }
+    }
+
     let parsed = parseText(text);
 
     // Agar lokal parser shubhali bo'lsa yoki umuman taniy olmasa, OpenAI bilan ikkinchi tekshiruv qilamiz

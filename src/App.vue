@@ -135,7 +135,7 @@ onMounted(async () => {
     preloadAllViews().catch(() => { })
   }, 0)
   requestAnimationFrame(() => {
-    bootLegacyBundle().then(() => {
+    bootLegacyBundle({ initialTab: activeTab.value }).then(() => {
       window.__KASSA_ROUTER__?.requestCurrentTab?.()
     }).catch((error) => {
       console.error('[vite-vue-bridge] Legacy boot failed:', error)

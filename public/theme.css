@@ -87,6 +87,25 @@ body.light .balance-card {
   border-color: rgba(var(--accent-rgb), 0.18);
 }
 
+body.light .bc-tool-btn,
+body.light .balance-convert-badge {
+  background: rgba(15, 23, 42, 0.04);
+  border-color: rgba(15, 23, 42, 0.08);
+  color: rgba(15, 23, 42, 0.78);
+}
+
+body.light .balance-convert-badge.accent {
+  background: rgba(var(--accent-rgb), 0.10);
+  border-color: rgba(var(--accent-rgb), 0.22);
+  color: var(--accent);
+}
+
+body.light .balance-convert-result-card {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(245, 247, 251, 0.95));
+  border-color: rgba(15, 23, 42, 0.08);
+  box-shadow: 0 14px 30px rgba(15, 23, 42, 0.06);
+}
+
 body.light .bc-amount,
 body.light .header-title {
   background: linear-gradient(135deg, var(--accent) 70px, var(--accent) 90%);

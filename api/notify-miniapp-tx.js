@@ -19,6 +19,9 @@ module.exports = async (req, res) => {
     const body = req.body || {};
     const userId = Number(body.user_id || body.userId || 0);
     const amount = Number(body.amount || 0);
+    const currency = String(body.currency || 'UZS').trim().toUpperCase() === 'USD' ? 'USD' : 'UZS';
+    const originalAmount = Number(body.original_amount || body.originalAmount || 0);
+    const exchangeRateUsed = Number(body.exchange_rate_used || body.exchangeRateUsed || 0);
     const type = String(body.type || 'expense') === 'income' ? 'income' : 'expense';
     const category = String(body.category || 'Xarajat').trim() || 'Xarajat';
     const receiptUrl = String(body.receipt_url || body.receiptUrl || '').trim();
@@ -29,10 +32,16 @@ module.exports = async (req, res) => {
 
     const icon = type === 'income' ? '🟢' : '🔴';
     const label = type === 'income' ? 'Kirim' : 'Chiqim';
+    const amountHtml = currency === 'USD' && originalAmount > 0
+      ? `$${numFmt(originalAmount)}\n<i>${numFmt(amount)} so'm${exchangeRateUsed > 0 ? ` · kurs ${numFmt(exchangeRateUsed)}` : ''}</i>`
+      : `${numFmt(amount)} so'm`;
+    const amountBody = currency === 'USD' && originalAmount > 0
+      ? `${numFmt(originalAmount)} USD · ${numFmt(amount)} so'm`
+      : `${numFmt(amount)} so'm`;
     const text = `${icon} <b>Mini App orqali yangi operatsiya kiritildi</b>
 
 <b>Turi:</b> ${label}
-<b>Summa:</b> ${numFmt(amount)} so'm
+<b>Summa:</b> ${amountHtml}
 <b>Kategoriya:</b> ${esc(category)}
 <b>Manba:</b> ${esc(source)}
 <b>Chek:</b> ${receiptUrl ? 'Bor' : 'Yo\'q'}`;
@@ -40,7 +49,7 @@ module.exports = async (req, res) => {
     const delivery = await sendNotification(process.env, {
       userId,
       title: 'Yangi operatsiya',
-      body: `${label}: ${numFmt(amount)} so'm · ${category}`,
+      body: `${label}: ${amountBody} · ${category}`,
       html: text,
       type: 'miniapp_tx',
       clickUrl: '/history',
@@ -51,6 +60,8 @@ module.exports = async (req, res) => {
         source,
         category,
         amount: String(amount),
+        currency,
+        original_amount: originalAmount > 0 ? String(originalAmount) : '',
       },
     });
 

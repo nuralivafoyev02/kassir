@@ -9,7 +9,7 @@ const assert = require('assert');
 function loadParser() {
   const filePath = path.join(__dirname, '..', 'api', 'bot.js');
   const source = fs.readFileSync(filePath, 'utf8') + `
-module.exports.__test = { parseText, extractAmountMeta, resolveCategoryForUser, parseDebtIntent, parseDebtSettlementIntent };`;
+module.exports.__test = { parseText, parseBatchTransactions, extractAmountMeta, resolveCategoryForUser, parseDebtIntent, parseDebtSettlementIntent, prepareParsedTransactionForInsert };`;
 
   class TelegramBotStub {
     constructor() {}
@@ -72,7 +72,7 @@ module.exports.__test = { parseText, extractAmountMeta, resolveCategoryForUser, 
   return sandbox.module.exports.__test;
 }
 
-function run() {
+async function run() {
   const parser = loadParser();
   const userCategories = [
     { name: 'Suv', type: 'expense' },
@@ -134,6 +134,23 @@ function run() {
   assert(amountMetaWithSuffix, 'millionga holati parse bo‘lishi kerak');
   assert.equal(amountMetaWithSuffix.amount, 1000000);
 
+  const usdIncome = parser.parseText('mijozdan $120 oldim');
+  assert(usdIncome, 'USD income parse bo‘lishi kerak');
+  assert.equal(usdIncome.type, 'income');
+  assert.equal(usdIncome.isUSD, true);
+  assert.equal(usdIncome.amount, 120);
+
+  const preparedUsd = await parser.prepareParsedTransactionForInsert(123, usdIncome, {
+    exRate: 12900,
+    rawText: 'mijozdan $120 oldim',
+    userCats: userCategories,
+  });
+  assert.equal(preparedUsd.row.currency, 'USD');
+  assert.equal(Number(preparedUsd.row.original_amount), 120);
+  assert.equal(Number(preparedUsd.row.exchange_rate_used), 12900);
+  assert.equal(preparedUsd.row.amount, 1548000);
+  assert.equal(preparedUsd.row.category, 'Sotuv');
+
   const saleIncome = parser.parseText('Mijozdan 500 ming oldim');
   assert.equal(saleIncome.type, 'income');
   assert.equal(parser.resolveCategoryForUser(saleIncome, userCategories, 'Mijozdan 500 ming oldim'), 'Sotuv');
@@ -141,6 +158,10 @@ function run() {
   const giftIncome = parser.parseText('Onamdan 200 ming oldim');
   assert.equal(giftIncome.type, 'income');
   assert.equal(parser.resolveCategoryForUser(giftIncome, userCategories, 'Onamdan 200 ming oldim'), "Sovg'a");
+
+  const shorthandIncome = parser.parseText('Dadamdan 100 ming');
+  assert(shorthandIncome, 'dadamdan 100 ming parse bo‘lishi kerak');
+  assert.equal(shorthandIncome.type, 'income');
 
   const debt = parser.parseDebtIntent('Bekzodga 200 ming qarz berdim');
   assert(debt, 'qarz intent topilishi kerak');
@@ -152,7 +173,20 @@ function run() {
   assert.equal(settlement.personName, 'Bekzod');
   assert.equal(settlement.direction, 'receivable');
 
+  const batch = await parser.parseBatchTransactions(`abedga 50 ming
+dadamdan 100 ming
+ustaga 5 mln`);
+  assert(batch, 'multi-line batch parse topilishi kerak');
+  assert.equal(batch.ok, true);
+  assert.equal(batch.items.length, 3);
+  assert.equal(batch.items[0].parsed.type, 'expense');
+  assert.equal(batch.items[1].parsed.type, 'income');
+  assert.equal(batch.items[2].parsed.amount, 5000000);
+
   console.log('bot parser regression passed');
 }
 
-run();
+run().catch((error) => {
+  console.error(error);
+  process.exit(1);
+});

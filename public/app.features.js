@@ -445,6 +445,14 @@
       </div>`).join('');
   }
 
+  function resolveCategoryCreateType() {
+    const categoriesSheetOpen = $('stg-sub-cats')?.classList.contains('on') === true;
+    if (categoriesSheetOpen) {
+      return newCatType || stgCatType || draft.type || '';
+    }
+    return draft.type || newCatType || stgCatType || '';
+  }
+
   window.editStgCat = function editStgCat(idx) {
     selCatType = stgCatType;
     selCatIdx = idx;
@@ -461,22 +469,25 @@
   window.saveNewCat = async function saveNewCatEnhanced() {
     const name = $('nc-name')?.value.trim();
     const keywords = normalizeWords($('nc-keywords')?.value || '');
+    const selectedType = resolveCategoryCreateType();
     if (!name) return showErr(tt('err_cat_name_required', 'Kategoriya nomini kiriting'));
-    if (!draft.type) return showErr(tt('err_cat_type_missing', 'Tur tanlanmagan'));
+    if (!selectedType) return showErr(tt('err_cat_type_missing', 'Tur tanlanmagan'));
 
-    const payload = { user_id: UID, name, icon: selIcon, type: draft.type, keywords };
-    const existing = (cats[draft.type] || []).find(c => String(c.name || '').toLowerCase() === name.toLowerCase());
+    const payload = { user_id: UID, name, icon: selIcon, type: selectedType, keywords };
+    const existing = (cats[selectedType] || []).find(c => String(c.name || '').toLowerCase() === name.toLowerCase());
     if (existing) return showErr(currentLang === 'ru' ? "Bu nomdagi kategoriya bor" : currentLang === 'en' ? 'Category already exists' : "Bu nomdagi kategoriya mavjud");
 
     const { data, error } = await insertCategoryEnhanced(payload);
     if (error) return showErr(tt('err_cat_save', "Saqlab bo'lmadi") + (error.message ? `: ${error.message}` : ''));
 
     const row = Array.isArray(data) ? data[0] : data;
-    cats[draft.type].push(row || { ...payload, id: Date.now() });
-    cats[draft.type].sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
-    buildCatGrid(draft.type);
+    if (!Array.isArray(cats[selectedType])) cats[selectedType] = [];
+    cats[selectedType].push(row || { ...payload, id: Date.now() });
+    cats[selectedType].sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
+    buildCatGrid(selectedType);
     renderStgCatsEnhanced();
     populatePlanCategoryOptions();
+    newCatType = null;
     closeOv('ov-addcat');
     vib('light');
     showErr(currentLang === 'ru' ? 'Категория сохранена ✅' : currentLang === 'en' ? 'Category saved ✅' : 'Kategoriya saqlandi ✅', 2200);

@@ -26,14 +26,86 @@
     <div class="sheet c" onclick="event.stopPropagation()">
       <div class="sh-ttl">✏️ <span data-i18n="edit_title">Tahrirlash</span></div>
       <div class="fld"><label data-i18n="edit_category">Kategoriya</label><input id="ed-cat" type="text"></div>
-      <div class="fld"><label data-i18n="edit_amount">Summa (so'm)</label><input id="ed-amt" type="text"
-          inputmode="decimal"></div>
+      <div class="fld two-col-grid compact-grid">
+        <div>
+          <label id="ed-amount-label" data-i18n="edit_amount">Summa</label>
+          <input id="ed-amt" type="text" inputmode="decimal">
+        </div>
+        <div>
+          <label data-i18n="edit_currency">Valyuta</label>
+          <select id="ed-cur" onchange="syncEditCurrencyUI(this.value)">
+            <option value="UZS">UZS</option>
+            <option value="USD">USD</option>
+          </select>
+        </div>
+      </div>
+      <div class="inline-hint" id="ed-currency-note">UZS yozuvlari to'g'ridan-to'g'ri so'mda saqlanadi.</div>
       <div class="fld"><label data-i18n="edit_type">Turi</label><select id="ed-type">
           <option value="income" data-i18n="edit_type_income">📈 Kirim</option>
           <option value="expense" data-i18n="edit_type_expense">📉 Chiqim</option>
         </select></div>
       <div class="mrow"><button class="bcl" onclick="closeOv('ov-edit')" data-i18n="cancel">Bekor</button><button
           class="bpri" onclick="saveEdit()" data-i18n="save">Saqlash</button></div>
+    </div>
+  </div>
+  <div class="ov center" id="ov-balance-convert" onclick="closeOv('ov-balance-convert',event)">
+    <div class="sheet c balance-convert-sheet" onclick="event.stopPropagation()">
+      <div class="balance-convert-head">
+        <div class="sh-ttl">💱 <span data-i18n="balance_convert_title">Valyuta konvertori</span></div>
+        <button type="button" class="debt-sheet-close" onclick="closeOv('ov-balance-convert')">✕</button>
+      </div>
+      <div class="balance-convert-sub" data-i18n="balance_convert_sub">UZS va USD o'rtasida tez konvertatsiya qiling.</div>
+
+      <div class="fld two-col-grid compact-grid">
+        <div>
+          <label data-i18n="balance_convert_from">Qaysidan</label>
+          <select id="balance-convert-from" onchange="handleBalanceConverterDirectionChange()">
+            <option value="UZS">UZS</option>
+            <option value="USD">USD</option>
+          </select>
+        </div>
+        <div>
+          <label data-i18n="balance_convert_to">Qaysiga</label>
+          <select id="balance-convert-to" onchange="handleBalanceConverterDirectionChange()">
+            <option value="USD">USD</option>
+            <option value="UZS">UZS</option>
+          </select>
+        </div>
+      </div>
+
+      <button type="button" class="balance-convert-swap" onclick="swapBalanceConverterDirection()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M4 7h11"></path>
+          <path d="M11 4l4 3-4 3"></path>
+          <path d="M20 17H9"></path>
+          <path d="M13 14l-4 3 4 3"></path>
+        </svg>
+        <span data-i18n="balance_convert_swap">Almashtirish</span>
+      </button>
+
+      <div class="fld">
+        <label data-i18n="balance_convert_amount">Summa</label>
+        <input id="balance-convert-amount" type="text" inputmode="decimal" placeholder="100" oninput="handleBalanceConverterInput(event)">
+      </div>
+
+      <div class="balance-convert-rate" id="balance-convert-rate">Joriy kurs: 1 USD = 12 850 so'm</div>
+
+      <div class="balance-convert-result-card">
+        <div class="balance-convert-result-label">
+          <span data-i18n="balance_convert_result">Natija</span>
+          <div class="balance-convert-badges">
+            <span class="balance-convert-badge" id="balance-convert-from-badge">UZS</span>
+            <span class="balance-convert-badge muted">→</span>
+            <span class="balance-convert-badge accent" id="balance-convert-to-badge">USD</span>
+          </div>
+        </div>
+        <strong id="balance-convert-result">—</strong>
+        <small id="balance-convert-result-note">Summani kiritsangiz natija shu yerda chiqadi.</small>
+      </div>
+
+      <div class="mrow">
+        <button class="bcl" onclick="closeOv('ov-balance-convert')" data-i18n="stg_close">Yopish</button>
+      </div>
     </div>
   </div>
   <div class="ov center" id="ov-editcat" onclick="closeOv('ov-editcat',event)">

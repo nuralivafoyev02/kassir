@@ -189,6 +189,9 @@ let hasMoreTx = true;
 let loadingMore = false;
 let txSourceColumnSupported = null;
 let txSourceRefColumnSupported = null;
+let txCurrencyColumnSupported = null;
+let txOriginalAmountColumnSupported = null;
+let txExchangeRateColumnSupported = null;
 let currentReceipt = { src: '', name: '' };
 let receiptBlobUrl = null;
 let userAvatarColumnSupported = null;
@@ -236,11 +239,21 @@ const SUBSCRIPTION_USER_FIELDS = Array.isArray(subscriptionHelpers.SUBSCRIPTION_
   ? subscriptionHelpers.SUBSCRIPTION_FIELDS.slice()
   : ['plan_code', 'subscription_status', 'subscription_start_at', 'subscription_end_at', 'trial_end_at', 'canceled_at', 'grace_until', 'created_at', 'updated_at'];
 const NOTIFICATION_USER_FIELDS = ['daily_reminder_enabled', 'last_daily_reminder_at', 'last_daily_report_at'];
+const APP_BOOT_USER_FIELDS = Array.from(new Set(['exchange_rate', ...SUBSCRIPTION_USER_FIELDS, ...NOTIFICATION_USER_FIELDS]));
+const APP_BOOT_USER_TEMPLATE = Object.freeze(
+  APP_BOOT_USER_FIELDS.reduce((acc, field) => {
+    acc[field] = null;
+    return acc;
+  }, {})
+);
 let userSubscriptionColumnsSupported = null;
 let userNotificationColumnsSupported = null;
 let currentPaywallFeatureKey = null;
 let currentPaywallSource = 'settings';
 let lastFinanceTab = 'debt';
+let chartLibraryPromise = null;
+let pdfLibraryPromise = null;
+let financeFeaturesPromise = null;
 let subscriptionState = {
   schemaReady: false,
   rawUser: null,
@@ -681,6 +694,66 @@ function formatNotificationSyncTime(value) {
   }
 }
 
+function loadLegacyAsset(name) {
+  const loader = window.__KASSA_LEGACY_ASSETS__?.[name];
+  if (typeof loader !== 'function') return Promise.resolve(null);
+  try {
+    return Promise.resolve(loader());
+  } catch (error) {
+    return Promise.reject(error);
+  }
+}
+
+function ensureChartLibraryLoaded() {
+  if (window.Chart) return Promise.resolve(window.Chart);
+  if (!chartLibraryPromise) {
+    chartLibraryPromise = loadLegacyAsset('ensureCharts')
+      .then(() => window.Chart || null)
+      .catch((error) => {
+        console.warn('[lazy-chart]', error);
+        return null;
+      })
+      .finally(() => {
+        chartLibraryPromise = null;
+      });
+  }
+  return chartLibraryPromise;
+}
+
+function ensurePdfLibraryLoaded() {
+  if (window.pdfMake?.createPdf) return Promise.resolve(window.pdfMake);
+  if (!pdfLibraryPromise) {
+    pdfLibraryPromise = loadLegacyAsset('ensurePdf')
+      .then(() => window.pdfMake || null)
+      .catch((error) => {
+        console.warn('[lazy-pdf]', error);
+        return null;
+      })
+      .finally(() => {
+        pdfLibraryPromise = null;
+      });
+  }
+  return pdfLibraryPromise;
+}
+
+function ensureFinanceFeaturesLoaded() {
+  if (typeof window.openDebtForm === 'function' && typeof window.openPlanForm === 'function') {
+    return Promise.resolve(true);
+  }
+  if (!financeFeaturesPromise) {
+    financeFeaturesPromise = loadLegacyAsset('ensureFeatures')
+      .then(() => typeof window.openDebtForm === 'function' && typeof window.openPlanForm === 'function')
+      .catch((error) => {
+        console.warn('[lazy-features]', error);
+        return false;
+      })
+      .finally(() => {
+        financeFeaturesPromise = null;
+      });
+  }
+  return financeFeaturesPromise;
+}
+
 function notificationHelpText(state = pushNotificationState) {
   const snapshot = getSubscriptionSnapshotLocal();
 
@@ -947,6 +1020,64 @@ const fmt = n => {
   if (!Number.isFinite(v)) return '0';
   return new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 2 }).format(v);
 };
+const normalizeTransactionCurrency = value => String(value || '').trim().toUpperCase() === 'USD' ? 'USD' : 'UZS';
+const roundOriginalTransactionAmount = (value, currencyCode = 'UZS') => {
+  const amount = Number(value || 0);
+  if (!Number.isFinite(amount) || amount <= 0) return 0;
+  return normalizeTransactionCurrency(currencyCode) === 'USD'
+    ? Math.round(amount * 100) / 100
+    : Math.round(amount);
+};
+const resolveTransactionBaseAmount = (value, currencyCode = 'UZS', exchangeRate = rate) => {
+  const originalAmount = roundOriginalTransactionAmount(value, currencyCode);
+  if (!originalAmount) return 0;
+  if (normalizeTransactionCurrency(currencyCode) === 'USD') {
+    const safeRate = Number(exchangeRate || rate);
+    return safeRate > 0 ? Math.round(originalAmount * safeRate) : 0;
+  }
+  return Math.round(originalAmount);
+};
+function resolveTransactionOriginalAmount(row = {}) {
+  const currencyCode = normalizeTransactionCurrency(row.currency);
+  const originalAmount = roundOriginalTransactionAmount(row.original_amount, currencyCode);
+  if (originalAmount > 0) return originalAmount;
+  if (currencyCode === 'USD') {
+    const safeRate = Number(row.exchange_rate_used || row.exchange_rate || 0);
+    const baseAmount = Number(row.amount || 0);
+    if (safeRate > 0 && baseAmount > 0) {
+      return roundOriginalTransactionAmount(baseAmount / safeRate, currencyCode);
+    }
+  }
+  return roundOriginalTransactionAmount(row.amount, 'UZS');
+}
+function formatTransactionOriginalAmount(value, currencyCode = 'UZS') {
+  const normalizedCurrency = normalizeTransactionCurrency(currencyCode);
+  const safeAmount = roundOriginalTransactionAmount(value, normalizedCurrency);
+  if (normalizedCurrency === 'USD') return `$${fmt(safeAmount)}`;
+  return `${fmt(safeAmount)} ${tt('suffix_uzs', "so'm")}`;
+}
+function formatTransactionBaseAmount(value) {
+  return `${fmt(Number(value || 0))} ${tt('suffix_uzs', "so'm")}`;
+}
+function getTransactionDisplayParts(tx = {}, { sign = '' } = {}) {
+  const currencyCode = normalizeTransactionCurrency(tx.currency);
+  const originalAmount = resolveTransactionOriginalAmount(tx);
+  const baseAmount = Number(tx.amount || 0);
+
+  if (currencyCode === 'USD' && originalAmount > 0) {
+    return {
+      main: `${sign}${formatTransactionOriginalAmount(originalAmount, currencyCode)}`,
+      secondary: formatTransactionBaseAmount(baseAmount),
+      currency: currencyCode,
+    };
+  }
+
+  return {
+    main: `${sign}${formatTransactionBaseAmount(baseAmount)}`,
+    secondary: '',
+    currency: currencyCode,
+  };
+}
 const DAY_MS = 86400000;
 const isoNow = (ms = Date.now()) => new Date(ms).toISOString();
 const toMs = v => {
@@ -954,7 +1085,19 @@ const toMs = v => {
   const p = new Date(v).getTime();
   return Number.isFinite(p) ? p : Date.now();
 };
-const normTx = r => ({ ...r, amount: Number(r.amount) || 0, ms: toMs(r.date), receipt_url: r.receipt_url || null });
+const normTx = r => {
+  const currencyCode = normalizeTransactionCurrency(r?.currency);
+  const exchangeRateUsed = Number(r?.exchange_rate_used || 0);
+  return {
+    ...r,
+    amount: Number(r?.amount) || 0,
+    currency: currencyCode,
+    original_amount: resolveTransactionOriginalAmount(r),
+    exchange_rate_used: exchangeRateUsed > 0 ? exchangeRateUsed : null,
+    ms: toMs(r?.date),
+    receipt_url: r?.receipt_url || null
+  };
+};
 const normAll = rows => (rows || []).map(normTx);
 
 function escapeHtml(value) {
@@ -1164,37 +1307,92 @@ function isMissingColumnError(error, column) {
 async function insertTransactions(rows, source = 'mini_app') {
   if (!db) throw new Error('Database client mavjud emas');
   const payload = (rows || []).map(row => ({ ...row }));
+  const enriched = payload.map(row => {
+    const next = { ...row };
+    if (txSourceColumnSupported !== false) next.source = source;
+    else delete next.source;
 
-  if (txSourceColumnSupported !== false || txSourceRefColumnSupported !== false) {
-    const enriched = payload.map(row => {
-      const next = { ...row };
-      if (txSourceColumnSupported !== false) next.source = source;
-      if (txSourceRefColumnSupported !== false && row.source_ref) next.source_ref = row.source_ref;
-      return next;
-    });
+    if (txSourceRefColumnSupported !== false && row.source_ref) next.source_ref = row.source_ref;
+    else delete next.source_ref;
 
-    const res = await db.from('transactions').insert(enriched).select();
-    if (!res.error) {
-      if (txSourceColumnSupported !== false) txSourceColumnSupported = true;
-      if (payload.some(row => row.source_ref)) txSourceRefColumnSupported = true;
-      return res;
-    }
+    if (txCurrencyColumnSupported === false) delete next.currency;
+    if (txOriginalAmountColumnSupported === false) delete next.original_amount;
+    if (txExchangeRateColumnSupported === false) delete next.exchange_rate_used;
+    return next;
+  });
 
-    if (isMissingColumnError(res.error, 'source_ref')) {
-      txSourceRefColumnSupported = false;
-      return insertTransactions(rows, source);
-    }
-
-    if (isMissingColumnError(res.error, 'source')) {
-      txSourceColumnSupported = false;
-      return insertTransactions(rows, source);
-    }
-
+  const res = await db.from('transactions').insert(enriched).select();
+  if (!res.error) {
+    if (txSourceColumnSupported !== false) txSourceColumnSupported = true;
+    if (payload.some(row => row.source_ref)) txSourceRefColumnSupported = true;
+    if (payload.some(row => row.currency)) txCurrencyColumnSupported = true;
+    if (payload.some(row => row.original_amount != null)) txOriginalAmountColumnSupported = true;
+    if (payload.some(row => row.exchange_rate_used != null)) txExchangeRateColumnSupported = true;
     return res;
   }
 
-  const plain = payload.map(({ source_ref, ...rest }) => ({ ...rest }));
-  return db.from('transactions').insert(plain).select();
+  if (isMissingColumnError(res.error, 'source_ref')) {
+    txSourceRefColumnSupported = false;
+    return insertTransactions(rows, source);
+  }
+
+  if (isMissingColumnError(res.error, 'source')) {
+    txSourceColumnSupported = false;
+    return insertTransactions(rows, source);
+  }
+
+  if (isMissingColumnError(res.error, 'currency')) {
+    txCurrencyColumnSupported = false;
+    return insertTransactions(rows, source);
+  }
+
+  if (isMissingColumnError(res.error, 'original_amount')) {
+    txOriginalAmountColumnSupported = false;
+    return insertTransactions(rows, source);
+  }
+
+  if (isMissingColumnError(res.error, 'exchange_rate_used')) {
+    txExchangeRateColumnSupported = false;
+    return insertTransactions(rows, source);
+  }
+
+  return res;
+}
+
+async function updateTransactionRecord(txId, payload) {
+  if (!db) return { error: null };
+
+  const next = { ...payload };
+  if (txCurrencyColumnSupported === false) delete next.currency;
+  if (txOriginalAmountColumnSupported === false) delete next.original_amount;
+  if (txExchangeRateColumnSupported === false) delete next.exchange_rate_used;
+
+  const res = await db.from('transactions')
+    .update(next)
+    .eq('id', txId)
+    .eq('user_id', UID);
+
+  if (!res.error) {
+    if (payload.currency) txCurrencyColumnSupported = true;
+    if (payload.original_amount != null) txOriginalAmountColumnSupported = true;
+    if (payload.exchange_rate_used != null) txExchangeRateColumnSupported = true;
+    return res;
+  }
+
+  if (isMissingColumnError(res.error, 'currency')) {
+    txCurrencyColumnSupported = false;
+    return updateTransactionRecord(txId, payload);
+  }
+  if (isMissingColumnError(res.error, 'original_amount')) {
+    txOriginalAmountColumnSupported = false;
+    return updateTransactionRecord(txId, payload);
+  }
+  if (isMissingColumnError(res.error, 'exchange_rate_used')) {
+    txExchangeRateColumnSupported = false;
+    return updateTransactionRecord(txId, payload);
+  }
+
+  return res;
 }
 
 async function fetchAllTransactions() {
@@ -2645,15 +2843,20 @@ function markLegacyAppReady() {
   }
 
   buildIconGrid();
+  const langTask = loadLang(currentLang).catch((error) => {
+    console.warn('[boot:lang]', error);
+  });
 
   await loadConfig();
-  await configurePushNotifications();
+  const pushTask = configurePushNotifications().catch((error) => {
+    console.warn('[boot:push]', error);
+    return pushNotificationState;
+  });
 
   if (db && UID) {
     try {
-      await ensureUser();
-      await loadData();
-      initRealtime(); // Real-time ulanishni yoqish
+      const bootUser = await ensureUser(APP_BOOT_USER_FIELDS);
+      await loadData(bootUser);
       markLegacyAppReady();
     } catch (e) {
       console.error('[boot]', e);
@@ -2664,7 +2867,7 @@ function markLegacyAppReady() {
   }
 
   // i18n tizimini yuklash
-  await loadLang(currentLang);
+  await langTask;
   applyLang();
 
   renderAll();
@@ -2675,6 +2878,10 @@ function markLegacyAppReady() {
   initSwipe();
   const initialTab = routeBridge()?.getCurrentTab?.() || getActiveTabFromDom();
   goTab(initialTab, { fromRouter: true, replace: true });
+  setTimeout(() => {
+    if (db && UID) initRealtime();
+  }, 0);
+  Promise.resolve(pushTask).catch(() => { });
 })();
 
 // ─── REALTIME ───────────────────────────────────────────
@@ -2749,12 +2956,39 @@ async function loadConfig() {
 }
 
 // ─── SUPABASE CALLS ─────────────────────────────────────
-async function ensureUser() {
+function normalizeBootUserRecord(record = null) {
+  if (!record) return null;
+  return { ...APP_BOOT_USER_TEMPLATE, ...record };
+}
+
+function syncBootUserState(record = null) {
+  const user = normalizeBootUserRecord(record);
+
+  if (user?.exchange_rate) {
+    rate = Number(user.exchange_rate) || rate;
+    store.set('rate', rate);
+  }
+
+  syncSubscriptionState(user || {}, { schemaReady: hasSubscriptionSchema(user) && userSubscriptionColumnsSupported !== false });
+  syncNotificationUserState(user || {}, { schemaReady: hasNotificationSchema(user) && userNotificationColumnsSupported !== false });
+
+  if (!user) return null;
+
+  profileState.fullName = normalizeName(user.full_name) || profileState.fullName;
+  profileState.phone = user.phone_number || profileState.phone || '';
+  setProfileAvatarCache(user.avatar_url || '');
+  if (profileState.fullName) store.set('display_name', profileState.fullName);
+  resetProfileEditState();
+  renderProfileUI();
+  return user;
+}
+
+async function ensureUser(extraFields = []) {
   const tgUser = getTgUser();
   const tgName = [tgUser?.first_name, tgUser?.last_name].filter(Boolean).join(' ').trim() || `User ${UID}`;
   profileState.username = tgUser?.username || profileState.username || '';
 
-  const { data: existing, error: ue } = await selectUserRow();
+  const { data: existing, error: ue } = await selectUserRow(extraFields);
   if (ue) throw ue;
 
   if (!existing) {
@@ -2766,55 +3000,40 @@ async function ensureUser() {
     };
     const { error: ie } = await insertUserRow(row);
     if (ie) throw ie;
-    profileState.fullName = row.full_name;
-    profileState.phone = row.phone_number || '';
-    setProfileAvatarCache(row.avatar_url || '');
-    store.set('display_name', profileState.fullName);
-    resetProfileEditState();
-    syncSubscriptionState(row, { schemaReady: false });
-    renderProfileUI();
-    return;
+    return syncBootUserState(row);
   }
 
-  profileState.fullName = normalizeName(existing.full_name) || tgName;
-  profileState.phone = existing.phone_number || '';
-  setProfileAvatarCache(existing.avatar_url || '');
-  store.set('display_name', profileState.fullName);
+  const normalizedExisting = syncBootUserState(existing);
 
   if (!normalizeName(existing.full_name)) {
     updateUserRow({ full_name: tgName }).then(() => { }).catch(() => { });
   }
 
-  resetProfileEditState();
-  syncSubscriptionState(existing, { schemaReady: hasSubscriptionSchema(existing) });
-  renderProfileUI();
+  return normalizedExisting;
 }
 
-async function loadData() {
-  const { data: u, error: ue } = await selectUserRow(['exchange_rate', ...SUBSCRIPTION_USER_FIELDS, ...NOTIFICATION_USER_FIELDS]);
-  if (ue) throw ue;
+async function loadData(userRecord = null) {
+  let bootUser = userRecord ? normalizeBootUserRecord(userRecord) : null;
 
-  if (u?.exchange_rate) {
-    rate = Number(u.exchange_rate) || rate;
-    store.set('rate', rate);
-  }
-  syncSubscriptionState(u || {}, { schemaReady: hasSubscriptionSchema(u) && userSubscriptionColumnsSupported !== false });
-  syncNotificationUserState(u || {}, { schemaReady: hasNotificationSchema(u) && userNotificationColumnsSupported !== false });
-  if (u) {
-    profileState.fullName = normalizeName(u.full_name) || profileState.fullName;
-    profileState.phone = u.phone_number || profileState.phone || '';
-    setProfileAvatarCache(u.avatar_url || '');
-    if (profileState.fullName) store.set('display_name', profileState.fullName);
-    resetProfileEditState();
-    renderProfileUI();
+  if (!bootUser) {
+    const { data: u, error: ue } = await selectUserRow(APP_BOOT_USER_FIELDS);
+    if (ue) throw ue;
+    bootUser = normalizeBootUserRecord(u);
   }
 
-  txList = await fetchAllTransactions();
+  syncBootUserState(bootUser);
+
+  const [fetchedTxList, categoryResult] = await Promise.all([
+    fetchAllTransactions(),
+    db.from('categories').select('*')
+      .eq('user_id', UID).order('name')
+  ]);
+
+  txList = fetchedTxList;
   histOffset = txList.length;
   hasMoreTx = false;
 
-  const { data: cd, error: ce } = await db.from('categories').select('*')
-    .eq('user_id', UID).order('name');
+  const { data: cd, error: ce } = categoryResult;
   if (ce) throw ce;
 
   if (!cd || cd.length === 0) await seedCats();
@@ -2912,12 +3131,14 @@ function goTab(tab, opts = {}) {
   return (async () => {
     try {
       syncLegacyRoute(tab, opts);
+      if (isFinanceTab(tab)) {
+        lastFinanceTab = tab;
+        await ensureFinanceFeaturesLoaded();
+      }
       await ensureViewReady(tab);
       vib('light');
       document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
       document.querySelectorAll('.nb').forEach(b => b.classList.remove('active'));
-
-      if (isFinanceTab(tab)) lastFinanceTab = tab;
 
       const viewId = isFinanceTab(tab) ? 'view-finance' : `view-${tab}`;
       const navId = isFinanceTab(tab) ? 'nb-finance' : `nb-${tab}`;
@@ -4149,6 +4370,10 @@ function renderChart(data) {
         plugins: { legend: { display: false } }
       },
     });
+  } else if (src.length > 0) {
+    ensureChartLibraryLoaded().then((ChartLib) => {
+      if (ChartLib) renderAll();
+    }).catch(() => { });
   }
 
   if (table) {
@@ -4247,6 +4472,10 @@ function renderHistory() {
         const items = group.items.map(tx => {
           const isI = tx.type === 'income';
           const chek = (tx.receipt || tx.receipt_url) ? `<span class="chek-b">📎 ${escapeHtml(t('hist_receipt'))}</span>` : '';
+          const display = getTransactionDisplayParts(tx, { sign: isI ? '+' : '-' });
+          const currencyBadge = display.currency === 'USD'
+            ? `<span class="txi-currency usd">USD</span>`
+            : '';
           const arrow = isI
             ? `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>`
             : `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 18 13.5 8.5 8.5 13.5 1 6"/><polyline points="17 18 23 18 23 12"/></svg>`;
@@ -4255,11 +4484,14 @@ function renderHistory() {
             <div class="txi-l">
               <div class="txi-ico ${isI ? 'i' : 'e'}">${arrow}</div>
               <div>
-                <div class="txi-cat">${escapeHtml(tx.category)} ${typeBadge} ${chek}</div>
+                <div class="txi-cat">${escapeHtml(tx.category)} ${typeBadge} ${currencyBadge} ${chek}</div>
                 <div class="txi-dt">${escapeHtml(formatHistoryTime(tx.ms))}</div>
               </div>
             </div>
-            <div class="txi-amt ${isI ? 'i' : 'e'}">${isI ? '+' : '-'}${fmt(tx.amount)}</div>
+            <div class="txi-amt-stack ${isI ? 'i' : 'e'}">
+              <div class="txi-amt ${isI ? 'i' : 'e'}">${escapeHtml(display.main)}</div>
+              ${display.secondary ? `<div class="txi-amt-sub">${escapeHtml(display.secondary)}</div>` : ''}
+            </div>
           </div>`;
         }).join('');
 
@@ -4332,6 +4564,111 @@ function initSwipe() {
   card.addEventListener('mousedown', e => { sx = e.clientX; });
   card.addEventListener('mouseup', e => { const dx = sx - e.clientX; if (Math.abs(dx) > 50) setCur(dx > 0 ? 'USD' : 'UZS'); });
 }
+
+function syncBalanceConverterDirection(fromCode = $('balance-convert-from')?.value || 'UZS', toCode = $('balance-convert-to')?.value || 'USD') {
+  const from = normalizeTransactionCurrency(fromCode);
+  let to = normalizeTransactionCurrency(toCode);
+  if (from === to) to = from === 'USD' ? 'UZS' : 'USD';
+
+  const fromEl = $('balance-convert-from');
+  const toEl = $('balance-convert-to');
+  if (fromEl) fromEl.value = from;
+  if (toEl) toEl.value = to;
+
+  const amountIn = $('balance-convert-amount');
+  if (amountIn) {
+    amountIn.placeholder = from === 'USD'
+      ? tt('add_amount_placeholder_usd', 'Necha dollar?')
+      : tt('add_amount_placeholder', 'Summani kiriting...');
+  }
+
+  const rateEl = $('balance-convert-rate');
+  if (rateEl) {
+    rateEl.textContent = Number(rate) > 0
+      ? `${tt('balance_convert_rate', 'Joriy kurs')}: 1 USD = ${fmt(rate)} ${tt('suffix_uzs', "so'm")}`
+      : tt('err_rate_invalid', 'Kurs noto‘g‘ri');
+  }
+
+  const fromBadge = $('balance-convert-from-badge');
+  const toBadge = $('balance-convert-to-badge');
+  if (fromBadge) fromBadge.textContent = from;
+  if (toBadge) toBadge.textContent = to;
+
+  updateBalanceConverterResult();
+}
+
+function updateBalanceConverterResult() {
+  const from = normalizeTransactionCurrency($('balance-convert-from')?.value || 'UZS');
+  const to = normalizeTransactionCurrency($('balance-convert-to')?.value || 'USD');
+  const rawAmount = getCleanAmount($('balance-convert-amount')?.value || '');
+  const resultEl = $('balance-convert-result');
+  const noteEl = $('balance-convert-result-note');
+
+  if (!resultEl || !noteEl) return;
+
+  if (!rawAmount || rawAmount <= 0) {
+    resultEl.textContent = '—';
+    noteEl.textContent = tt('balance_convert_result_hint', 'Summani kiritsangiz natija shu yerda chiqadi.');
+    return;
+  }
+
+  if (from === to) {
+    resultEl.textContent = formatTransactionOriginalAmount(rawAmount, from);
+    noteEl.textContent = tt('balance_convert_same_currency', 'Bir xil valyuta tanlangan.');
+    return;
+  }
+
+  if (!(Number(rate) > 0)) {
+    resultEl.textContent = '—';
+    noteEl.textContent = tt('err_rate_invalid', 'Kurs noto‘g‘ri');
+    return;
+  }
+
+  if (from === 'UZS' && to === 'USD') {
+    const result = roundOriginalTransactionAmount(rawAmount / Number(rate), 'USD');
+    resultEl.textContent = formatTransactionOriginalAmount(result, 'USD');
+    noteEl.textContent = `${formatTransactionBaseAmount(rawAmount)} -> ${formatTransactionOriginalAmount(result, 'USD')}`;
+    return;
+  }
+
+  const result = resolveTransactionBaseAmount(rawAmount, 'USD', rate);
+  resultEl.textContent = formatTransactionBaseAmount(result);
+  noteEl.textContent = `${formatTransactionOriginalAmount(rawAmount, 'USD')} -> ${formatTransactionBaseAmount(result)}`;
+}
+
+function handleBalanceConverterInput(event) {
+  formatInputAmount(event);
+  updateBalanceConverterResult();
+}
+
+function handleBalanceConverterDirectionChange() {
+  syncBalanceConverterDirection(
+    $('balance-convert-from')?.value || 'UZS',
+    $('balance-convert-to')?.value || 'USD'
+  );
+}
+
+function swapBalanceConverterDirection() {
+  const fromEl = $('balance-convert-from');
+  const toEl = $('balance-convert-to');
+  if (!fromEl || !toEl) return;
+  const prevFrom = fromEl.value || 'UZS';
+  fromEl.value = toEl.value || 'USD';
+  toEl.value = prevFrom;
+  syncBalanceConverterDirection(fromEl.value, toEl.value);
+  vib('light');
+}
+
+function openBalanceConverter(fromCode = 'UZS', toCode = 'USD') {
+  syncBalanceConverterDirection(fromCode, toCode);
+  showOv('ov-balance-convert');
+  setTimeout(() => { $('balance-convert-amount')?.focus(); }, 80);
+}
+
+window.openBalanceConverter = openBalanceConverter;
+window.swapBalanceConverterDirection = swapBalanceConverterDirection;
+window.handleBalanceConverterInput = handleBalanceConverterInput;
+window.handleBalanceConverterDirectionChange = handleBalanceConverterDirectionChange;
 
 // ─── INPUT FORMAT ────────────────────────────────────────
 // Raqam kiritishda bo'shliq bilan formatlash (type="text" bilan ishlaydi)
@@ -4484,9 +4821,10 @@ async function submitFlow() {
       return;
     }
 
-    let amount = Math.round(raw);
-    let note = '';
-    if (inputCur === 'USD') { amount = Math.round(raw * rate); note = ` ($${raw})`; }
+    const txCurrency = normalizeTransactionCurrency(inputCur);
+    const originalAmount = roundOriginalTransactionAmount(raw, txCurrency);
+    const amount = resolveTransactionBaseAmount(originalAmount, txCurrency, rate);
+    const exchangeRateUsed = txCurrency === 'USD' && Number(rate) > 0 ? Number(rate) : null;
 
     let recUrl = null;
     if ((draft.receiptBlob || draft.rawFile) && db) {
@@ -4495,16 +4833,25 @@ async function submitFlow() {
     }
 
     const newTx = {
-      user_id: UID, amount, category: draft.category + note,
-      type: draft.type, date: isoNow(), receipt_url: recUrl,
+      user_id: UID,
+      amount,
+      category: draft.category,
+      type: draft.type,
+      date: isoNow(),
+      receipt_url: recUrl,
+      currency: txCurrency,
+      original_amount: originalAmount,
+      exchange_rate_used: exchangeRateUsed,
     };
 
     tempId = Date.now();
     txList.unshift(normTx({ ...newTx, id: tempId, receipt: draft.receipt }));
     renderAll();
 
-    const amtStr = inputCur === 'USD' ? `$${raw} → ${fmt(amount)} ${tt('suffix_uzs', "so'm")}` : `${fmt(amount)} ${tt('suffix_uzs', "so'm")}`;
-    addMsg(`✅ <b>${escapeHtml(tt('tx_saved_label', 'Saqlandi'))}:</b> ${amtStr}<br><small style="opacity:.6">${escapeHtml(draft.category + note)}</small>`);
+    const amtStr = txCurrency === 'USD'
+      ? `${formatTransactionOriginalAmount(originalAmount, txCurrency)} → ${formatTransactionBaseAmount(amount)}`
+      : formatTransactionBaseAmount(amount);
+    addMsg(`✅ <b>${escapeHtml(tt('tx_saved_label', 'Saqlandi'))}:</b> ${escapeHtml(amtStr)}<br><small style="opacity:.6">${escapeHtml(draft.category)}</small>`);
 
     $('amt-in').value = '';
     if (inputCur === 'USD') toggleCur();
@@ -4704,27 +5051,74 @@ function openEdit() {
   const t = txList.find(x => x.id === selTxId);
   if (!t) return;
   $('ed-cat').value = t.category;
-  // Formatlangan ko'rinishda ko'rsatish
-  $('ed-amt').value = fmt(t.amount).replace(/\s/g, ' ');
+  const editCurrency = normalizeTransactionCurrency(t.currency);
+  const currencyField = $('ed-cur');
+  if (currencyField) currencyField.value = editCurrency;
+  $('ed-amt').value = fmt(resolveTransactionOriginalAmount(t)).replace(/\s/g, ' ');
   $('ed-type').value = t.type;
+  syncEditCurrencyUI(editCurrency);
   showOv('ov-edit');
+}
+
+function syncEditCurrencyUI(nextCurrency = $('ed-cur')?.value || 'UZS') {
+  const currencyCode = normalizeTransactionCurrency(nextCurrency);
+  const amountLabel = $('ed-amount-label');
+  const amountInput = $('ed-amt');
+  const currencyNote = $('ed-currency-note');
+
+  if (amountLabel) {
+    amountLabel.textContent = currencyCode === 'USD'
+      ? tt('edit_amount_usd', 'Summa (USD)')
+      : tt('edit_amount_uzs', "Summa (so'm)");
+  }
+  if (amountInput) {
+    amountInput.placeholder = currencyCode === 'USD'
+      ? tt('add_amount_placeholder_usd', 'Necha dollar?')
+      : tt('add_amount_placeholder', 'Summani kiriting...');
+  }
+  if (currencyNote) {
+    currencyNote.textContent = currencyCode === 'USD'
+      ? tt('edit_currency_note_usd', 'USD saqlanganda joriy kurs bo‘yicha UZS hisob-kitobi ham yangilanadi.')
+      : tt('edit_currency_note_uzs', "UZS yozuvlari to'g'ridan-to'g'ri so'mda saqlanadi.");
+  }
 }
 
 async function saveEdit() {
   const cat = $('ed-cat')?.value.trim();
-  const amt = getCleanAmount($('ed-amt')?.value);
+  const rawAmount = getCleanAmount($('ed-amt')?.value);
   const typ = $('ed-type')?.value;
-  if (!cat || !amt) return;
+  const cur = normalizeTransactionCurrency($('ed-cur')?.value || 'UZS');
+  if (!cat || !rawAmount) return;
+
+  const originalAmount = roundOriginalTransactionAmount(rawAmount, cur);
+  const amount = resolveTransactionBaseAmount(originalAmount, cur, rate);
+  const exchangeRateUsed = cur === 'USD' && Number(rate) > 0 ? Number(rate) : null;
 
   const i = txList.findIndex(x => x.id === selTxId);
-  if (i !== -1) txList[i] = { ...txList[i], category: cat, amount: amt, type: typ };
+  if (i !== -1) {
+    txList[i] = normTx({
+      ...txList[i],
+      category: cat,
+      amount,
+      type: typ,
+      currency: cur,
+      original_amount: originalAmount,
+      exchange_rate_used: exchangeRateUsed
+    });
+  }
   closeOv('ov-edit');
   renderAll();
   renderHistory();
 
   if (db) {
-    const { error } = await db.from('transactions').update({ category: cat, amount: amt, type: typ })
-      .eq('id', selTxId).eq('user_id', UID);
+    const { error } = await updateTransactionRecord(selTxId, {
+      category: cat,
+      amount,
+      type: typ,
+      currency: cur,
+      original_amount: originalAmount,
+      exchange_rate_used: exchangeRateUsed
+    });
     if (error) showErr(tt('err_update_failed', 'Yangilashda xatolik'));
   }
 }
@@ -4930,6 +5324,12 @@ async function saveRate(v) {
 
   // Update UI immediately (dashboard balances)
   renderAll();
+  if ($('ov-balance-convert')?.classList.contains('on')) {
+    syncBalanceConverterDirection(
+      $('balance-convert-from')?.value || 'UZS',
+      $('balance-convert-to')?.value || 'USD'
+    );
+  }
 
   if (db) {
     try {
@@ -5277,6 +5677,9 @@ async function notifyMiniAppTxSaved(row) {
         user_id: UID,
         tg_user_id: Number(tg?.initDataUnsafe?.user?.id || UID || 0),
         amount: Number(row.amount || 0),
+        currency: normalizeTransactionCurrency(row.currency),
+        original_amount: resolveTransactionOriginalAmount(row),
+        exchange_rate_used: Number(row.exchange_rate_used || 0) || null,
         type: row.type,
         category: row.category,
         receipt_url: row.receipt_url || '',
@@ -5293,18 +5696,12 @@ async function notifyMiniAppTxSaved(row) {
   }
 }
 
-function makePDF() {
+async function makePDF() {
   const gate = getFeatureGateResult('advanced_reports');
   if (!gate.allowed) {
     return openUpgradePaywall(gate.featureKey, { gate, source: 'report' });
   }
-  const pdfMake = window.pdfMake;
   const createBtn = $('ex-create-btn');
-  if (!pdfMake?.createPdf) {
-    showErr(tt('err_pdf_lib_missing', 'PDF moduli yuklanmagan!'));
-    return;
-  }
-
   const dataset = getExportDataset();
   const { sStr, eStr, data, income: inc, expense: exp, receipts, balance } = dataset;
   if (!sStr || !eStr) return;
@@ -5317,6 +5714,20 @@ function makePDF() {
   if (createBtn) {
     createBtn.disabled = true;
     createBtn.textContent = tt('pdf_create_loading', 'Tayyorlanmoqda...');
+  }
+
+  if (!window.pdfMake?.createPdf) {
+    await ensurePdfLibraryLoaded();
+  }
+
+  const pdfMake = window.pdfMake;
+  if (!pdfMake?.createPdf) {
+    if (createBtn) {
+      createBtn.disabled = false;
+      createBtn.textContent = tt('pdf_create', 'Yaratish');
+    }
+    showErr(tt('err_pdf_lib_missing', 'PDF moduli yuklanmagan!'));
+    return;
   }
 
   const fileName = getExportFileName();
@@ -5542,6 +5953,15 @@ function applyLang() {
   renderProfileUI();
   updateSubscriptionUI();
   updateNotificationSettingsUI();
+  if ($('ov-edit')?.classList.contains('on')) {
+    syncEditCurrencyUI();
+  }
+  if ($('ov-balance-convert')?.classList.contains('on')) {
+    syncBalanceConverterDirection(
+      $('balance-convert-from')?.value || 'UZS',
+      $('balance-convert-to')?.value || 'USD'
+    );
+  }
   renderFriendsUi();
   renderFriendInviteDetail();
 }
